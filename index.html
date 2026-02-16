@@ -82,7 +82,7 @@
             <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
                 <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
             </p>
-          
+           
         </div>
     </div>
 
@@ -328,6 +328,7 @@
         // CONFIGURATION
         // ==========================================
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=1416776201&single=true&output=csv"; 
+        const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
         const DEFAULT_PIN = "1234";
 
         const MOCK_DATA = [
@@ -344,7 +345,7 @@
         let currentSort = 'default';
         let searchTerm = '';
         let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
-        let scriptUrl = localStorage.getItem('job_tracker_script_url') || '';
+        let scriptUrl = FIXED_SCRIPT_URL || localStorage.getItem('job_tracker_script_url') || '';
         let isDemoMode = false;
         let currentEditingJob = null; 
 
