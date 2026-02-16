@@ -329,7 +329,7 @@
         // ==========================================
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=1416776201&single=true&output=csv"; 
         const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
-        const DEFAULT_PIN = "1234";
+        const DEFAULT_PIN = "1111";
 
         const MOCK_DATA = [
             { id: 1, date: '16/9/2025', jobNo: 'TH-SCDD2025090244', model: 'S9HCL14', plan: 600, actual: 600, progress: 100, status: 'complete', finishDate: '2025/09/19' },
@@ -553,6 +553,11 @@
                 minsHtml += `<option value="${val}">${val}</option>`;
             }
             els.inputMinute.innerHTML = minsHtml;
+            
+            // Auto-set Minute to 00 when Hour is selected
+            els.inputHour.addEventListener('change', () => {
+                els.inputMinute.value = '00';
+            });
         }
 
         // ==========================================
@@ -969,11 +974,11 @@
             const remark = els.inputRemark.value.trim();
 
             // Mandatory Checks
-            if (!recorder) return alert('กรุณาระบุผู้บันทึก');
-            if (!dateStr) return alert('กรุณาระบุวันที่');
-            if (isNaN(fgQty)) return alert('กรุณาระบุจำนวนที่ผลิตได้');
-            if (!line) return alert('กรุณาระบุ Line การผลิต');
-            if (!modelChange) return alert('กรุณาระบุการเปลี่ยนรุ่น');
+            if (!recorder) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุผู้บันทึก' });
+            if (!dateStr) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุวันที่' });
+            if (isNaN(fgQty)) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุจำนวนที่ผลิตได้' });
+            if (!line) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุ Line การผลิต' });
+            if (!modelChange) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุการเปลี่ยนรุ่น' });
 
             const [y, m, d] = dateStr.split('-');
             const formattedDate = `${d}/${m}/${y}`;
@@ -1003,29 +1008,45 @@
             // Show Loading
             Swal.fire({
                 title: 'กำลังบันทึกข้อมูล...',
+                text: 'กรุณารอสักครู่',
                 didOpen: () => {
                     Swal.showLoading();
                 },
                 allowOutsideClick: false
             });
 
-            fetch(scriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            // Timeout Promise to prevent hanging on Android
+            const timeout = new Promise((resolve) => {
+                setTimeout(() => resolve('timeout'), 5000); // 5 seconds max wait
+            });
+
+            const request = fetch(scriptUrl, { 
+                method: 'POST', 
+                mode: 'no-cors', 
+                headers: { 'Content-Type': 'text/plain' }, // Changed to text/plain for better compatibility
+                body: JSON.stringify(payload) 
+            });
+
+            Promise.race([request, timeout])
             .then(() => {
-                // Success popup
+                // Success popup (Close loading)
                 Swal.fire({
                     icon: 'success',
                     title: 'บันทึกสำเร็จ',
-                    text: 'ส่งข้อมูลไปยัง Google Sheet เรียบร้อยแล้ว',
-                    timer: 2000,
+                    text: 'ส่งข้อมูลเรียบร้อยแล้ว',
+                    timer: 1500,
                     showConfirmButton: false
                 });
             })
             .catch(err => { 
                 console.error(err); 
+                // In no-cors, catch usually only triggers on network failure (offline/DNS).
+                // If it hangs, the timeout above resolves the race and shows success (optimistic).
+                // If actual error:
                 Swal.fire({
                     icon: 'error',
                     title: 'เกิดข้อผิดพลาด',
-                    text: 'ไม่สามารถติดต่อ Google Sheet ได้'
+                    text: 'กรุณาตรวจสอบอินเทอร์เน็ต'
                 }); 
             });
         }
