@@ -82,7 +82,7 @@
             <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
                 <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
             </p>
-          
+         
         </div>
     </div>
 
@@ -978,18 +978,44 @@
             const formattedDate = `${d}/${m}/${y}`;
 
             localStorage.setItem('last_recorder', recorder);
+            
+            // Optimistic Update
             currentEditingJob.actual += fgQty;
             currentEditingJob.progress = Math.min(Math.round((currentEditingJob.actual / currentEditingJob.plan) * 100), 100);
-            renderList(); closeUpdateModal();
+            renderList(); // Re-render local list first
+            
+            closeUpdateModal();
 
-            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
-            Toast.fire({ icon: 'info', title: 'กำลังส่งข้อมูล...' });
+            // Show Loading
+            Swal.fire({
+                title: 'กำลังบันทึกข้อมูล...',
+                didOpen: () => {
+                    Swal.showLoading();
+                },
+                allowOutsideClick: false
+            });
 
             const payload = { recorder, date: formattedDate, time: timeStr, jobNo: currentEditingJob.jobNo, model: currentEditingJob.model, fgQty, modelChange, remark, line };
 
             fetch(scriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-            .then(() => Toast.fire({ icon: 'success', title: 'บันทึกสำเร็จ' }))
-            .catch(err => { console.error(err); Toast.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด' }); });
+            .then(() => {
+                // Success popup
+                Swal.fire({
+                    icon: 'success',
+                    title: 'บันทึกสำเร็จ',
+                    text: 'ส่งข้อมูลไปยัง Google Sheet เรียบร้อยแล้ว',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            })
+            .catch(err => { 
+                console.error(err); 
+                Swal.fire({
+                    icon: 'error',
+                    title: 'เกิดข้อผิดพลาด',
+                    text: 'ไม่สามารถติดต่อ Google Sheet ได้'
+                }); 
+            });
         }
 
         init();
