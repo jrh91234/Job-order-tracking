@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Order Tracker</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts (Prompt for Thai) -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- PapaParse for CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Fuse.js for Fuzzy Search -->
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html { scroll-behavior: smooth; }
+        .progress-bar { transition: width 0.5s ease-in-out; }
+        
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #4f46e5;
+            width: 24px;
+            height: 24px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Login Screen Animation */
+        .fade-out {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 pb-20 min-h-screen">
+
+    <!-- Login Overlay -->
+    <!-- ปรับสีพื้นหลังเป็น bg-slate-900 (ดำน้ำเงินเข้ม) -->
+    <div id="login-overlay" class="fixed inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center p-4 transition-all duration-500">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm text-center border border-slate-700">
+            <div class="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="lock" class="w-8 h-8 text-slate-800"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-1">เข้าสู่ระบบ</h2>
+            <p class="text-slate-500 text-sm mb-6">กรุณากรอกรหัสผ่านเพื่อเข้าถึงข้อมูล</p>
+            
+            <form onsubmit="handleLogin(event)">
+                <input type="tel" id="pin-input" 
+                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-center text-2xl font-bold tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+                    placeholder="• • • •" maxlength="4" autocomplete="off">
+                
+                <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-slate-200">
+                    ยืนยัน
+                </button>
+            </form>
+            <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
+                <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
+            </p>
+            <p class="text-slate-400 text-xs mt-6">รหัสเริ่มต้น: H91234</p>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-indigo-600 text-white p-4 shadow-lg sticky top-0 z-20">
+        <div class="flex justify-between items-center mb-3">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i data-lucide="bar-chart-3" class="w-6 h-6"></i>
+                Job Monitor
+            </h1>
+            <div class="flex items-center gap-2">
+                <span id="last-updated" class="text-xs bg-indigo-500 px-2 py-1 rounded-full text-indigo-100 hidden">
+                    Updated: -
+                </span>
+                <button id="settings-btn" onclick="toggleSettings()" class="p-1.5 bg-indigo-500 rounded-lg hover:bg-indigo-400 transition-colors">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative">
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="ค้นหา Job, Model หรือ วันที่..."
+                class="w-full pl-10 pr-4 py-3 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-300 shadow-sm placeholder-slate-400"
+            />
+            <i data-lucide="search" class="absolute left-3 top-3.5 text-slate-400 w-5 h-5"></i>
+        </div>
+    </header>
+
+    <!-- Demo Mode Warning -->
+    <div id="demo-banner" class="hidden bg-yellow-50 border-b border-yellow-200 px-4 py-2 flex items-center justify-between sticky top-[80px] z-10">
+        <div class="flex items-center gap-2 text-xs text-yellow-800">
+            <i data-lucide="info" class="w-4 h-4"></i>
+            <span>กำลังแสดงข้อมูลตัวอย่าง</span>
+        </div>
+        <button onclick="toggleSettings()" class="text-xs font-bold text-indigo-600 underline">
+            เชื่อมต่อ Google Sheet
+        </button>
+    </div>
+
+    <!-- Stats Summary Cards -->
+    <div class="grid grid-cols-3 gap-3 p-4 sticky top-[88px] z-10 bg-slate-50/95 backdrop-blur-sm border-b border-slate-200 shadow-sm" style="top: var(--stats-top, 88px);">
+        <div onclick="setFilter('all')" id="filter-all"
+             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-indigo-500 transform active:scale-95">
+            <div class="text-slate-500 text-xs mb-1">ทั้งหมด</div>
+            <div class="text-xl font-bold text-slate-800" id="stat-total">0</div>
+        </div>
+        <div onclick="setFilter('incomplete')" id="filter-incomplete"
+             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95">
+            <div class="text-orange-600 text-xs mb-1">ค้างอยู่</div>
+            <div class="text-xl font-bold text-orange-700" id="stat-pending">0</div>
+        </div>
+        <div onclick="setFilter('complete')" id="filter-complete"
+             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95">
+            <div class="text-green-600 text-xs mb-1">เสร็จแล้ว</div>
+            <div class="text-xl font-bold text-green-700" id="stat-completed">0</div>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="px-4 mt-2">
+        <div class="flex items-center justify-between text-sm text-slate-500 px-1 mb-3">
+            <span id="list-count">รายการ (0)</span>
+            <div class="flex items-center gap-3">
+                <div id="loading-indicator" class="hidden"><div class="loader"></div></div>
+                <button id="clear-filter-btn" onclick="setFilter('all')" class="hidden flex items-center gap-1 text-indigo-600 font-medium">
+                    ล้างตัวกรอง <i data-lucide="filter" class="w-3 h-3"></i>
+                </button>
+                <button onclick="reloadData()" class="text-slate-400 hover:text-indigo-600">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="job-list" class="space-y-3 pb-6">
+            <!-- Jobs injected here -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden text-center py-12 text-slate-400">
+            <i data-lucide="search" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
+            <p>ไม่พบข้อมูลที่ค้นหา</p>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl transform transition-all scale-100 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">ตั้งค่า</h3>
+                <button onclick="toggleSettings()" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-6">
+                <!-- Section 1: Connection -->
+                <div>
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="link" class="w-4 h-4"></i> การเชื่อมต่อ
+                    </h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Google Sheet)</label>
+                        <input type="text" id="sheet-url-input" 
+                            class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2"
+                            placeholder="https://docs.google.com/.../pub?output=csv">
+                        <div class="flex gap-2">
+                            <button onclick="saveSettings()" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                บันทึก
+                            </button>
+                            <button onclick="useDemoData()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+                                ใช้ Demo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Security -->
+                <div>
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="lock" class="w-4 h-4"></i> ความปลอดภัย
+                    </h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">เปลี่ยนรหัสผ่าน (PIN)</label>
+                            <div class="flex gap-2">
+                                <input type="tel" id="new-pin-input" 
+                                    class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    placeholder="ใส่รหัสใหม่ 4 หลัก" maxlength="4">
+                                <button onclick="changePin()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">
+                                    เปลี่ยน
+                                </button>
+                            </div>
+                        </div>
+                        <hr class="border-slate-200">
+                        <button onclick="handleLogout()" class="w-full text-red-600 border border-red-200 bg-red-50 py-2 rounded-lg text-sm font-medium hover:bg-red-100 flex items-center justify-center gap-2">
+                            <i data-lucide="log-out" class="w-4 h-4"></i> ออกจากระบบ
+                        </button>
+                    </div>
+                </div>
+
+                <div class="text-center text-xs text-slate-400 pt-2">
+                    Job Order Tracker v1.2
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scroll to Top -->
+    <button onclick="window.scrollTo({ top: 0, behavior: 'smooth' })"
+        class="fixed bottom-6 right-6 bg-indigo-600 text-white p-3 rounded-full shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors z-30 active:scale-90 transform">
+        <i data-lucide="arrow-up" class="w-6 h-6"></i>
+    </button>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION
+        // ==========================================
+        // ฝังลิงก์ Google Sheet ของคุณเรียบร้อยครับ
+        const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=1416776201&single=true&output=csv"; 
+        
+        const DEFAULT_PIN = "1234"; // รหัสเริ่มต้น
+
+        // ==========================================
+        // MOCK DATA (ใช้กรณีลิงก์เสียหรือเน็ตหลุด)
+        // ==========================================
+        const MOCK_DATA = [
+            { id: 1, date: '4/2/2025', jobNo: 'TH-DEMO-001', model: 'S9HCL14 (ตัวอย่าง)', plan: 1500, actual: 1279, progress: 85, status: 'incomplete', finishDate: null },
+            { id: 2, date: '4/2/2025', jobNo: 'TH-DEMO-002', model: 'EZ9EPL108 (ตัวอย่าง)', plan: 300, actual: 300, progress: 100, status: 'complete', finishDate: '2026/02/05' },
+            { id: 3, date: '2/3/2025', jobNo: 'TH-DEMO-003', model: 'S9HCL114 (ตัวอย่าง)', plan: 700, actual: 700, progress: 100, status: 'complete', finishDate: '2026/02/05' },
+            { id: 4, date: '5/2/2025', jobNo: 'TH-DEMO-004', model: 'Q03-100EZ36G (ตัวอย่าง)', plan: 192, actual: 50, progress: 26, status: 'incomplete', finishDate: null },
+            { id: 5, date: '6/2/2025', jobNo: 'TH-DEMO-005', model: 'SDVS3100L (ตัวอย่าง)', plan: 42, actual: 0, progress: 0, status: 'incomplete', finishDate: null },
+        ];
+
+        // ==========================================
+        // SYSTEM LOGIC
+        // ==========================================
+
+        let rawData = [];
+        let fuse;
+        let currentFilter = 'all';
+        let searchTerm = '';
+        let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
+        let isDemoMode = false;
+
+        const els = {
+            loginOverlay: document.getElementById('login-overlay'),
+            pinInput: document.getElementById('pin-input'),
+            loginError: document.getElementById('login-error'),
+            newPinInput: document.getElementById('new-pin-input'),
+            jobList: document.getElementById('job-list'),
+            searchInput: document.getElementById('searchInput'),
+            statTotal: document.getElementById('stat-total'),
+            statPending: document.getElementById('stat-pending'),
+            statCompleted: document.getElementById('stat-completed'),
+            listCount: document.getElementById('list-count'),
+            emptyState: document.getElementById('empty-state'),
+            demoBanner: document.getElementById('demo-banner'),
+            clearFilterBtn: document.getElementById('clear-filter-btn'),
+            settingsModal: document.getElementById('settings-modal'),
+            sheetUrlInput: document.getElementById('sheet-url-input'),
+            loadingIndicator: document.getElementById('loading-indicator'),
+            lastUpdated: document.getElementById('last-updated')
+        };
+
+        function init() {
+            lucide.createIcons();
+            checkAuth(); // ตรวจสอบสถานะล็อคอินก่อน
+            
+            els.searchInput.addEventListener('input', (e) => {
+                searchTerm = e.target.value;
+                renderList();
+            });
+        }
+
+        // --- Auth System ---
+        function checkAuth() {
+            const isLoggedIn = localStorage.getItem('job_tracker_auth');
+            if (isLoggedIn === 'true') {
+                els.loginOverlay.style.display = 'none';
+                startApp();
+            } else {
+                // Focus PIN input for convenience
+                setTimeout(() => els.pinInput.focus(), 500);
+            }
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const inputPin = els.pinInput.value;
+            const savedPin = localStorage.getItem('job_tracker_pin') || DEFAULT_PIN;
+
+            if (inputPin === savedPin) {
+                // Success
+                localStorage.setItem('job_tracker_auth', 'true');
+                els.loginOverlay.classList.add('fade-out');
+                setTimeout(() => {
+                    els.loginOverlay.style.display = 'none';
+                    startApp();
+                }, 500);
+            } else {
+                // Fail
+                els.loginError.classList.remove('hidden');
+                els.pinInput.value = '';
+                els.pinInput.classList.add('ring-2', 'ring-red-500');
+                setTimeout(() => els.pinInput.classList.remove('ring-2', 'ring-red-500'), 1000);
+            }
+        }
+
+        function handleLogout() {
+            if(confirm('ต้องการออกจากระบบใช่หรือไม่?')) {
+                localStorage.removeItem('job_tracker_auth');
+                location.reload(); // รีโหลดหน้าเว็บเพื่อกลับไปหน้า Login
+            }
+        }
+
+        function changePin() {
+            const newPin = els.newPinInput.value;
+            if (newPin.length !== 4 || isNaN(newPin)) {
+                alert('กรุณากรอกรหัสผ่านใหม่เป็นตัวเลข 4 หลัก');
+                return;
+            }
+            localStorage.setItem('job_tracker_pin', newPin);
+            els.newPinInput.value = '';
+            alert('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว');
+        }
+
+        // --- Main App Logic ---
+        function startApp() {
+            if (sheetUrl) {
+                els.sheetUrlInput.value = sheetUrl;
+                fetchData();
+            } else {
+                loadMockData();
+            }
+        }
+
+        function reloadData() {
+            if(isDemoMode && !sheetUrl) {
+                toggleSettings();
+            } else {
+                fetchData();
+            }
+        }
+
+        function initFuse(data) {
+            const options = {
+                keys: ['jobNo', 'model', 'date'], // เพิ่ม 'date' เข้าไปในรายการค้นหา
+                threshold: 0.3, // ลดความคลาดเคลื่อนลงเล็กน้อยเพื่อความแม่นยำของวันที่
+                ignoreLocation: true,
+                minMatchCharLength: 2
+            };
+            fuse = new Fuse(data, options);
+        }
+
+        function loadMockData() {
+            isDemoMode = true;
+            rawData = MOCK_DATA;
+            initFuse(rawData);
+            
+            els.demoBanner.classList.remove('hidden');
+            document.querySelector('.sticky.top-\\[88px\\]').style.setProperty('--stats-top', '120px');
+            document.querySelector('.sticky.top-\\[88px\\]').style.top = '120px';
+            
+            renderStats();
+            renderList();
+            
+            const now = new Date();
+            els.lastUpdated.textContent = `Demo Mode`;
+            els.lastUpdated.classList.remove('hidden');
+            els.lastUpdated.classList.remove('bg-indigo-500', 'text-indigo-100');
+            els.lastUpdated.classList.add('bg-yellow-200', 'text-yellow-800');
+        }
+
+        function fetchData() {
+            if (!sheetUrl) return loadMockData();
+
+            els.loadingIndicator.classList.remove('hidden');
+
+            Papa.parse(sheetUrl, {
+                download: true,
+                header: false,
+                complete: function(results) {
+                    processData(results.data);
+                    els.loadingIndicator.classList.add('hidden');
+                    
+                    isDemoMode = false;
+                    els.demoBanner.classList.add('hidden');
+                    document.querySelector('.sticky').style.top = '88px';
+
+                    const now = new Date();
+                    els.lastUpdated.textContent = `Updated: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
+                    els.lastUpdated.classList.remove('hidden');
+                    els.lastUpdated.classList.add('bg-indigo-500', 'text-indigo-100');
+                    els.lastUpdated.classList.remove('bg-yellow-200', 'text-yellow-800');
+                },
+                error: function(err) {
+                    console.error("Error fetching CSV:", err);
+                    alert("ไม่สามารถดึงข้อมูลได้ ระบบจะแสดงข้อมูลตัวอย่างแทน");
+                    els.loadingIndicator.classList.add('hidden');
+                    loadMockData();
+                }
+            });
+        }
+
+        function processData(rows) {
+            const dataRows = rows.slice(1);
+            
+            rawData = dataRows
+                .filter(row => row[1] && row[4])
+                .map((row, index) => {
+                    const plan = parseInt(row[5]?.replace(/,/g, '') || 0);
+                    const actual = parseInt(row[6]?.replace(/,/g, '') || 0);
+                    const progress = parseInt(row[8]?.replace(/%/g, '') || 0);
+                    const isComplete = progress === 100;
+                    
+                    return {
+                        id: index,
+                        date: row[0] || '-',
+                        jobNo: row[1] || '-',
+                        model: row[4] || '-',
+                        plan: plan,
+                        actual: actual,
+                        progress: progress,
+                        status: isComplete ? 'complete' : 'incomplete',
+                        finishDate: row[10] || '-'
+                    };
+                });
+
+            initFuse(rawData);
+            renderStats();
+            renderList();
+        }
+
+        function toggleSettings() {
+            els.settingsModal.classList.toggle('hidden');
+        }
+
+        function useDemoData() {
+             localStorage.removeItem('job_tracker_sheet_url');
+             sheetUrl = '';
+             els.sheetUrlInput.value = '';
+             toggleSettings();
+             loadMockData();
+        }
+
+        function saveSettings() {
+            const url = els.sheetUrlInput.value.trim();
+            if (!url) return alert('กรุณาใส่ลิงก์');
+            
+            localStorage.setItem('job_tracker_sheet_url', url);
+            sheetUrl = url;
+            toggleSettings();
+            fetchData();
+        }
+
+        function setFilter(type) {
+            currentFilter = type;
+            updateFilterUI(type);
+            renderList();
+        }
+
+        function updateFilterUI(type) {
+            ['all', 'incomplete', 'complete'].forEach(f => {
+                const el = document.getElementById(`filter-${f}`);
+                el.className = `p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all transform active:scale-95 bg-white border-transparent`;
+            });
+
+            const activeEl = document.getElementById(`filter-${type}`);
+            if (type === 'all') activeEl.classList.add('border-indigo-500');
+            if (type === 'incomplete') activeEl.classList.add('bg-orange-50', 'border-orange-500');
+            if (type === 'complete') activeEl.classList.add('bg-green-50', 'border-green-500');
+
+            if (type !== 'all') {
+                els.clearFilterBtn.classList.remove('hidden');
+            } else {
+                els.clearFilterBtn.classList.add('hidden');
+            }
+        }
+
+        function renderStats() {
+            const total = rawData.length;
+            const completed = rawData.filter(i => i.progress === 100).length;
+            const pending = total - completed;
+
+            els.statTotal.textContent = total;
+            els.statPending.textContent = pending;
+            els.statCompleted.textContent = completed;
+        }
+
+        function renderList() {
+            let searchResults = rawData;
+            
+            if (searchTerm.trim() !== '') {
+                const results = fuse.search(searchTerm);
+                searchResults = results.map(result => result.item);
+            }
+
+            const filteredData = searchResults.filter(item => {
+                const matchesFilter = 
+                    currentFilter === 'all' ? true :
+                    currentFilter === 'complete' ? item.progress === 100 :
+                    item.progress < 100;
+
+                return matchesFilter;
+            });
+
+            els.listCount.textContent = `รายการ (${filteredData.length})`;
+
+            if (filteredData.length === 0 && rawData.length > 0) {
+                els.jobList.innerHTML = '';
+                els.emptyState.classList.remove('hidden');
+            } else {
+                els.emptyState.classList.add('hidden');
+                els.jobList.innerHTML = filteredData.map(item => createJobCard(item)).join('');
+                lucide.createIcons();
+            }
+        }
+
+        function createJobCard(data) {
+            const isComplete = data.progress === 100;
+            const statusBorder = isComplete ? 'border-green-500' : 'border-orange-400';
+            const progressBarColor = isComplete ? 'bg-green-500' : 'bg-orange-400';
+            const statusTextClass = isComplete ? 'text-green-600' : 'text-orange-600';
+            
+            const diff = data.actual - data.plan;
+            const diffClass = diff > 0 ? 'text-red-500' : 'text-slate-400';
+
+            const icon = isComplete 
+                ? `<i data-lucide="check-circle" class="text-green-500 w-6 h-6 flex-shrink-0"></i>` 
+                : `<i data-lucide="clock" class="text-orange-400 w-6 h-6 flex-shrink-0"></i>`;
+
+            const footerText = isComplete
+                ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
+                : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
+
+            return `
+                <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 relative overflow-hidden ${statusBorder}">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <span class="text-xs text-slate-400 font-mono block mb-1">${data.date}</span>
+                            <h3 class="text-base font-bold text-slate-800 break-all">${data.jobNo}</h3>
+                        </div>
+                        ${icon}
+                    </div>
+
+                    <div class="mb-4">
+                        <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">
+                            Model: ${data.model}
+                        </span>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="flex justify-between text-xs mb-1.5">
+                            <span class="text-slate-500">ความคืบหน้า</span>
+                            <span class="font-bold ${statusTextClass}">${data.progress}%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5">
+                            <div class="h-2.5 rounded-full progress-bar ${progressBarColor}" style="width: ${data.progress}%"></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-sm bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        <div class="flex flex-col">
+                            <span class="text-xs text-slate-400">แผน (Plan)</span>
+                            <span class="font-semibold text-slate-700">${data.plan.toLocaleString()}</span>
+                        </div>
+                        <div class="flex flex-col border-l border-slate-200 pl-3">
+                            <span class="text-xs text-slate-400">ทำได้จริง (Actual)</span>
+                            <span class="font-bold ${data.actual < data.plan ? 'text-orange-600' : 'text-green-600'}">
+                                ${data.actual.toLocaleString()}
+                            </span>
+                        </div>
+                        <div class="col-span-2 border-t border-slate-200 mt-1 pt-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400">คงเหลือ (Diff)</span>
+                            <span class="font-mono font-medium ${diffClass}">
+                                ${(data.actual - data.plan).toLocaleString()}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 text-xs text-right">
+                        ${footerText}
+                    </div>
+                </div>
+            `;
+        }
+
+        init();
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Order Tracker</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts (Prompt for Thai) -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- PapaParse for CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Fuse.js for Fuzzy Search -->
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html { scroll-behavior: smooth; }
+        .progress-bar { transition: width 0.5s ease-in-out; }
+        
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #4f46e5;
+            width: 24px;
+            height: 24px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Login Screen Animation */
+        .fade-out {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 pb-20 min-h-screen">
+
+    <!-- Login Overlay -->
+    <!-- ปรับสีพื้นหลังเป็น bg-slate-900 (ดำน้ำเงินเข้ม) -->
+    <div id="login-overlay" class="fixed inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center p-4 transition-all duration-500">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm text-center border border-slate-700">
+            <div class="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="lock" class="w-8 h-8 text-slate-800"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-1">เข้าสู่ระบบ</h2>
+            <p class="text-slate-500 text-sm mb-6">กรุณากรอกรหัสผ่านเพื่อเข้าถึงข้อมูล</p>
+            
+            <form onsubmit="handleLogin(event)">
+                <input type="tel" id="pin-input" 
+                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-center text-2xl font-bold tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+                    placeholder="• • • •" maxlength="4" autocomplete="off">
+                
+                <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-slate-200">
+                    ยืนยัน
+                </button>
+            </form>
+            <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
+                <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
+            </p>
+            <p class="text-slate-400 text-xs mt-6">รหัสเริ่มต้น: 1234</p>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-indigo-600 text-white p-4 shadow-lg sticky top-0 z-20">
+        <div class="flex justify-between items-center mb-3">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i data-lucide="bar-chart-3" class="w-6 h-6"></i>
+                Job Monitor
+            </h1>
+            <div class="flex items-center gap-2">
+                <span id="last-updated" class="text-xs bg-indigo-500 px-2 py-1 rounded-full text-indigo-100 hidden">
+                    Updated: -
+                </span>
+                <button id="settings-btn" onclick="toggleSettings()" class="p-1.5 bg-indigo-500 rounded-lg hover:bg-indigo-400 transition-colors">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative">
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="ค้นหา Job, Model หรือ วันที่..."
+                class="w-full pl-10 pr-4 py-3 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-300 shadow-sm placeholder-slate-400"
+            />
+            <i data-lucide="search" class="absolute left-3 top-3.5 text-slate-400 w-5 h-5"></i>
+        </div>
+    </header>
+
+    <!-- Demo Mode Warning -->
+    <div id="demo-banner" class="hidden bg-yellow-50 border-b border-yellow-200 px-4 py-2 flex items-center justify-between sticky top-[80px] z-10">
+        <div class="flex items-center gap-2 text-xs text-yellow-800">
+            <i data-lucide="info" class="w-4 h-4"></i>
+            <span>กำลังแสดงข้อมูลตัวอย่าง</span>
+        </div>
+        <button onclick="toggleSettings()" class="text-xs font-bold text-indigo-600 underline">
+            เชื่อมต่อ Google Sheet
+        </button>
+    </div>
+
+    <!-- Stats Summary Cards -->
+    <div class="grid grid-cols-3 gap-3 p-4 sticky top-[88px] z-10 bg-slate-50/95 backdrop-blur-sm border-b border-slate-200 shadow-sm" style="top: var(--stats-top, 88px);">
+        <div onclick="setFilter('all')" id="filter-all"
+             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-indigo-500 transform active:scale-95">
+            <div class="text-slate-500 text-xs mb-1">ทั้งหมด</div>
+            <div class="text-xl font-bold text-slate-800" id="stat-total">0</div>
+        </div>
+        <div onclick="setFilter('incomplete')" id="filter-incomplete"
+             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95">
+            <div class="text-orange-600 text-xs mb-1">ค้างอยู่</div>
+            <div class="text-xl font-bold text-orange-700" id="stat-pending">0</div>
+        </div>
+        <div onclick="setFilter('complete')" id="filter-complete"
+             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95">
+            <div class="text-green-600 text-xs mb-1">เสร็จแล้ว</div>
+            <div class="text-xl font-bold text-green-700" id="stat-completed">0</div>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="px-4 mt-2">
+        <div class="flex items-center justify-between text-sm text-slate-500 px-1 mb-3">
+            <span id="list-count">รายการ (0)</span>
+            <div class="flex items-center gap-3">
+                <div id="loading-indicator" class="hidden"><div class="loader"></div></div>
+                <button id="clear-filter-btn" onclick="setFilter('all')" class="hidden flex items-center gap-1 text-indigo-600 font-medium">
+                    ล้างตัวกรอง <i data-lucide="filter" class="w-3 h-3"></i>
+                </button>
+                <button onclick="reloadData()" class="text-slate-400 hover:text-indigo-600">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="job-list" class="space-y-3 pb-6">
+            <!-- Jobs injected here -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden text-center py-12 text-slate-400">
+            <i data-lucide="search" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
+            <p>ไม่พบข้อมูลที่ค้นหา</p>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl transform transition-all scale-100 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">ตั้งค่า</h3>
+                <button onclick="toggleSettings()" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-6">
+                <!-- Section 1: Connection -->
+                <div>
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="link" class="w-4 h-4"></i> การเชื่อมต่อ
+                    </h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Google Sheet)</label>
+                        <input type="text" id="sheet-url-input" 
+                            class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2"
+                            placeholder="https://docs.google.com/.../pub?output=csv">
+                        <div class="flex gap-2">
+                            <button onclick="saveSettings()" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
+                                บันทึก
+                            </button>
+                            <button onclick="useDemoData()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+                                ใช้ Demo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Security -->
+                <div>
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="lock" class="w-4 h-4"></i> ความปลอดภัย
+                    </h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">เปลี่ยนรหัสผ่าน (PIN)</label>
+                            <div class="flex gap-2">
+                                <input type="tel" id="new-pin-input" 
+                                    class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    placeholder="ใส่รหัสใหม่ 4 หลัก" maxlength="4">
+                                <button onclick="changePin()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">
+                                    เปลี่ยน
+                                </button>
+                            </div>
+                        </div>
+                        <hr class="border-slate-200">
+                        <button onclick="handleLogout()" class="w-full text-red-600 border border-red-200 bg-red-50 py-2 rounded-lg text-sm font-medium hover:bg-red-100 flex items-center justify-center gap-2">
+                            <i data-lucide="log-out" class="w-4 h-4"></i> ออกจากระบบ
+                        </button>
+                    </div>
+                </div>
+
+                <div class="text-center text-xs text-slate-400 pt-2">
+                    Job Order Tracker v1.2
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scroll to Top -->
+    <button onclick="window.scrollTo({ top: 0, behavior: 'smooth' })"
+        class="fixed bottom-6 right-6 bg-indigo-600 text-white p-3 rounded-full shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors z-30 active:scale-90 transform">
+        <i data-lucide="arrow-up" class="w-6 h-6"></i>
+    </button>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION
+        // ==========================================
+        // ฝังลิงก์ Google Sheet ของคุณเรียบร้อยครับ
+        const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=1416776201&single=true&output=csv"; 
+        
+        const DEFAULT_PIN = "1234"; // รหัสเริ่มต้น
+
+        // ==========================================
+        // MOCK DATA (ใช้กรณีลิงก์เสียหรือเน็ตหลุด)
+        // ==========================================
+        const MOCK_DATA = [
+            { id: 1, date: '4/2/2025', jobNo: 'TH-DEMO-001', model: 'S9HCL14 (ตัวอย่าง)', plan: 1500, actual: 1279, progress: 85, status: 'incomplete', finishDate: null },
+            { id: 2, date: '4/2/2025', jobNo: 'TH-DEMO-002', model: 'EZ9EPL108 (ตัวอย่าง)', plan: 300, actual: 300, progress: 100, status: 'complete', finishDate: '2026/02/05' },
+            { id: 3, date: '2/3/2025', jobNo: 'TH-DEMO-003', model: 'S9HCL114 (ตัวอย่าง)', plan: 700, actual: 700, progress: 100, status: 'complete', finishDate: '2026/02/05' },
+            { id: 4, date: '5/2/2025', jobNo: 'TH-DEMO-004', model: 'Q03-100EZ36G (ตัวอย่าง)', plan: 192, actual: 50, progress: 26, status: 'incomplete', finishDate: null },
+            { id: 5, date: '6/2/2025', jobNo: 'TH-DEMO-005', model: 'SDVS3100L (ตัวอย่าง)', plan: 42, actual: 0, progress: 0, status: 'incomplete', finishDate: null },
+        ];
+
+        // ==========================================
+        // SYSTEM LOGIC
+        // ==========================================
+
+        let rawData = [];
+        let fuse;
+        let currentFilter = 'all';
+        let searchTerm = '';
+        let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
+        let isDemoMode = false;
+
+        const els = {
+            loginOverlay: document.getElementById('login-overlay'),
+            pinInput: document.getElementById('pin-input'),
+            loginError: document.getElementById('login-error'),
+            newPinInput: document.getElementById('new-pin-input'),
+            jobList: document.getElementById('job-list'),
+            searchInput: document.getElementById('searchInput'),
+            statTotal: document.getElementById('stat-total'),
+            statPending: document.getElementById('stat-pending'),
+            statCompleted: document.getElementById('stat-completed'),
+            listCount: document.getElementById('list-count'),
+            emptyState: document.getElementById('empty-state'),
+            demoBanner: document.getElementById('demo-banner'),
+            clearFilterBtn: document.getElementById('clear-filter-btn'),
+            settingsModal: document.getElementById('settings-modal'),
+            sheetUrlInput: document.getElementById('sheet-url-input'),
+            loadingIndicator: document.getElementById('loading-indicator'),
+            lastUpdated: document.getElementById('last-updated')
+        };
+
+        function init() {
+            lucide.createIcons();
+            checkAuth(); // ตรวจสอบสถานะล็อคอินก่อน
+            
+            els.searchInput.addEventListener('input', (e) => {
+                searchTerm = e.target.value;
+                renderList();
+            });
+        }
+
+        // --- Auth System ---
+        function checkAuth() {
+            const isLoggedIn = localStorage.getItem('job_tracker_auth');
+            if (isLoggedIn === 'true') {
+                els.loginOverlay.style.display = 'none';
+                startApp();
+            } else {
+                // Focus PIN input for convenience
+                setTimeout(() => els.pinInput.focus(), 500);
+            }
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const inputPin = els.pinInput.value;
+            const savedPin = localStorage.getItem('job_tracker_pin') || DEFAULT_PIN;
+
+            if (inputPin === savedPin) {
+                // Success
+                localStorage.setItem('job_tracker_auth', 'true');
+                els.loginOverlay.classList.add('fade-out');
+                setTimeout(() => {
+                    els.loginOverlay.style.display = 'none';
+                    startApp();
+                }, 500);
+            } else {
+                // Fail
+                els.loginError.classList.remove('hidden');
+                els.pinInput.value = '';
+                els.pinInput.classList.add('ring-2', 'ring-red-500');
+                setTimeout(() => els.pinInput.classList.remove('ring-2', 'ring-red-500'), 1000);
+            }
+        }
+
+        function handleLogout() {
+            if(confirm('ต้องการออกจากระบบใช่หรือไม่?')) {
+                localStorage.removeItem('job_tracker_auth');
+                location.reload(); // รีโหลดหน้าเว็บเพื่อกลับไปหน้า Login
+            }
+        }
+
+        function changePin() {
+            const newPin = els.newPinInput.value;
+            if (newPin.length !== 4 || isNaN(newPin)) {
+                alert('กรุณากรอกรหัสผ่านใหม่เป็นตัวเลข 4 หลัก');
+                return;
+            }
+            localStorage.setItem('job_tracker_pin', newPin);
+            els.newPinInput.value = '';
+            alert('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว');
+        }
+
+        // --- Main App Logic ---
+        function startApp() {
+            if (sheetUrl) {
+                els.sheetUrlInput.value = sheetUrl;
+                fetchData();
+            } else {
+                loadMockData();
+            }
+        }
+
+        function reloadData() {
+            if(isDemoMode && !sheetUrl) {
+                toggleSettings();
+            } else {
+                fetchData();
+            }
+        }
+
+        function initFuse(data) {
+            const options = {
+                keys: ['jobNo', 'model', 'date'], // เพิ่ม 'date' เข้าไปในรายการค้นหา
+                threshold: 0.3, // ลดความคลาดเคลื่อนลงเล็กน้อยเพื่อความแม่นยำของวันที่
+                ignoreLocation: true,
+                minMatchCharLength: 2
+            };
+            fuse = new Fuse(data, options);
+        }
+
+        function loadMockData() {
+            isDemoMode = true;
+            rawData = MOCK_DATA;
+            initFuse(rawData);
+            
+            els.demoBanner.classList.remove('hidden');
+            document.querySelector('.sticky.top-\\[88px\\]').style.setProperty('--stats-top', '120px');
+            document.querySelector('.sticky.top-\\[88px\\]').style.top = '120px';
+            
+            renderStats();
+            renderList();
+            
+            const now = new Date();
+            els.lastUpdated.textContent = `Demo Mode`;
+            els.lastUpdated.classList.remove('hidden');
+            els.lastUpdated.classList.remove('bg-indigo-500', 'text-indigo-100');
+            els.lastUpdated.classList.add('bg-yellow-200', 'text-yellow-800');
+        }
+
+        function fetchData() {
+            if (!sheetUrl) return loadMockData();
+
+            els.loadingIndicator.classList.remove('hidden');
+
+            Papa.parse(sheetUrl, {
+                download: true,
+                header: false,
+                complete: function(results) {
+                    processData(results.data);
+                    els.loadingIndicator.classList.add('hidden');
+                    
+                    isDemoMode = false;
+                    els.demoBanner.classList.add('hidden');
+                    document.querySelector('.sticky').style.top = '88px';
+
+                    const now = new Date();
+                    els.lastUpdated.textContent = `Updated: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
+                    els.lastUpdated.classList.remove('hidden');
+                    els.lastUpdated.classList.add('bg-indigo-500', 'text-indigo-100');
+                    els.lastUpdated.classList.remove('bg-yellow-200', 'text-yellow-800');
+                },
+                error: function(err) {
+                    console.error("Error fetching CSV:", err);
+                    alert("ไม่สามารถดึงข้อมูลได้ ระบบจะแสดงข้อมูลตัวอย่างแทน");
+                    els.loadingIndicator.classList.add('hidden');
+                    loadMockData();
+                }
+            });
+        }
+
+        function processData(rows) {
+            const dataRows = rows.slice(1);
+            
+            rawData = dataRows
+                .filter(row => row[1] && row[4])
+                .map((row, index) => {
+                    const plan = parseInt(row[5]?.replace(/,/g, '') || 0);
+                    const actual = parseInt(row[6]?.replace(/,/g, '') || 0);
+                    const progress = parseInt(row[8]?.replace(/%/g, '') || 0);
+                    const isComplete = progress === 100;
+                    
+                    return {
+                        id: index,
+                        date: row[0] || '-',
+                        jobNo: row[1] || '-',
+                        model: row[4] || '-',
+                        plan: plan,
+                        actual: actual,
+                        progress: progress,
+                        status: isComplete ? 'complete' : 'incomplete',
+                        finishDate: row[10] || '-'
+                    };
+                });
+
+            initFuse(rawData);
+            renderStats();
+            renderList();
+        }
+
+        function toggleSettings() {
+            els.settingsModal.classList.toggle('hidden');
+        }
+
+        function useDemoData() {
+             localStorage.removeItem('job_tracker_sheet_url');
+             sheetUrl = '';
+             els.sheetUrlInput.value = '';
+             toggleSettings();
+             loadMockData();
+        }
+
+        function saveSettings() {
+            const url = els.sheetUrlInput.value.trim();
+            if (!url) return alert('กรุณาใส่ลิงก์');
+            
+            localStorage.setItem('job_tracker_sheet_url', url);
+            sheetUrl = url;
+            toggleSettings();
+            fetchData();
+        }
+
+        function setFilter(type) {
+            currentFilter = type;
+            updateFilterUI(type);
+            renderList();
+        }
+
+        function updateFilterUI(type) {
+            ['all', 'incomplete', 'complete'].forEach(f => {
+                const el = document.getElementById(`filter-${f}`);
+                el.className = `p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all transform active:scale-95 bg-white border-transparent`;
+            });
+
+            const activeEl = document.getElementById(`filter-${type}`);
+            if (type === 'all') activeEl.classList.add('border-indigo-500');
+            if (type === 'incomplete') activeEl.classList.add('bg-orange-50', 'border-orange-500');
+            if (type === 'complete') activeEl.classList.add('bg-green-50', 'border-green-500');
+
+            if (type !== 'all') {
+                els.clearFilterBtn.classList.remove('hidden');
+            } else {
+                els.clearFilterBtn.classList.add('hidden');
+            }
+        }
+
+        function renderStats() {
+            const total = rawData.length;
+            const completed = rawData.filter(i => i.progress === 100).length;
+            const pending = total - completed;
+
+            els.statTotal.textContent = total;
+            els.statPending.textContent = pending;
+            els.statCompleted.textContent = completed;
+        }
+
+        function renderList() {
+            let searchResults = rawData;
+            
+            if (searchTerm.trim() !== '') {
+                const results = fuse.search(searchTerm);
+                searchResults = results.map(result => result.item);
+            }
+
+            const filteredData = searchResults.filter(item => {
+                const matchesFilter = 
+                    currentFilter === 'all' ? true :
+                    currentFilter === 'complete' ? item.progress === 100 :
+                    item.progress < 100;
+
+                return matchesFilter;
+            });
+
+            els.listCount.textContent = `รายการ (${filteredData.length})`;
+
+            if (filteredData.length === 0 && rawData.length > 0) {
+                els.jobList.innerHTML = '';
+                els.emptyState.classList.remove('hidden');
+            } else {
+                els.emptyState.classList.add('hidden');
+                els.jobList.innerHTML = filteredData.map(item => createJobCard(item)).join('');
+                lucide.createIcons();
+            }
+        }
+
+        function createJobCard(data) {
+            const isComplete = data.progress === 100;
+            const statusBorder = isComplete ? 'border-green-500' : 'border-orange-400';
+            const progressBarColor = isComplete ? 'bg-green-500' : 'bg-orange-400';
+            const statusTextClass = isComplete ? 'text-green-600' : 'text-orange-600';
+            
+            const diff = data.actual - data.plan;
+            const diffClass = diff > 0 ? 'text-red-500' : 'text-slate-400';
+
+            const icon = isComplete 
+                ? `<i data-lucide="check-circle" class="text-green-500 w-6 h-6 flex-shrink-0"></i>` 
+                : `<i data-lucide="clock" class="text-orange-400 w-6 h-6 flex-shrink-0"></i>`;
+
+            const footerText = isComplete
+                ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
+                : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
+
+            return `
+                <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 relative overflow-hidden ${statusBorder}">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <span class="text-xs text-slate-400 font-mono block mb-1">${data.date}</span>
+                            <h3 class="text-base font-bold text-slate-800 break-all">${data.jobNo}</h3>
+                        </div>
+                        ${icon}
+                    </div>
+
+                    <div class="mb-4">
+                        <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">
+                            Model: ${data.model}
+                        </span>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="flex justify-between text-xs mb-1.5">
+                            <span class="text-slate-500">ความคืบหน้า</span>
+                            <span class="font-bold ${statusTextClass}">${data.progress}%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5">
+                            <div class="h-2.5 rounded-full progress-bar ${progressBarColor}" style="width: ${data.progress}%"></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-sm bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        <div class="flex flex-col">
+                            <span class="text-xs text-slate-400">แผน (Plan)</span>
+                            <span class="font-semibold text-slate-700">${data.plan.toLocaleString()}</span>
+                        </div>
+                        <div class="flex flex-col border-l border-slate-200 pl-3">
+                            <span class="text-xs text-slate-400">ทำได้จริง (Actual)</span>
+                            <span class="font-bold ${data.actual < data.plan ? 'text-orange-600' : 'text-green-600'}">
+                                ${data.actual.toLocaleString()}
+                            </span>
+                        </div>
+                        <div class="col-span-2 border-t border-slate-200 mt-1 pt-2 flex justify-between items-center">
+                            <span class="text-xs text-slate-400">คงเหลือ (Diff)</span>
+                            <span class="font-mono font-medium ${diffClass}">
+                                ${(data.actual - data.plan).toLocaleString()}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 text-xs text-right">
+                        ${footerText}
+                    </div>
+                </div>
+            `;
+        }
+
+        init();
+    </script>
+</body>
+</html>
