@@ -950,7 +950,7 @@
             const now = new Date();
             els.inputDate.value = now.toISOString().split('T')[0];
             els.inputHour.value = String(now.getHours()).padStart(2, '0');
-            els.inputMinute.value = String(now.getMinutes()).padStart(2, '0');
+            els.inputMinute.value = '00'; // ตั้งค่านาทีเริ่มต้นเป็น 00 อัตโนมัติ
             els.inputFgQty.value = '';
             els.inputRecorder.value = localStorage.getItem('last_recorder') || ''; 
             els.inputRemark.value = '';
