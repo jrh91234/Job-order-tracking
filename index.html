@@ -14,6 +14,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <!-- Fuse.js for Fuzzy Search -->
     <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
+    <!-- SweetAlert2 for nice alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
         body {
@@ -44,6 +46,17 @@
             pointer-events: none;
             transition: opacity 0.5s ease;
         }
+        
+        /* Custom Scrollbar for Select */
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            background-size: 1em;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 pb-20 min-h-screen">
@@ -69,7 +82,110 @@
             <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
                 <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
             </p>
-           
+          
+        </div>
+    </div>
+
+    <!-- Update Form Modal -->
+    <div id="update-modal" class="fixed inset-0 bg-black/60 z-40 hidden flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-md p-5 shadow-2xl transform transition-all scale-100 my-4">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="clipboard-edit" class="w-5 h-5 text-indigo-600"></i> บันทึกยอดผลิต
+                </h3>
+                <button onclick="closeUpdateModal()" class="text-slate-400 hover:text-slate-600 bg-slate-100 p-1 rounded-full">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-3">
+                <!-- Read-only Context -->
+                <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-xs">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-indigo-500">Job No:</span>
+                        <span class="font-mono font-bold text-indigo-700" id="modal-job-no">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-indigo-500">Model:</span>
+                        <span class="font-medium text-indigo-700" id="modal-model">-</span>
+                    </div>
+                </div>
+
+                <!-- Form Fields -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">ผู้บันทึก (Recorder) <span class="text-red-500">*</span></label>
+                    <div class="flex gap-2">
+                        <div class="relative flex-1">
+                            <input type="text" id="input-recorder" list="recorder-list" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="เลือกหรือพิมพ์ชื่อใหม่..." autocomplete="off">
+                            <datalist id="recorder-list">
+                                <!-- Options will be populated by JS -->
+                            </datalist>
+                        </div>
+                        <button onclick="addCurrentRecorder()" class="px-3 bg-green-50 text-green-600 border border-green-200 rounded-lg hover:bg-green-100 transition-colors" title="เพิ่มชื่อนี้">
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="removeCurrentRecorder()" class="px-3 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors" title="ลบชื่อนี้">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">วันที่ (dd/mm/yyyy) <span class="text-red-500">*</span></label>
+                        <!-- lang="en-GB" helps force DD/MM/YYYY on some browsers -->
+                        <input type="date" id="input-date" lang="en-GB" class="w-full p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 text-slate-600">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">เวลา (24 ชม.) <span class="text-red-500">*</span></label>
+                        <div class="flex gap-1">
+                            <select id="input-hour" class="w-1/2 p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 text-slate-600 text-center"></select>
+                            <span class="self-center">:</span>
+                            <select id="input-minute" class="w-1/2 p-2 border border-slate-300 rounded-lg text-sm bg-slate-50 text-slate-600 text-center"></select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-yellow-50 p-3 rounded-xl border border-yellow-200">
+                    <label class="block text-xs font-bold text-yellow-800 mb-1 text-center">จำนวนที่ผลิตเสร็จ (FG Qty) <span class="text-red-500">*</span></label>
+                    <input type="number" id="input-fg-qty" 
+                        class="w-full p-2 border border-yellow-300 rounded-lg text-2xl font-bold text-center text-yellow-900 bg-white focus:ring-2 focus:ring-yellow-500 outline-none"
+                        placeholder="0">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Line การผลิต <span class="text-red-500">*</span></label>
+                        <div class="flex gap-1">
+                            <select id="input-line" class="w-full p-2 border border-slate-300 rounded-lg text-sm flex-1">
+                                <!-- Populated by JS -->
+                            </select>
+                            <button onclick="addLine()" class="px-2 bg-slate-100 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-200" title="เพิ่ม Line">
+                                <i data-lucide="plus" class="w-3 h-3"></i>
+                            </button>
+                            <button onclick="removeLine()" class="px-2 bg-slate-100 text-red-500 border border-slate-300 rounded-lg hover:bg-red-50" title="ลบ Line">
+                                <i data-lucide="minus" class="w-3 h-3"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">เปลี่ยนรุ่น (Model Change) <span class="text-red-500">*</span></label>
+                        <select id="input-model-change" class="w-full p-2 border border-slate-300 rounded-lg text-sm">
+                            <option value="No">No (ไม่เปลี่ยน)</option>
+                            <option value="Yes">Yes (เปลี่ยน)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">หมายเหตุ (Remark)</label>
+                    <input type="text" id="input-remark" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm" placeholder="-">
+                </div>
+                
+                <button onclick="submitFormResponse()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 mt-2">
+                    <i data-lucide="send" class="w-4 h-4"></i> บันทึกข้อมูล
+                </button>
+            </div>
         </div>
     </div>
 
@@ -115,51 +231,34 @@
 
     <!-- Stats Summary Cards -->
     <div id="stats-container" class="grid grid-cols-3 gap-3 p-4 sticky top-[130px] z-10 bg-slate-50/95 backdrop-blur-sm border-b border-slate-200 shadow-sm transition-all duration-300">
-        <!-- Card: All -->
-        <div onclick="setFilter('all')" id="filter-all"
-             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-indigo-500 transform active:scale-95">
+        <div onclick="setFilter('all')" id="filter-all" class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-indigo-500 transform active:scale-95">
             <div class="text-slate-500 text-xs mb-1">ทั้งหมด</div>
             <div class="text-xl font-bold text-slate-800" id="stat-total">0</div>
         </div>
-        
-        <!-- Card: Incomplete (Pending) -->
-        <div onclick="setFilter('incomplete')" id="filter-incomplete"
-             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95 relative overflow-hidden group">
-            <div class="absolute inset-0 bg-orange-50 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        <div onclick="setFilter('incomplete')" id="filter-incomplete" class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95 relative overflow-hidden group">
             <div class="relative z-10">
-                <div class="text-orange-600 text-xs mb-1 font-bold flex items-center justify-center gap-1">
-                    ค้างอยู่ <i data-lucide="chevron-right" class="w-3 h-3"></i>
-                </div>
+                <div class="text-orange-600 text-xs mb-1 font-bold flex items-center justify-center gap-1">ค้างอยู่ <i data-lucide="chevron-right" class="w-3 h-3"></i></div>
                 <div class="text-xl font-bold text-orange-700" id="stat-pending">0</div>
                 <div class="text-[10px] text-orange-400 mt-1">แตะเพื่อดู</div>
             </div>
         </div>
-
-        <!-- Card: Complete -->
-        <div onclick="setFilter('complete')" id="filter-complete"
-             class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95">
+        <div onclick="setFilter('complete')" id="filter-complete" class="p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all bg-white border-transparent transform active:scale-95">
             <div class="text-green-600 text-xs mb-1">เสร็จแล้ว</div>
             <div class="text-xl font-bold text-green-700" id="stat-completed">0</div>
         </div>
     </div>
 
-    <!-- Date Range Filter (Hidden by default) -->
+    <!-- Date Range Filter -->
     <div id="date-filter-panel" class="hidden px-4 mt-2 mb-2 transition-all duration-300">
         <div class="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
             <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-bold text-slate-500 flex items-center gap-1">
-                    <i data-lucide="calendar" class="w-3 h-3"></i> กรองช่วงวันที่
-                </span>
+                <span class="text-xs font-bold text-slate-500 flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> กรองช่วงวันที่</span>
                 <button onclick="clearDateFilter()" class="text-[10px] text-indigo-600 underline">ล้างวันที่</button>
             </div>
             <div class="flex gap-2 items-center">
-                <div class="flex-1">
-                    <input type="date" id="start-date" onchange="renderList()" class="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600">
-                </div>
+                <div class="flex-1"><input type="date" id="start-date" onchange="renderList()" class="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600"></div>
                 <span class="text-slate-300">-</span>
-                <div class="flex-1">
-                    <input type="date" id="end-date" onchange="renderList()" class="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600">
-                </div>
+                <div class="flex-1"><input type="date" id="end-date" onchange="renderList()" class="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600"></div>
             </div>
         </div>
     </div>
@@ -170,35 +269,13 @@
             <span id="list-count">รายการ (0)</span>
             <div class="flex items-center gap-2">
                 <div id="loading-indicator" class="hidden"><div class="loader"></div></div>
-                
-                <!-- Clear Filter Button -->
-                <button id="clear-filter-btn" onclick="clearAllFilters()" class="hidden flex items-center gap-1 text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg text-xs">
-                    แสดงทั้งหมด <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-
-                <!-- Date Filter Toggle Button -->
-                <button id="date-filter-btn" onclick="toggleDateFilter()" class="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 rounded-lg transition-colors shadow-sm">
-                    <i data-lucide="calendar-range" class="w-4 h-4"></i>
-                </button>
-
-                <!-- Sort Button -->
-                <button id="sort-btn" onclick="toggleSort()" class="flex items-center gap-1 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm">
-                    <span id="sort-label">ปกติ</span>
-                    <i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i>
-                </button>
-
-                <!-- Refresh Button -->
-                <button onclick="reloadData()" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors">
-                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                </button>
+                <button id="clear-filter-btn" onclick="clearAllFilters()" class="hidden flex items-center gap-1 text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg text-xs">แสดงทั้งหมด <i data-lucide="rotate-ccw" class="w-3 h-3"></i></button>
+                <button id="date-filter-btn" onclick="toggleDateFilter()" class="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 rounded-lg transition-colors shadow-sm"><i data-lucide="calendar-range" class="w-4 h-4"></i></button>
+                <button id="sort-btn" onclick="toggleSort()" class="flex items-center gap-1 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm"><span id="sort-label">ปกติ</span><i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i></button>
+                <button onclick="reloadData()" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
             </div>
         </div>
-
-        <div id="job-list" class="space-y-3 pb-6">
-            <!-- Jobs injected here -->
-        </div>
-
-        <!-- Empty State -->
+        <div id="job-list" class="space-y-3 pb-6"></div>
         <div id="empty-state" class="hidden text-center py-12 text-slate-400">
             <i data-lucide="search" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
             <p>ไม่พบข้อมูลที่ค้นหา</p>
@@ -210,99 +287,66 @@
         <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl transform transition-all scale-100 max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold">ตั้งค่า</h3>
-                <button onclick="toggleSettings()" class="text-slate-400 hover:text-slate-600">
-                    <i data-lucide="x" class="w-6 h-6"></i>
-                </button>
+                <button onclick="toggleSettings()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-6 h-6"></i></button>
             </div>
-            
             <div class="space-y-6">
-                <!-- Section 1: Connection -->
                 <div>
-                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
-                        <i data-lucide="link" class="w-4 h-4"></i> การเชื่อมต่อ
-                    </h4>
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2"><i data-lucide="link" class="w-4 h-4"></i> การเชื่อมต่อข้อมูล (Read)</h4>
                     <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
                         <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Google Sheet)</label>
-                        <input type="text" id="sheet-url-input" 
-                            class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2"
-                            placeholder="https://docs.google.com/.../pub?output=csv">
-                        <div class="flex gap-2">
-                            <button onclick="saveSettings()" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">
-                                บันทึก
-                            </button>
-                            <button onclick="useDemoData()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
-                                ใช้ Demo
-                            </button>
-                        </div>
+                        <input type="text" id="sheet-url-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2">
                     </div>
                 </div>
-
-                <!-- Section 2: Security -->
                 <div>
-                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
-                        <i data-lucide="lock" class="w-4 h-4"></i> ความปลอดภัย
-                    </h4>
-                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-3">
-                        <div>
-                            <label class="block text-xs font-medium text-slate-500 mb-1">เปลี่ยนรหัสผ่าน (PIN)</label>
-                            <div class="flex gap-2">
-                                <input type="tel" id="new-pin-input" 
-                                    class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                    placeholder="ใส่รหัสใหม่ 4 หลัก" maxlength="4">
-                                <button onclick="changePin()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">
-                                    เปลี่ยน
-                                </button>
-                            </div>
-                        </div>
-                        <hr class="border-slate-200">
-                        <button onclick="handleLogout()" class="w-full text-red-600 border border-red-200 bg-red-50 py-2 rounded-lg text-sm font-medium hover:bg-red-100 flex items-center justify-center gap-2">
-                            <i data-lucide="log-out" class="w-4 h-4"></i> ออกจากระบบ
-                        </button>
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2"><i data-lucide="edit-3" class="w-4 h-4"></i> การบันทึกข้อมูล (Write)</h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ Google Apps Script (Web App URL)</label>
+                        <input type="text" id="script-url-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2" placeholder="https://script.google.com/macros/s/.../exec">
+                        <p class="text-[10px] text-slate-400">ต้องสร้าง Script ใน Google Sheet ก่อนเพื่อใช้งานฟังก์ชันนี้</p>
                     </div>
                 </div>
-
-                <div class="text-center text-xs text-slate-400 pt-2">
-                    Job Order Tracker v1.8 (Date Range Filter)
+                <button onclick="saveSettings()" class="w-full flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-md">บันทึกการตั้งค่าทั้งหมด</button>
+                <div class="pt-4 border-t border-slate-100">
+                    <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2"><i data-lucide="lock" class="w-4 h-4"></i> ความปลอดภัย</h4>
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-3">
+                        <div class="flex gap-2">
+                            <input type="tel" id="new-pin-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="ใส่รหัสใหม่ 4 หลัก" maxlength="4">
+                            <button onclick="changePin()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900">เปลี่ยน</button>
+                        </div>
+                        <button onclick="handleLogout()" class="w-full text-red-600 border border-red-200 bg-red-50 py-2 rounded-lg text-sm font-medium hover:bg-red-100 flex items-center justify-center gap-2"><i data-lucide="log-out" class="w-4 h-4"></i> ออกจากระบบ</button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Scroll to Top -->
-    <button onclick="window.scrollTo({ top: 0, behavior: 'smooth' })"
-        class="fixed bottom-6 right-6 bg-indigo-600 text-white p-3 rounded-full shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors z-30 active:scale-90 transform">
-        <i data-lucide="arrow-up" class="w-6 h-6"></i>
-    </button>
+    <button onclick="window.scrollTo({ top: 0, behavior: 'smooth' })" class="fixed bottom-6 right-6 bg-indigo-600 text-white p-3 rounded-full shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors z-30 active:scale-90 transform"><i data-lucide="arrow-up" class="w-6 h-6"></i></button>
 
     <script>
         // ==========================================
         // CONFIGURATION
         // ==========================================
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=1416776201&single=true&output=csv"; 
-        
-        const DEFAULT_PIN = "1111";
+        const DEFAULT_PIN = "1234";
 
-        // ==========================================
-        // MOCK DATA
-        // ==========================================
         const MOCK_DATA = [
             { id: 1, date: '16/9/2025', jobNo: 'TH-SCDD2025090244', model: 'S9HCL14', plan: 600, actual: 600, progress: 100, status: 'complete', finishDate: '2025/09/19' },
-            { id: 2, date: '17/9/2025', jobNo: 'TH-SCDD2025090255', model: 'Q03-100EZ42G/SN', plan: 480, actual: 480, progress: 100, status: 'complete', finishDate: '2025/09/18' },
-            { id: 3, date: '18/9/2025', jobNo: 'TH-SCDD2025090266', model: 'MX9E2215F', plan: 149, actual: 149, progress: 100, status: 'complete', finishDate: '2025/09/19' },
-            { id: 4, date: '30/9/2025', jobNo: 'TH-SCDD2025090426', model: 'MX9E2315S', plan: 27, actual: 10, progress: 37, status: 'incomplete', finishDate: '-' },
+            { id: 2, date: '17/9/2025', jobNo: 'TH-SCDD2025090255', model: 'Q03-100EZ42G/SN', plan: 480, actual: 480, progress: 100, status: 'complete', finishDate: '2025/09/18' }
         ];
 
         // ==========================================
-        // SYSTEM LOGIC
+        // STATE & ELEMENTS
         // ==========================================
-
         let rawData = [];
         let fuse;
         let currentFilter = 'all';
         let currentSort = 'default';
         let searchTerm = '';
         let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
+        let scriptUrl = localStorage.getItem('job_tracker_script_url') || '';
         let isDemoMode = false;
+        let currentEditingJob = null; 
 
         const els = {
             mainHeader: document.getElementById('main-header'),
@@ -322,6 +366,7 @@
             clearFilterBtn: document.getElementById('clear-filter-btn'),
             settingsModal: document.getElementById('settings-modal'),
             sheetUrlInput: document.getElementById('sheet-url-input'),
+            scriptUrlInput: document.getElementById('script-url-input'),
             loadingIndicator: document.getElementById('loading-indicator'),
             lastUpdated: document.getElementById('last-updated'),
             sortBtn: document.getElementById('sort-btn'),
@@ -329,20 +374,190 @@
             dateFilterBtn: document.getElementById('date-filter-btn'),
             dateFilterPanel: document.getElementById('date-filter-panel'),
             startDate: document.getElementById('start-date'),
-            endDate: document.getElementById('end-date')
+            endDate: document.getElementById('end-date'),
+            updateModal: document.getElementById('update-modal'),
+            modalJobNo: document.getElementById('modal-job-no'),
+            modalModel: document.getElementById('modal-model'),
+            inputRecorder: document.getElementById('input-recorder'),
+            recorderList: document.getElementById('recorder-list'),
+            inputDate: document.getElementById('input-date'),
+            inputHour: document.getElementById('input-hour'),
+            inputMinute: document.getElementById('input-minute'),
+            inputFgQty: document.getElementById('input-fg-qty'),
+            inputLine: document.getElementById('input-line'),
+            inputModelChange: document.getElementById('input-model-change'),
+            inputRemark: document.getElementById('input-remark')
         };
 
-        function init() {
-            lucide.createIcons();
-            checkAuth();
-            
-            els.searchInput.addEventListener('input', (e) => {
-                searchTerm = e.target.value;
-                renderList();
-            });
+        // ==========================================
+        // CORE RENDER FUNCTIONS
+        // ==========================================
+
+        function renderStats() {
+            if(!rawData) return;
+            const total = rawData.length;
+            const completed = rawData.filter(i => i.progress === 100).length;
+            const pending = total - completed;
+
+            els.statTotal.textContent = total;
+            els.statPending.textContent = pending;
+            els.statCompleted.textContent = completed;
         }
 
-        // --- Auth System ---
+        function createJobCard(data) {
+            const isComplete = data.progress === 100;
+            const statusBorder = isComplete ? 'border-green-500' : 'border-orange-400';
+            const progressBarColor = isComplete ? 'bg-green-500' : 'bg-orange-400';
+            const statusTextClass = isComplete ? 'text-green-600' : 'text-orange-600';
+            
+            const diff = data.actual - data.plan;
+            const diffClass = diff > 0 ? 'text-red-500' : 'text-slate-400';
+
+            const icon = isComplete 
+                ? `<i data-lucide="check-circle" class="text-green-500 w-6 h-6 flex-shrink-0"></i>` 
+                : `<i data-lucide="clock" class="text-orange-400 w-6 h-6 flex-shrink-0"></i>`;
+
+            const footerText = isComplete
+                ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
+                : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
+
+            return `
+                <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 relative overflow-hidden ${statusBorder}">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <span class="text-xs text-slate-400 font-mono block mb-1">${data.date}</span>
+                            <h3 class="text-base font-bold text-slate-800 break-all">${data.jobNo}</h3>
+                        </div>
+                        ${icon}
+                    </div>
+                    <div class="mb-4">
+                        <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">Model: ${data.model}</span>
+                    </div>
+                    <div class="mb-4">
+                        <div class="flex justify-between text-xs mb-1.5">
+                            <span class="text-slate-500">ความคืบหน้า</span>
+                            <span class="font-bold ${statusTextClass}">${data.progress}%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5">
+                            <div class="h-2.5 rounded-full progress-bar ${progressBarColor}" style="width: ${data.progress}%"></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-sm bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        <div class="flex flex-col"><span class="text-xs text-slate-400">แผน (Plan)</span><span class="font-semibold text-slate-700">${data.plan.toLocaleString()}</span></div>
+                        <div class="flex flex-col border-l border-slate-200 pl-3"><span class="text-xs text-slate-400">ทำได้จริง (Actual)</span><span class="font-bold ${data.actual < data.plan ? 'text-orange-600' : 'text-green-600'}">${data.actual.toLocaleString()}</span></div>
+                        <div class="col-span-2 border-t border-slate-200 mt-1 pt-2 flex justify-between items-center"><span class="text-xs text-slate-400">คงเหลือ (Diff)</span><span class="font-mono font-medium ${diffClass}">${(data.actual - data.plan).toLocaleString()}</span></div>
+                    </div>
+                    <div class="mt-3 flex justify-between items-end border-t border-slate-100 pt-2"><div class="text-xs text-right flex-1">${footerText}</div></div>
+                    <button onclick="openUpdateModal(${data.id})" class="absolute bottom-3 right-3 bg-indigo-50 text-indigo-600 p-2 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm border border-indigo-100 flex items-center gap-1 text-xs font-bold"><i data-lucide="clipboard-edit" class="w-3 h-3"></i> ลงยอด</button>
+                </div>
+            `;
+        }
+
+        function renderList() {
+            let searchResults = rawData;
+            
+            if (searchTerm.trim() !== '') {
+                const results = fuse.search(searchTerm);
+                searchResults = results.map(result => result.item);
+            }
+
+            let filteredData = [...searchResults];
+            
+            // Status Filter
+            filteredData = filteredData.filter(item => {
+                const matchesFilter = 
+                    currentFilter === 'all' ? true :
+                    currentFilter === 'complete' ? item.progress === 100 :
+                    item.progress < 100;
+                return matchesFilter;
+            });
+
+            // Date Range Filter
+            const startDateVal = els.startDate.value;
+            const endDateVal = els.endDate.value;
+            
+            if (startDateVal || endDateVal) {
+                const start = startDateVal ? new Date(startDateVal) : new Date('1900-01-01');
+                const end = endDateVal ? new Date(endDateVal) : new Date('2100-01-01');
+                start.setHours(0,0,0,0);
+                end.setHours(23,59,59,999);
+
+                filteredData = filteredData.filter(item => {
+                    const itemDate = parseDate(item.date);
+                    if (itemDate.getTime() === new Date(0).getTime()) return false; 
+                    return itemDate >= start && itemDate <= end;
+                });
+            }
+
+            // Sort
+            if (currentSort !== 'default') {
+                filteredData.sort((a, b) => {
+                    const dateA = parseDate(a.date);
+                    const dateB = parseDate(b.date);
+                    if (currentSort === 'newest') return dateB - dateA;
+                    else return dateA - dateB;
+                });
+            }
+
+            els.listCount.textContent = `รายการ (${filteredData.length})`;
+
+            if (startDateVal || endDateVal || currentFilter !== 'all') {
+                 els.clearFilterBtn.classList.remove('hidden');
+            } else {
+                 els.clearFilterBtn.classList.add('hidden');
+            }
+
+            if (filteredData.length === 0 && rawData.length > 0) {
+                els.jobList.innerHTML = '';
+                els.emptyState.classList.remove('hidden');
+            } else {
+                els.emptyState.classList.add('hidden');
+                els.jobList.innerHTML = filteredData.map(item => createJobCard(item)).join('');
+                lucide.createIcons();
+            }
+        }
+
+        // ==========================================
+        // HELPERS
+        // ==========================================
+
+        function parseDate(dateStr) {
+            if (!dateStr || dateStr === '-') return new Date(0); 
+            const parts = dateStr.split('/');
+            if (parts.length !== 3) return new Date(0);
+            return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+
+        function initFuse(data) {
+            const options = {
+                keys: ['jobNo', 'model', 'date'],
+                threshold: 0.3,
+                ignoreLocation: true,
+                minMatchCharLength: 2
+            };
+            fuse = new Fuse(data, options);
+        }
+
+        function initTimeSelectors() {
+            let hoursHtml = '';
+            for(let i=0; i<24; i++) {
+                const val = i.toString().padStart(2, '0');
+                hoursHtml += `<option value="${val}">${val}</option>`;
+            }
+            els.inputHour.innerHTML = hoursHtml;
+
+            let minsHtml = '';
+            for(let i=0; i<60; i++) {
+                const val = i.toString().padStart(2, '0');
+                minsHtml += `<option value="${val}">${val}</option>`;
+            }
+            els.inputMinute.innerHTML = minsHtml;
+        }
+
+        // ==========================================
+        // AUTH SYSTEM
+        // ==========================================
+
         function checkAuth() {
             const isLoggedIn = localStorage.getItem('job_tracker_auth');
             if (isLoggedIn === 'true') {
@@ -391,118 +606,30 @@
             alert('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว');
         }
 
-        // --- Main App Logic ---
-        function startApp() {
-            if (sheetUrl) {
-                els.sheetUrlInput.value = sheetUrl;
-                fetchData();
-            } else {
-                loadMockData();
-            }
-        }
+        // ==========================================
+        // APP LOGIC
+        // ==========================================
 
-        function reloadData() {
-            if(isDemoMode && !sheetUrl) {
-                toggleSettings();
-            } else {
-                fetchData();
-            }
-        }
-
-        // --- Date Filter Logic ---
-        function toggleDateFilter() {
-            els.dateFilterPanel.classList.toggle('hidden');
-            if (!els.dateFilterPanel.classList.contains('hidden')) {
-                els.dateFilterBtn.classList.add('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
-            } else {
-                els.dateFilterBtn.classList.remove('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
-            }
-        }
-
-        function clearDateFilter() {
-            els.startDate.value = '';
-            els.endDate.value = '';
-            renderList();
-        }
-
-        function clearAllFilters() {
-            setFilter('all');
-            clearDateFilter();
-            // Optional: reset sort
-            // currentSort = 'default';
-            // updateSortUI();
-        }
-
-        // --- Sorting Logic ---
-        function toggleSort() {
-            if (currentSort === 'default') {
-                currentSort = 'newest';
-            } else if (currentSort === 'newest') {
-                currentSort = 'oldest';
-            } else {
-                currentSort = 'default';
-            }
-            updateSortUI();
-            renderList();
-        }
-
-        function updateSortUI() {
-            let iconName = 'arrow-up-down';
-            let labelText = 'ปกติ';
-            let btnClass = "flex items-center gap-1 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-slate-400 hover:text-indigo-600";
-
-            if (currentSort === 'newest') {
-                iconName = 'arrow-down';
-                labelText = 'ใหม่-เก่า';
-                btnClass = "flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-indigo-700 font-medium";
-            } else if (currentSort === 'oldest') {
-                iconName = 'arrow-up';
-                labelText = 'เก่า-ใหม่';
-                btnClass = "flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-indigo-700 font-medium";
-            }
-
-            els.sortLabel.textContent = labelText;
-            els.sortBtn.className = btnClass;
-
-            const oldIcon = els.sortBtn.querySelector('svg') || els.sortBtn.querySelector('i');
-            if (oldIcon) oldIcon.remove();
-
-            const newIcon = document.createElement('i');
-            newIcon.setAttribute('data-lucide', iconName);
-            newIcon.setAttribute('class', 'w-3.5 h-3.5');
-            els.sortBtn.appendChild(newIcon);
-
+        function init() {
             lucide.createIcons();
-        }
-
-        function parseDate(dateStr) {
-            if (!dateStr || dateStr === '-') return new Date(0); 
-            const parts = dateStr.split('/');
-            if (parts.length !== 3) return new Date(0);
-            return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-        }
-
-        function initFuse(data) {
-            const options = {
-                keys: ['jobNo', 'model', 'date'],
-                threshold: 0.3,
-                ignoreLocation: true,
-                minMatchCharLength: 2
-            };
-            fuse = new Fuse(data, options);
+            checkAuth();
+            els.searchInput.addEventListener('input', (e) => {
+                searchTerm = e.target.value;
+                renderList();
+            });
+            initTimeSelectors();
+            loadSavedRecorders();
+            loadSavedLines(); // Load lines on init
         }
 
         function loadMockData() {
             isDemoMode = true;
             rawData = MOCK_DATA;
             initFuse(rawData);
-            
             els.demoBanner.classList.remove('hidden');
             els.statsContainer.style.top = '170px'; 
-            
             renderStats();
             renderList();
-            
             const now = new Date();
             els.lastUpdated.textContent = `Demo Mode`;
             els.lastUpdated.classList.remove('hidden');
@@ -510,43 +637,10 @@
             els.lastUpdated.classList.add('bg-yellow-200', 'text-yellow-800');
         }
 
-        function fetchData() {
-            if (!sheetUrl) return loadMockData();
-
-            els.loadingIndicator.classList.remove('hidden');
-
-            Papa.parse(sheetUrl, {
-                download: true,
-                header: true, 
-                skipEmptyLines: true,
-                complete: function(results) {
-                    processData(results.data);
-                    els.loadingIndicator.classList.add('hidden');
-                    
-                    isDemoMode = false;
-                    els.demoBanner.classList.add('hidden');
-                    els.statsContainer.style.top = '130px'; 
-
-                    const now = new Date();
-                    els.lastUpdated.textContent = `Updated: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
-                    els.lastUpdated.classList.remove('hidden');
-                    els.lastUpdated.classList.add('bg-indigo-500', 'text-indigo-100');
-                    els.lastUpdated.classList.remove('bg-yellow-200', 'text-yellow-800');
-                },
-                error: function(err) {
-                    console.error("Error fetching CSV:", err);
-                    alert("ไม่สามารถดึงข้อมูลได้ ระบบจะแสดงข้อมูลตัวอย่างแทน");
-                    els.loadingIndicator.classList.add('hidden');
-                    loadMockData();
-                }
-            });
-        }
-
         function processData(data) {
             if (data.length === 0) return;
 
             const keys = Object.keys(data[0]);
-            
             const findKey = (keywords) => keys.find(k => 
                 keywords.some(kw => k.toLowerCase().trim() === kw.toLowerCase().trim() || k.toLowerCase().includes(kw.toLowerCase()))
             );
@@ -567,235 +661,335 @@
             if (!progressKey) progressKey = findKey(['Progress', '%']);
 
             let dateKey = keys.find(k => k.includes('Date') || k.includes('วันที่'));
-
             let finishKey = keys.find(k => k.toLowerCase().includes('actual complete date'));
 
-            console.log("Mapped Keys:", {jobKey, modelKey, planKey, actualKey, progressKey, dateKey, finishKey});
-
-            rawData = data
-                .filter(row => row[jobKey] && row[modelKey]) 
-                .map((row, index) => {
-                    const plan = parseInt(row[planKey]?.replace(/,/g, '') || 0);
-                    const actual = parseInt(row[actualKey]?.replace(/,/g, '') || 0);
-                    const progressRaw = row[progressKey]?.replace(/%/g, '') || '0';
-                    const progress = parseFloat(progressRaw);
-                    const isComplete = progress === 100;
-                    
-                    return {
-                        id: index,
-                        date: row[dateKey] || '-',
-                        jobNo: row[jobKey] || '-',
-                        model: row[modelKey] || '-',
-                        plan: plan,
-                        actual: actual,
-                        progress: progress,
-                        status: isComplete ? 'complete' : 'incomplete',
-                        finishDate: row[finishKey] || '-'
-                    };
-                });
+            rawData = data.filter(row => row[jobKey] && row[modelKey]).map((row, index) => {
+                const plan = parseInt(row[planKey]?.replace(/,/g, '') || 0);
+                const actual = parseInt(row[actualKey]?.replace(/,/g, '') || 0);
+                const progressRaw = row[progressKey]?.replace(/%/g, '') || '0';
+                const progress = parseFloat(progressRaw);
+                const isComplete = progress === 100;
+                
+                return {
+                    id: index,
+                    date: row[dateKey] || '-',
+                    jobNo: row[jobKey] || '-',
+                    model: row[modelKey] || '-',
+                    plan: plan,
+                    actual: actual,
+                    progress: progress,
+                    status: isComplete ? 'complete' : 'incomplete',
+                    finishDate: row[finishKey] || '-'
+                };
+            });
 
             initFuse(rawData);
             renderStats();
             renderList();
         }
 
-        function toggleSettings() {
-            els.settingsModal.classList.toggle('hidden');
+        function fetchData() {
+            if (!sheetUrl) return loadMockData();
+            els.loadingIndicator.classList.remove('hidden');
+            Papa.parse(sheetUrl, {
+                download: true, header: true, skipEmptyLines: true,
+                complete: function(results) {
+                    processData(results.data);
+                    els.loadingIndicator.classList.add('hidden');
+                    isDemoMode = false;
+                    els.demoBanner.classList.add('hidden');
+                    els.statsContainer.style.top = '130px'; 
+                    const now = new Date();
+                    els.lastUpdated.textContent = `Updated: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
+                    els.lastUpdated.classList.remove('hidden');
+                    els.lastUpdated.classList.add('bg-indigo-500', 'text-indigo-100');
+                    els.lastUpdated.classList.remove('bg-yellow-200', 'text-yellow-800');
+                },
+                error: function(err) {
+                    console.error("Error fetching CSV:", err);
+                    alert("ไม่สามารถดึงข้อมูลได้ ระบบจะแสดงข้อมูลตัวอย่างแทน");
+                    els.loadingIndicator.classList.add('hidden');
+                    loadMockData();
+                }
+            });
         }
 
+        function startApp() {
+            if (sheetUrl) {
+                els.sheetUrlInput.value = sheetUrl;
+                els.scriptUrlInput.value = scriptUrl;
+                fetchData();
+            } else {
+                loadMockData();
+            }
+        }
+
+        function reloadData() {
+            if(isDemoMode && !sheetUrl) toggleSettings();
+            else fetchData();
+        }
+
+        // --- UI & Interaction ---
+
+        function toggleSettings() { els.settingsModal.classList.toggle('hidden'); }
         function useDemoData() {
              localStorage.removeItem('job_tracker_sheet_url');
-             sheetUrl = '';
-             els.sheetUrlInput.value = '';
-             toggleSettings();
-             loadMockData();
+             sheetUrl = ''; els.sheetUrlInput.value = '';
+             toggleSettings(); loadMockData();
         }
-
         function saveSettings() {
             const url = els.sheetUrlInput.value.trim();
-            if (!url) return alert('กรุณาใส่ลิงก์');
-            
+            const script = els.scriptUrlInput.value.trim();
+            if (!url) return alert('กรุณาใส่ลิงก์ CSV');
             localStorage.setItem('job_tracker_sheet_url', url);
-            sheetUrl = url;
-            toggleSettings();
-            fetchData();
+            localStorage.setItem('job_tracker_script_url', script);
+            sheetUrl = url; scriptUrl = script;
+            toggleSettings(); fetchData();
         }
 
         function setFilter(type) {
             currentFilter = type;
-            updateFilterUI(type);
-            renderList();
-        }
-
-        function updateFilterUI(type) {
             ['all', 'incomplete', 'complete'].forEach(f => {
                 const el = document.getElementById(`filter-${f}`);
                 el.className = `p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all transform active:scale-95 bg-white border-transparent relative overflow-hidden group`;
             });
-
             const activeEl = document.getElementById(`filter-${type}`);
             if (type === 'all') activeEl.classList.add('border-indigo-500');
             if (type === 'incomplete') activeEl.classList.add('bg-orange-50', 'border-orange-500');
             if (type === 'complete') activeEl.classList.add('bg-green-50', 'border-green-500');
-
-            if (type !== 'all') {
-                els.clearFilterBtn.classList.remove('hidden');
-                els.clearFilterBtn.innerHTML = `แสดงทั้งหมด <i data-lucide="rotate-ccw" class="w-3 h-3"></i>`;
-            } else {
-                els.clearFilterBtn.classList.add('hidden');
-            }
+            
+            if (type !== 'all') els.clearFilterBtn.classList.remove('hidden');
+            else els.clearFilterBtn.classList.add('hidden');
+            
+            renderList();
         }
 
-        function renderStats() {
-            const total = rawData.length;
-            const completed = rawData.filter(i => i.progress === 100).length;
-            const pending = total - completed;
+        function toggleDateFilter() {
+            els.dateFilterPanel.classList.toggle('hidden');
+            if (!els.dateFilterPanel.classList.contains('hidden')) els.dateFilterBtn.classList.add('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+            else els.dateFilterBtn.classList.remove('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+        }
+        function clearDateFilter() { els.startDate.value = ''; els.endDate.value = ''; renderList(); }
+        function clearAllFilters() { setFilter('all'); clearDateFilter(); }
 
-            els.statTotal.textContent = total;
-            els.statPending.textContent = pending;
-            els.statCompleted.textContent = completed;
+        function toggleSort() {
+            if (currentSort === 'default') currentSort = 'newest';
+            else if (currentSort === 'newest') currentSort = 'oldest';
+            else currentSort = 'default';
+            updateSortUI(); renderList();
         }
 
-        function renderList() {
-            let searchResults = rawData;
+        function updateSortUI() {
+            let iconName = 'arrow-up-down'; let labelText = 'ปกติ';
+            let btnClass = "flex items-center gap-1 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-slate-400 hover:text-indigo-600";
+            if (currentSort === 'newest') { iconName = 'arrow-down'; labelText = 'ใหม่-เก่า'; btnClass = "flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-indigo-700 font-medium"; } 
+            else if (currentSort === 'oldest') { iconName = 'arrow-up'; labelText = 'เก่า-ใหม่'; btnClass = "flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-indigo-700 font-medium"; }
+            els.sortLabel.textContent = labelText; els.sortBtn.className = btnClass;
+            const oldIcon = els.sortBtn.querySelector('svg') || els.sortBtn.querySelector('i');
+            if (oldIcon) oldIcon.remove();
+            const newIcon = document.createElement('i'); newIcon.setAttribute('data-lucide', iconName); newIcon.setAttribute('class', 'w-3.5 h-3.5');
+            els.sortBtn.appendChild(newIcon); lucide.createIcons();
+        }
+
+        // --- Recorders ---
+        function loadSavedRecorders() {
+            const recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
+            els.recorderList.innerHTML = recorders.map(r => `<option value="${r}">`).join('');
+        }
+
+        function addCurrentRecorder() {
+            const name = els.inputRecorder.value.trim();
+            if(!name) return Swal.fire({ icon: 'warning', title: 'กรุณาพิมพ์ชื่อ', text: 'ต้องระบุชื่อก่อนทำการเพิ่ม' });
             
-            // 1. Fuzzy Search
-            if (searchTerm.trim() !== '') {
-                const results = fuse.search(searchTerm);
-                searchResults = results.map(result => result.item);
+            const recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
+            if (recorders.includes(name)) {
+                return Swal.fire({ icon: 'info', title: 'มีชื่อนี้อยู่แล้ว', showConfirmButton: false, timer: 1500 });
             }
 
-            let filteredData = [...searchResults];
-            
-            // 2. Status Filter
-            filteredData = filteredData.filter(item => {
-                const matchesFilter = 
-                    currentFilter === 'all' ? true :
-                    currentFilter === 'complete' ? item.progress === 100 :
-                    item.progress < 100;
-
-                return matchesFilter;
+            Swal.fire({
+                title: 'ยืนยันการเพิ่ม?',
+                text: `ต้องการเพิ่มชื่อ "${name}" เข้าสู่รายการใช่หรือไม่?`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#4f46e5',
+                cancelButtonColor: '#ef4444'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    recorders.push(name); 
+                    recorders.sort();
+                    localStorage.setItem('job_tracker_recorders', JSON.stringify(recorders));
+                    loadSavedRecorders(); 
+                    Swal.fire({icon: 'success', title: 'เพิ่มสำเร็จ', timer: 1500, showConfirmButton: false});
+                }
             });
-
-            // 3. Date Range Filter
-            const startDateVal = els.startDate.value;
-            const endDateVal = els.endDate.value;
-            
-            if (startDateVal || endDateVal) {
-                const start = startDateVal ? new Date(startDateVal) : new Date('1900-01-01');
-                const end = endDateVal ? new Date(endDateVal) : new Date('2100-01-01');
-                // Reset hours for comparison
-                start.setHours(0,0,0,0);
-                end.setHours(23,59,59,999);
-
-                filteredData = filteredData.filter(item => {
-                    const itemDate = parseDate(item.date);
-                    // Invalid/No date items will be excluded if filter is active
-                    if (itemDate.getTime() === new Date(0).getTime()) return false; 
-                    return itemDate >= start && itemDate <= end;
-                });
-            }
-
-            // 4. Sort
-            if (currentSort !== 'default') {
-                filteredData.sort((a, b) => {
-                    const dateA = parseDate(a.date);
-                    const dateB = parseDate(b.date);
-                    
-                    if (currentSort === 'newest') {
-                        return dateB - dateA;
-                    } else {
-                        return dateA - dateB;
-                    }
-                });
-            }
-
-            els.listCount.textContent = `รายการ (${filteredData.length})`;
-
-            // Show clear button logic update for date range
-            if (startDateVal || endDateVal || currentFilter !== 'all') {
-                 els.clearFilterBtn.classList.remove('hidden');
-            } else {
-                 els.clearFilterBtn.classList.add('hidden');
-            }
-
-            if (filteredData.length === 0 && rawData.length > 0) {
-                els.jobList.innerHTML = '';
-                els.emptyState.classList.remove('hidden');
-            } else {
-                els.emptyState.classList.add('hidden');
-                els.jobList.innerHTML = filteredData.map(item => createJobCard(item)).join('');
-                lucide.createIcons();
-            }
         }
 
-        function createJobCard(data) {
-            const isComplete = data.progress === 100;
-            const statusBorder = isComplete ? 'border-green-500' : 'border-orange-400';
-            const progressBarColor = isComplete ? 'bg-green-500' : 'bg-orange-400';
-            const statusTextClass = isComplete ? 'text-green-600' : 'text-orange-600';
+        function removeCurrentRecorder() {
+            const name = els.inputRecorder.value.trim();
+            if(!name) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุชื่อ', text: 'ต้องพิมพ์หรือเลือกชื่อที่ต้องการลบ' });
+
+            let recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
+            if (!recorders.includes(name)) {
+                return Swal.fire({ icon: 'error', title: 'ไม่พบข้อมูล', text: 'ไม่พบชื่อนี้ในรายการที่บันทึกไว้' });
+            }
+
+            Swal.fire({
+                title: 'ยืนยันการลบ?',
+                text: `ต้องการลบชื่อ "${name}" ออกจากรายการใช่หรือไม่?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'ลบข้อมูล',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#ef4444'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    recorders = recorders.filter(r => r !== name);
+                    localStorage.setItem('job_tracker_recorders', JSON.stringify(recorders));
+                    loadSavedRecorders(); 
+                    els.inputRecorder.value = '';
+                    Swal.fire({icon: 'success', title: 'ลบสำเร็จ', timer: 1500, showConfirmButton: false});
+                }
+            });
+        }
+
+        // --- Lines Management ---
+        function loadSavedLines() {
+            const defaultLines = ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5'];
+            const lines = JSON.parse(localStorage.getItem('job_tracker_lines') || JSON.stringify(defaultLines));
+            els.inputLine.innerHTML = lines.map(l => `<option value="${l}">${l}</option>`).join('');
+        }
+
+        function addLine() {
+            Swal.fire({
+                title: 'เพิ่ม Line การผลิต',
+                input: 'text',
+                inputLabel: 'กรุณาใส่ชื่อ Line ใหม่',
+                inputPlaceholder: 'เช่น Line 6, Line A',
+                showCancelButton: true,
+                confirmButtonText: 'เพิ่ม',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#4f46e5',
+                preConfirm: (name) => {
+                    if (!name || !name.trim()) {
+                        Swal.showValidationMessage('กรุณาระบุชื่อ Line');
+                    }
+                    return name.trim();
+                }
+            }).then((result) => {
+                if (result.isConfirmed && result.value) {
+                    const name = result.value;
+                    const defaultLines = ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5'];
+                    const lines = JSON.parse(localStorage.getItem('job_tracker_lines') || JSON.stringify(defaultLines));
+                    
+                    if (lines.includes(name)) {
+                        Swal.fire('ข้อผิดพลาด', 'มีชื่อ Line นี้อยู่แล้ว', 'error');
+                    } else {
+                        // Confirm again as requested "confirm when adding"
+                        Swal.fire({
+                            title: 'ยืนยันการเพิ่ม?',
+                            text: `ต้องการเพิ่ม "${name}" ใช่หรือไม่?`,
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: 'ใช่, เพิ่มเลย',
+                            cancelButtonText: 'ยกเลิก'
+                        }).then((confirmResult) => {
+                            if (confirmResult.isConfirmed) {
+                                lines.push(name);
+                                lines.sort();
+                                localStorage.setItem('job_tracker_lines', JSON.stringify(lines));
+                                loadSavedLines();
+                                els.inputLine.value = name;
+                                Swal.fire({icon: 'success', title: 'เพิ่มสำเร็จ', timer: 1500, showConfirmButton: false});
+                            }
+                        });
+                    }
+                }
+            });
+        }
+
+        function removeLine() {
+            const currentLine = els.inputLine.value;
+            if (!currentLine) return;
             
-            const diff = data.actual - data.plan;
-            const diffClass = diff > 0 ? 'text-red-500' : 'text-slate-400';
+            Swal.fire({
+                title: 'ยืนยันการลบ?',
+                text: `ต้องการลบ "${currentLine}" ออกจากรายการใช่หรือไม่?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'ลบข้อมูล',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#ef4444'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const defaultLines = ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5'];
+                    let lines = JSON.parse(localStorage.getItem('job_tracker_lines') || JSON.stringify(defaultLines));
+                    
+                    lines = lines.filter(l => l !== currentLine);
+                    localStorage.setItem('job_tracker_lines', JSON.stringify(lines));
+                    loadSavedLines();
+                    Swal.fire({icon: 'success', title: 'ลบสำเร็จ', timer: 1500, showConfirmButton: false});
+                }
+            });
+        }
 
-            const icon = isComplete 
-                ? `<i data-lucide="check-circle" class="text-green-500 w-6 h-6 flex-shrink-0"></i>` 
-                : `<i data-lucide="clock" class="text-orange-400 w-6 h-6 flex-shrink-0"></i>`;
+        // --- Update Form ---
+        function openUpdateModal(jobId) {
+            const job = rawData.find(j => j.id === jobId);
+            if (!job) return;
+            currentEditingJob = job;
+            els.modalJobNo.textContent = job.jobNo;
+            els.modalModel.textContent = job.model;
+            const now = new Date();
+            els.inputDate.value = now.toISOString().split('T')[0];
+            els.inputHour.value = String(now.getHours()).padStart(2, '0');
+            els.inputMinute.value = String(now.getMinutes()).padStart(2, '0');
+            els.inputFgQty.value = '';
+            els.inputRecorder.value = localStorage.getItem('last_recorder') || ''; 
+            els.inputRemark.value = '';
+            els.updateModal.classList.remove('hidden');
+            setTimeout(() => { if (els.inputRecorder.value) els.inputFgQty.focus(); else els.inputRecorder.focus(); }, 100);
+        }
+        function closeUpdateModal() { els.updateModal.classList.add('hidden'); currentEditingJob = null; }
+        
+        function submitFormResponse() {
+            if (!scriptUrl) {
+                closeUpdateModal();
+                Swal.fire({ icon: 'warning', title: 'ยังไม่ได้ตั้งค่า Script', text: 'กรุณาใส่ลิงก์ Google Apps Script ก่อน', confirmButtonText: 'ตั้งค่า' }).then((r) => { if(r.isConfirmed) toggleSettings(); });
+                return;
+            }
+            const recorder = els.inputRecorder.value.trim();
+            const dateStr = els.inputDate.value; 
+            const timeStr = `${els.inputHour.value}:${els.inputMinute.value}`;
+            const fgQty = parseInt(els.inputFgQty.value);
+            const line = els.inputLine.value;
+            const modelChange = els.inputModelChange.value;
+            const remark = els.inputRemark.value.trim();
 
-            const footerText = isComplete
-                ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
-                : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
+            // Mandatory Checks
+            if (!recorder) return alert('กรุณาระบุผู้บันทึก');
+            if (!dateStr) return alert('กรุณาระบุวันที่');
+            if (isNaN(fgQty)) return alert('กรุณาระบุจำนวนที่ผลิตได้');
+            if (!line) return alert('กรุณาระบุ Line การผลิต');
+            if (!modelChange) return alert('กรุณาระบุการเปลี่ยนรุ่น');
 
-            return `
-                <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 relative overflow-hidden ${statusBorder}">
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <span class="text-xs text-slate-400 font-mono block mb-1">${data.date}</span>
-                            <h3 class="text-base font-bold text-slate-800 break-all">${data.jobNo}</h3>
-                        </div>
-                        ${icon}
-                    </div>
+            const [y, m, d] = dateStr.split('-');
+            const formattedDate = `${d}/${m}/${y}`;
 
-                    <div class="mb-4">
-                        <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">
-                            Model: ${data.model}
-                        </span>
-                    </div>
+            localStorage.setItem('last_recorder', recorder);
+            currentEditingJob.actual += fgQty;
+            currentEditingJob.progress = Math.min(Math.round((currentEditingJob.actual / currentEditingJob.plan) * 100), 100);
+            renderList(); closeUpdateModal();
 
-                    <div class="mb-4">
-                        <div class="flex justify-between text-xs mb-1.5">
-                            <span class="text-slate-500">ความคืบหน้า</span>
-                            <span class="font-bold ${statusTextClass}">${data.progress}%</span>
-                        </div>
-                        <div class="w-full bg-slate-100 rounded-full h-2.5">
-                            <div class="h-2.5 rounded-full progress-bar ${progressBarColor}" style="width: ${data.progress}%"></div>
-                        </div>
-                    </div>
+            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+            Toast.fire({ icon: 'info', title: 'กำลังส่งข้อมูล...' });
 
-                    <div class="grid grid-cols-2 gap-2 text-sm bg-slate-50 p-3 rounded-lg border border-slate-100">
-                        <div class="flex flex-col">
-                            <span class="text-xs text-slate-400">แผน (Plan)</span>
-                            <span class="font-semibold text-slate-700">${data.plan.toLocaleString()}</span>
-                        </div>
-                        <div class="flex flex-col border-l border-slate-200 pl-3">
-                            <span class="text-xs text-slate-400">ทำได้จริง (Actual)</span>
-                            <span class="font-bold ${data.actual < data.plan ? 'text-orange-600' : 'text-green-600'}">
-                                ${data.actual.toLocaleString()}
-                            </span>
-                        </div>
-                        <div class="col-span-2 border-t border-slate-200 mt-1 pt-2 flex justify-between items-center">
-                            <span class="text-xs text-slate-400">คงเหลือ (Diff)</span>
-                            <span class="font-mono font-medium ${diffClass}">
-                                ${(data.actual - data.plan).toLocaleString()}
-                            </span>
-                        </div>
-                    </div>
+            const payload = { recorder, date: formattedDate, time: timeStr, jobNo: currentEditingJob.jobNo, model: currentEditingJob.model, fgQty, modelChange, remark, line };
 
-                    <div class="mt-3 text-xs text-right">
-                        ${footerText}
-                    </div>
-                </div>
-            `;
+            fetch(scriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .then(() => Toast.fire({ icon: 'success', title: 'บันทึกสำเร็จ' }))
+            .catch(err => { console.error(err); Toast.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด' }); });
         }
 
         init();
