@@ -103,7 +103,6 @@
     </header>
 
     <!-- Demo Mode Warning -->
-    <!-- ปรับ top ให้หลบ Header พอดี (ประมาณ 130px) -->
     <div id="demo-banner" class="hidden bg-yellow-50 border-b border-yellow-200 px-4 py-2 flex items-center justify-between sticky top-[130px] z-20">
         <div class="flex items-center gap-2 text-xs text-yellow-800">
             <i data-lucide="info" class="w-4 h-4"></i>
@@ -115,7 +114,6 @@
     </div>
 
     <!-- Stats Summary Cards -->
-    <!-- ปรับ default top เป็น 130px เพื่อให้ไม่โดน Header บัง -->
     <div id="stats-container" class="grid grid-cols-3 gap-3 p-4 sticky top-[130px] z-10 bg-slate-50/95 backdrop-blur-sm border-b border-slate-200 shadow-sm transition-all duration-300">
         <!-- Card: All -->
         <div onclick="setFilter('all')" id="filter-all"
@@ -145,16 +143,52 @@
         </div>
     </div>
 
+    <!-- Date Range Filter (Hidden by default) -->
+    <div id="date-filter-panel" class="hidden px-4 mt-2 mb-2 transition-all duration-300">
+        <div class="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold text-slate-500 flex items-center gap-1">
+                    <i data-lucide="calendar" class="w-3 h-3"></i> กรองช่วงวันที่
+                </span>
+                <button onclick="clearDateFilter()" class="text-[10px] text-indigo-600 underline">ล้างวันที่</button>
+            </div>
+            <div class="flex gap-2 items-center">
+                <div class="flex-1">
+                    <input type="date" id="start-date" onchange="renderList()" class="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600">
+                </div>
+                <span class="text-slate-300">-</span>
+                <div class="flex-1">
+                    <input type="date" id="end-date" onchange="renderList()" class="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Content Area -->
     <div class="px-4 mt-2">
         <div class="flex items-center justify-between text-sm text-slate-500 px-1 mb-3">
             <span id="list-count">รายการ (0)</span>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
                 <div id="loading-indicator" class="hidden"><div class="loader"></div></div>
-                <button id="clear-filter-btn" onclick="setFilter('all')" class="hidden flex items-center gap-1 text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg">
+                
+                <!-- Clear Filter Button -->
+                <button id="clear-filter-btn" onclick="clearAllFilters()" class="hidden flex items-center gap-1 text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg text-xs">
                     แสดงทั้งหมด <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
                 </button>
-                <button onclick="reloadData()" class="text-slate-400 hover:text-indigo-600">
+
+                <!-- Date Filter Toggle Button -->
+                <button id="date-filter-btn" onclick="toggleDateFilter()" class="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 rounded-lg transition-colors shadow-sm">
+                    <i data-lucide="calendar-range" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Sort Button -->
+                <button id="sort-btn" onclick="toggleSort()" class="flex items-center gap-1 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm">
+                    <span id="sort-label">ปกติ</span>
+                    <i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i>
+                </button>
+
+                <!-- Refresh Button -->
+                <button onclick="reloadData()" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors">
                     <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                 </button>
             </div>
@@ -228,7 +262,7 @@
                 </div>
 
                 <div class="text-center text-xs text-slate-400 pt-2">
-                    Job Order Tracker v1.5 (Sticky Fixed)
+                    Job Order Tracker v1.8 (Date Range Filter)
                 </div>
             </div>
         </div>
@@ -265,6 +299,7 @@
         let rawData = [];
         let fuse;
         let currentFilter = 'all';
+        let currentSort = 'default';
         let searchTerm = '';
         let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
         let isDemoMode = false;
@@ -288,7 +323,13 @@
             settingsModal: document.getElementById('settings-modal'),
             sheetUrlInput: document.getElementById('sheet-url-input'),
             loadingIndicator: document.getElementById('loading-indicator'),
-            lastUpdated: document.getElementById('last-updated')
+            lastUpdated: document.getElementById('last-updated'),
+            sortBtn: document.getElementById('sort-btn'),
+            sortLabel: document.getElementById('sort-label'),
+            dateFilterBtn: document.getElementById('date-filter-btn'),
+            dateFilterPanel: document.getElementById('date-filter-panel'),
+            startDate: document.getElementById('start-date'),
+            endDate: document.getElementById('end-date')
         };
 
         function init() {
@@ -368,6 +409,79 @@
             }
         }
 
+        // --- Date Filter Logic ---
+        function toggleDateFilter() {
+            els.dateFilterPanel.classList.toggle('hidden');
+            if (!els.dateFilterPanel.classList.contains('hidden')) {
+                els.dateFilterBtn.classList.add('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+            } else {
+                els.dateFilterBtn.classList.remove('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+            }
+        }
+
+        function clearDateFilter() {
+            els.startDate.value = '';
+            els.endDate.value = '';
+            renderList();
+        }
+
+        function clearAllFilters() {
+            setFilter('all');
+            clearDateFilter();
+            // Optional: reset sort
+            // currentSort = 'default';
+            // updateSortUI();
+        }
+
+        // --- Sorting Logic ---
+        function toggleSort() {
+            if (currentSort === 'default') {
+                currentSort = 'newest';
+            } else if (currentSort === 'newest') {
+                currentSort = 'oldest';
+            } else {
+                currentSort = 'default';
+            }
+            updateSortUI();
+            renderList();
+        }
+
+        function updateSortUI() {
+            let iconName = 'arrow-up-down';
+            let labelText = 'ปกติ';
+            let btnClass = "flex items-center gap-1 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-slate-400 hover:text-indigo-600";
+
+            if (currentSort === 'newest') {
+                iconName = 'arrow-down';
+                labelText = 'ใหม่-เก่า';
+                btnClass = "flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-indigo-700 font-medium";
+            } else if (currentSort === 'oldest') {
+                iconName = 'arrow-up';
+                labelText = 'เก่า-ใหม่';
+                btnClass = "flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm text-indigo-700 font-medium";
+            }
+
+            els.sortLabel.textContent = labelText;
+            els.sortBtn.className = btnClass;
+
+            const oldIcon = els.sortBtn.querySelector('svg') || els.sortBtn.querySelector('i');
+            if (oldIcon) oldIcon.remove();
+
+            const newIcon = document.createElement('i');
+            newIcon.setAttribute('data-lucide', iconName);
+            newIcon.setAttribute('class', 'w-3.5 h-3.5');
+            els.sortBtn.appendChild(newIcon);
+
+            lucide.createIcons();
+        }
+
+        function parseDate(dateStr) {
+            if (!dateStr || dateStr === '-') return new Date(0); 
+            const parts = dateStr.split('/');
+            if (parts.length !== 3) return new Date(0);
+            return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+
         function initFuse(data) {
             const options = {
                 keys: ['jobNo', 'model', 'date'],
@@ -383,10 +497,7 @@
             rawData = MOCK_DATA;
             initFuse(rawData);
             
-            // Handle Sticky Layout for Demo Mode
             els.demoBanner.classList.remove('hidden');
-            // Header height + Demo Banner height = Stats Top
-            // Approx: 130px + 40px = 170px
             els.statsContainer.style.top = '170px'; 
             
             renderStats();
@@ -414,7 +525,6 @@
                     
                     isDemoMode = false;
                     els.demoBanner.classList.add('hidden');
-                    // Reset sticky top to just Header height
                     els.statsContainer.style.top = '130px'; 
 
                     const now = new Date();
@@ -549,12 +659,16 @@
         function renderList() {
             let searchResults = rawData;
             
+            // 1. Fuzzy Search
             if (searchTerm.trim() !== '') {
                 const results = fuse.search(searchTerm);
                 searchResults = results.map(result => result.item);
             }
 
-            const filteredData = searchResults.filter(item => {
+            let filteredData = [...searchResults];
+            
+            // 2. Status Filter
+            filteredData = filteredData.filter(item => {
                 const matchesFilter = 
                     currentFilter === 'all' ? true :
                     currentFilter === 'complete' ? item.progress === 100 :
@@ -563,7 +677,47 @@
                 return matchesFilter;
             });
 
+            // 3. Date Range Filter
+            const startDateVal = els.startDate.value;
+            const endDateVal = els.endDate.value;
+            
+            if (startDateVal || endDateVal) {
+                const start = startDateVal ? new Date(startDateVal) : new Date('1900-01-01');
+                const end = endDateVal ? new Date(endDateVal) : new Date('2100-01-01');
+                // Reset hours for comparison
+                start.setHours(0,0,0,0);
+                end.setHours(23,59,59,999);
+
+                filteredData = filteredData.filter(item => {
+                    const itemDate = parseDate(item.date);
+                    // Invalid/No date items will be excluded if filter is active
+                    if (itemDate.getTime() === new Date(0).getTime()) return false; 
+                    return itemDate >= start && itemDate <= end;
+                });
+            }
+
+            // 4. Sort
+            if (currentSort !== 'default') {
+                filteredData.sort((a, b) => {
+                    const dateA = parseDate(a.date);
+                    const dateB = parseDate(b.date);
+                    
+                    if (currentSort === 'newest') {
+                        return dateB - dateA;
+                    } else {
+                        return dateA - dateB;
+                    }
+                });
+            }
+
             els.listCount.textContent = `รายการ (${filteredData.length})`;
+
+            // Show clear button logic update for date range
+            if (startDateVal || endDateVal || currentFilter !== 'all') {
+                 els.clearFilterBtn.classList.remove('hidden');
+            } else {
+                 els.clearFilterBtn.classList.add('hidden');
+            }
 
             if (filteredData.length === 0 && rawData.length > 0) {
                 els.jobList.innerHTML = '';
