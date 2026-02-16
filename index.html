@@ -82,7 +82,7 @@
             <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
                 <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
             </p>
-         
+          
         </div>
     </div>
 
@@ -982,9 +982,22 @@
             // Optimistic Update
             currentEditingJob.actual += fgQty;
             currentEditingJob.progress = Math.min(Math.round((currentEditingJob.actual / currentEditingJob.plan) * 100), 100);
-            renderList(); // Re-render local list first
             
-            closeUpdateModal();
+            // Generate payload BEFORE closing modal to ensure currentEditingJob is available
+            const payload = { 
+                recorder, 
+                date: formattedDate, 
+                time: timeStr, 
+                jobNo: currentEditingJob.jobNo, 
+                model: currentEditingJob.model, 
+                fgQty, 
+                modelChange, 
+                remark, 
+                line 
+            };
+
+            renderList(); 
+            closeUpdateModal(); // This nullifies currentEditingJob
 
             // Show Loading
             Swal.fire({
@@ -994,8 +1007,6 @@
                 },
                 allowOutsideClick: false
             });
-
-            const payload = { recorder, date: formattedDate, time: timeStr, jobNo: currentEditingJob.jobNo, model: currentEditingJob.model, fgQty, modelChange, remark, line };
 
             fetch(scriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
             .then(() => {
