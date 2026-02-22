@@ -903,6 +903,7 @@
                     if (lines.includes(name)) {
                         Swal.fire('ข้อผิดพลาด', 'มีชื่อ Line นี้อยู่แล้ว', 'error');
                     } else {
+                        // Confirm again as requested "confirm when adding"
                         Swal.fire({
                             title: 'ยืนยันการเพิ่ม?',
                             text: `ต้องการเพิ่ม "${name}" ใช่หรือไม่?`,
@@ -980,8 +981,8 @@
                     icon: 'success',
                     title: 'ยกเลิกสำเร็จ',
                     text: 'ลบข้อมูลเรียบร้อยแล้ว',
-                    timer: 2000,
-                    showConfirmButton: false
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#10b981'
                 });
             }).catch(err => {
                 Swal.fire({ icon: 'error', title: 'ยกเลิกไม่สำเร็จ', text: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
@@ -1063,19 +1064,14 @@
                 allowOutsideClick: false
             });
 
-            const timeout = new Promise((resolve) => {
-                setTimeout(() => resolve('timeout'), 5000); 
-            });
-
-            const request = fetch(scriptUrl, { 
+            fetch(scriptUrl, { 
                 method: 'POST', 
                 mode: 'no-cors', 
                 headers: { 'Content-Type': 'text/plain' }, 
                 body: JSON.stringify(payload) 
-            });
-
-            Promise.race([request, timeout])
+            })
             .then(() => {
+                // Success popup (Manual Close)
                 Swal.fire({
                     icon: 'success',
                     title: 'บันทึกสำเร็จ',
@@ -1084,9 +1080,7 @@
                     confirmButtonText: 'ตกลง',
                     cancelButtonText: 'ยกเลิกรายการนี้ (Undo)',
                     confirmButtonColor: '#10b981', 
-                    cancelButtonColor: '#ef4444', 
-                    timer: 6000,
-                    timerProgressBar: true
+                    cancelButtonColor: '#ef4444'
                 }).then((result) => {
                     if (result.dismiss === Swal.DismissReason.cancel) {
                         undoSubmission(payload);
