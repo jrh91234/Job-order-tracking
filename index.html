@@ -82,7 +82,7 @@
             <p id="login-error" class="text-red-500 text-xs mt-3 hidden flex items-center justify-center gap-1">
                 <i data-lucide="alert-circle" class="w-3 h-3"></i> รหัสผ่านไม่ถูกต้อง
             </p>
-           
+            <p class="text-slate-400 text-xs mt-6">รหัสเริ่มต้น: 1234</p>
         </div>
     </div>
 
@@ -115,16 +115,16 @@
                 <div>
                     <label class="block text-xs font-bold text-slate-700 mb-1">ผู้บันทึก (Recorder) <span class="text-red-500">*</span></label>
                     <div class="flex gap-2">
-                        <div class="relative flex-1">
-                            <input type="text" id="input-recorder" list="recorder-list" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="เลือกหรือพิมพ์ชื่อใหม่..." autocomplete="off">
-                            <datalist id="recorder-list">
-                                <!-- Options will be populated by JS -->
-                            </datalist>
-                        </div>
-                        <button onclick="addCurrentRecorder()" class="px-3 bg-green-50 text-green-600 border border-green-200 rounded-lg hover:bg-green-100 transition-colors" title="เพิ่มชื่อนี้">
+                        <!-- เปลี่ยนเป็น Select Dropdown -->
+                        <select id="input-recorder" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none flex-1">
+                            <option value="">-- เลือกรายชื่อ --</option>
+                            <!-- Options จะถูกสร้างโดย JS -->
+                        </select>
+                        
+                        <button onclick="addNewRecorder()" class="px-3 bg-green-50 text-green-600 border border-green-200 rounded-lg hover:bg-green-100 transition-colors flex-shrink-0" title="เพิ่มชื่อใหม่">
                             <i data-lucide="plus" class="w-4 h-4"></i>
                         </button>
-                        <button onclick="removeCurrentRecorder()" class="px-3 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors" title="ลบชื่อนี้">
+                        <button onclick="removeSelectedRecorder()" class="px-3 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex-shrink-0" title="ลบชื่อที่เลือก">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
@@ -169,6 +169,16 @@
                         </div>
                     </div>
                     <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">กะการทำงาน (Shift) <span class="text-red-500">*</span></label>
+                        <select id="input-shift" class="w-full p-2 border border-slate-300 rounded-lg text-sm">
+                            <option value="Day">Day (กลางวัน)</option>
+                            <option value="Night">Night (กลางคืน)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="col-span-2">
                         <label class="block text-xs font-bold text-slate-700 mb-1">เปลี่ยนรุ่น (Model Change) <span class="text-red-500">*</span></label>
                         <select id="input-model-change" class="w-full p-2 border border-slate-300 rounded-lg text-sm">
                             <option value="No">No (ไม่เปลี่ยน)</option>
@@ -327,9 +337,9 @@
         // ==========================================
         // CONFIGURATION
         // ==========================================
-        const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=1416776201&single=true&output=csv"; 
+        const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=934980474&single=true&output=csv"; 
         const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
-        const DEFAULT_PIN = "1111";
+        const DEFAULT_PIN = "1234";
 
         const MOCK_DATA = [
             { id: 1, date: '16/9/2025', jobNo: 'TH-SCDD2025090244', model: 'S9HCL14', plan: 600, actual: 600, progress: 100, status: 'complete', finishDate: '2025/09/19' },
@@ -386,6 +396,7 @@
             inputMinute: document.getElementById('input-minute'),
             inputFgQty: document.getElementById('input-fg-qty'),
             inputLine: document.getElementById('input-line'),
+            inputShift: document.getElementById('input-shift'),
             inputModelChange: document.getElementById('input-model-change'),
             inputRemark: document.getElementById('input-remark')
         };
@@ -697,7 +708,16 @@
         function fetchData() {
             if (!sheetUrl) return loadMockData();
             els.loadingIndicator.classList.remove('hidden');
-            Papa.parse(sheetUrl, {
+            
+            // เพิ่มระบบ Cache Busting บังคับให้ดึงไฟล์ใหม่ล่าสุดเสมอ
+            let fetchUrl = sheetUrl;
+            if (fetchUrl.includes('?')) {
+                fetchUrl += '&_t=' + new Date().getTime();
+            } else {
+                fetchUrl += '?_t=' + new Date().getTime();
+            }
+
+            Papa.parse(fetchUrl, {
                 download: true, header: true, skipEmptyLines: true,
                 complete: function(results) {
                     processData(results.data);
@@ -800,46 +820,45 @@
         // --- Recorders ---
         function loadSavedRecorders() {
             const recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
-            els.recorderList.innerHTML = recorders.map(r => `<option value="${r}">`).join('');
+            // Use select options instead of datalist
+            let optionsHtml = '<option value="">-- เลือกรายชื่อ --</option>';
+            optionsHtml += recorders.map(r => `<option value="${r}">${r}</option>`).join('');
+            els.inputRecorder.innerHTML = optionsHtml;
         }
 
-        function addCurrentRecorder() {
-            const name = els.inputRecorder.value.trim();
-            if(!name) return Swal.fire({ icon: 'warning', title: 'กรุณาพิมพ์ชื่อ', text: 'ต้องระบุชื่อก่อนทำการเพิ่ม' });
-            
-            const recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
-            if (recorders.includes(name)) {
-                return Swal.fire({ icon: 'info', title: 'มีชื่อนี้อยู่แล้ว', showConfirmButton: false, timer: 1500 });
-            }
-
+        function addNewRecorder() {
             Swal.fire({
-                title: 'ยืนยันการเพิ่ม?',
-                text: `ต้องการเพิ่มชื่อ "${name}" เข้าสู่รายการใช่หรือไม่?`,
-                icon: 'question',
+                title: 'เพิ่มรายชื่อใหม่',
+                input: 'text',
+                inputLabel: 'กรุณาใส่ชื่อ-นามสกุล',
+                inputPlaceholder: 'เช่น นายสมชาย ใจดี',
                 showCancelButton: true,
-                confirmButtonText: 'ยืนยัน',
+                confirmButtonText: 'บันทึก',
                 cancelButtonText: 'ยกเลิก',
-                confirmButtonColor: '#4f46e5',
-                cancelButtonColor: '#ef4444'
+                confirmButtonColor: '#4f46e5'
             }).then((result) => {
-                if (result.isConfirmed) {
-                    recorders.push(name); 
-                    recorders.sort();
-                    localStorage.setItem('job_tracker_recorders', JSON.stringify(recorders));
-                    loadSavedRecorders(); 
-                    Swal.fire({icon: 'success', title: 'เพิ่มสำเร็จ', timer: 1500, showConfirmButton: false});
+                if (result.isConfirmed && result.value) {
+                    const name = result.value.trim();
+                    if(!name) return;
+                    
+                    const recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
+                    if (!recorders.includes(name)) {
+                        recorders.push(name);
+                        recorders.sort();
+                        localStorage.setItem('job_tracker_recorders', JSON.stringify(recorders));
+                        loadSavedRecorders();
+                        els.inputRecorder.value = name; // Select the new name
+                        Swal.fire({icon: 'success', title: 'เพิ่มสำเร็จ', timer: 1500, showConfirmButton: false});
+                    } else {
+                        Swal.fire({icon: 'info', text: 'มีชื่อนี้อยู่แล้ว', timer: 1500, showConfirmButton: false});
+                    }
                 }
             });
         }
 
-        function removeCurrentRecorder() {
-            const name = els.inputRecorder.value.trim();
-            if(!name) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุชื่อ', text: 'ต้องพิมพ์หรือเลือกชื่อที่ต้องการลบ' });
-
-            let recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
-            if (!recorders.includes(name)) {
-                return Swal.fire({ icon: 'error', title: 'ไม่พบข้อมูล', text: 'ไม่พบชื่อนี้ในรายการที่บันทึกไว้' });
-            }
+        function removeSelectedRecorder() {
+            const name = els.inputRecorder.value;
+            if(!name) return Swal.fire({ icon: 'warning', title: 'กรุณาเลือกชื่อ', text: 'ต้องเลือกชื่อจากรายการก่อนทำการลบ' });
 
             Swal.fire({
                 title: 'ยืนยันการลบ?',
@@ -851,9 +870,10 @@
                 confirmButtonColor: '#ef4444'
             }).then((result) => {
                 if (result.isConfirmed) {
+                    let recorders = JSON.parse(localStorage.getItem('job_tracker_recorders') || '[]');
                     recorders = recorders.filter(r => r !== name);
                     localStorage.setItem('job_tracker_recorders', JSON.stringify(recorders));
-                    loadSavedRecorders(); 
+                    loadSavedRecorders();
                     els.inputRecorder.value = '';
                     Swal.fire({icon: 'success', title: 'ลบสำเร็จ', timer: 1500, showConfirmButton: false});
                 }
@@ -940,6 +960,44 @@
             });
         }
 
+        // --- Undo Form Response ---
+        function undoSubmission(payload) {
+            // Revert Optimistic Update Locally
+            const job = rawData.find(j => j.jobNo === payload.jobNo);
+            if (job) {
+                job.actual -= payload.fgQty;
+                job.progress = Math.min(Math.round((job.actual / job.plan) * 100), 100);
+                renderList();
+            }
+
+            Swal.fire({
+                title: 'กำลังยกเลิก...',
+                text: 'กำลังลบข้อมูลออกจากระบบ',
+                didOpen: () => { Swal.showLoading(); },
+                allowOutsideClick: false
+            });
+
+            // Send undo command
+            const undoPayload = { ...payload, action: 'undo' };
+            
+            fetch(scriptUrl, { 
+                method: 'POST', 
+                mode: 'no-cors', 
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(undoPayload) 
+            }).then(() => {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'ยกเลิกสำเร็จ',
+                    text: 'ลบข้อมูลเรียบร้อยแล้ว',
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#10b981'
+                });
+            }).catch(err => {
+                Swal.fire({ icon: 'error', title: 'ยกเลิกไม่สำเร็จ', text: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+            });
+        }
+
         // --- Update Form ---
         function openUpdateModal(jobId) {
             const job = rawData.find(j => j.id === jobId);
@@ -950,7 +1008,7 @@
             const now = new Date();
             els.inputDate.value = now.toISOString().split('T')[0];
             els.inputHour.value = String(now.getHours()).padStart(2, '0');
-            els.inputMinute.value = '00'; // ตั้งค่านาทีเริ่มต้นเป็น 00 อัตโนมัติ
+            els.inputMinute.value = '00'; 
             els.inputFgQty.value = '';
             els.inputRecorder.value = localStorage.getItem('last_recorder') || ''; 
             els.inputRemark.value = '';
@@ -970,42 +1028,42 @@
             const timeStr = `${els.inputHour.value}:${els.inputMinute.value}`;
             const fgQty = parseInt(els.inputFgQty.value);
             const line = els.inputLine.value;
+            const shift = els.inputShift.value;
             const modelChange = els.inputModelChange.value;
             const remark = els.inputRemark.value.trim();
 
-            // Mandatory Checks
             if (!recorder) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุผู้บันทึก' });
             if (!dateStr) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุวันที่' });
             if (isNaN(fgQty)) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุจำนวนที่ผลิตได้' });
             if (!line) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุ Line การผลิต' });
             if (!modelChange) return Swal.fire({ icon: 'warning', title: 'กรุณาระบุการเปลี่ยนรุ่น' });
 
-            const [y, m, d] = dateStr.split('-');
-            const formattedDate = `${d}/${m}/${y}`;
-
             localStorage.setItem('last_recorder', recorder);
             
-            // Optimistic Update
             currentEditingJob.actual += fgQty;
             currentEditingJob.progress = Math.min(Math.round((currentEditingJob.actual / currentEditingJob.plan) * 100), 100);
             
-            // Generate payload BEFORE closing modal to ensure currentEditingJob is available
+            // 1. Generate Batch ID for Undo Tracking
+            const batchId = 'BATCH-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            
+            // 2. Generate payload with Batch ID and Standard Date String
             const payload = { 
-                recorder, 
-                date: formattedDate, 
+                batchId: batchId,
+                recorder: recorder, 
+                date: dateStr, // Sending YYYY-MM-DD for backend parsing
                 time: timeStr, 
                 jobNo: currentEditingJob.jobNo, 
                 model: currentEditingJob.model, 
-                fgQty, 
-                modelChange, 
-                remark, 
-                line 
+                fgQty: fgQty, 
+                shift: shift,
+                modelChange: modelChange, 
+                remark: remark, 
+                line: line 
             };
 
             renderList(); 
-            closeUpdateModal(); // This nullifies currentEditingJob
+            closeUpdateModal(); 
 
-            // Show Loading
             Swal.fire({
                 title: 'กำลังบันทึกข้อมูล...',
                 text: 'กรุณารอสักครู่',
@@ -1015,34 +1073,31 @@
                 allowOutsideClick: false
             });
 
-            // Timeout Promise to prevent hanging on Android
-            const timeout = new Promise((resolve) => {
-                setTimeout(() => resolve('timeout'), 5000); // 5 seconds max wait
-            });
-
-            const request = fetch(scriptUrl, { 
+            fetch(scriptUrl, { 
                 method: 'POST', 
                 mode: 'no-cors', 
-                headers: { 'Content-Type': 'text/plain' }, // Changed to text/plain for better compatibility
+                headers: { 'Content-Type': 'text/plain' }, 
                 body: JSON.stringify(payload) 
-            });
-
-            Promise.race([request, timeout])
+            })
             .then(() => {
-                // Success popup (Close loading)
+                // Success popup (Manual Close)
                 Swal.fire({
                     icon: 'success',
                     title: 'บันทึกสำเร็จ',
                     text: 'ส่งข้อมูลเรียบร้อยแล้ว',
-                    timer: 1500,
-                    showConfirmButton: false
+                    showCancelButton: true,
+                    confirmButtonText: 'ตกลง',
+                    cancelButtonText: 'ยกเลิกรายการนี้ (Undo)',
+                    confirmButtonColor: '#10b981', 
+                    cancelButtonColor: '#ef4444'
+                }).then((result) => {
+                    if (result.dismiss === Swal.DismissReason.cancel) {
+                        undoSubmission(payload);
+                    }
                 });
             })
             .catch(err => { 
                 console.error(err); 
-                // In no-cors, catch usually only triggers on network failure (offline/DNS).
-                // If it hangs, the timeout above resolves the race and shows success (optimistic).
-                // If actual error:
                 Swal.fire({
                     icon: 'error',
                     title: 'เกิดข้อผิดพลาด',
