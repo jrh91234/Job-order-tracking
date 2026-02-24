@@ -708,7 +708,16 @@
         function fetchData() {
             if (!sheetUrl) return loadMockData();
             els.loadingIndicator.classList.remove('hidden');
-            Papa.parse(sheetUrl, {
+            
+            // เพิ่มระบบ Cache Busting บังคับให้ดึงไฟล์ใหม่ล่าสุดเสมอ
+            let fetchUrl = sheetUrl;
+            if (fetchUrl.includes('?')) {
+                fetchUrl += '&_t=' + new Date().getTime();
+            } else {
+                fetchUrl += '?_t=' + new Date().getTime();
+            }
+
+            Papa.parse(fetchUrl, {
                 download: true, header: true, skipEmptyLines: true,
                 complete: function(results) {
                     processData(results.data);
