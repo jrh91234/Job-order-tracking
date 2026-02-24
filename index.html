@@ -337,7 +337,7 @@
         // ==========================================
         // CONFIGURATION
         // ==========================================
-        const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv"; 
+        const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?gid=934980474&single=true&output=csv"; 
         const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
         const DEFAULT_PIN = "1234";
 
@@ -535,9 +535,60 @@
 
         function parseDate(dateStr) {
             if (!dateStr || dateStr === '-') return new Date(0); 
-            const parts = dateStr.split('/');
-            if (parts.length !== 3) return new Date(0);
-            return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+            
+            // ตัดส่วนที่เป็นเวลาออก (ถ้ามี) เช่น "9/16/2025 0:00:00" -> "9/16/2025"
+            let cleanStr = String(dateStr).trim().split(' ')[0];
+            
+            // กรณีมี / (เช่น 16/09/2025 หรือ 09/16/2025)
+            if (cleanStr.includes('/')) {
+                const parts = cleanStr.split('/');
+                if (parts.length === 3) {
+                    let d = parseInt(parts[0]);
+                    let m = parseInt(parts[1]);
+                    let y = parseInt(parts[2]);
+                    
+                    // ถ้าปีอยู่ข้างหน้า (YYYY/MM/DD)
+                    if (d > 1000) {
+                        return new Date(d, m - 1, y);
+                    }
+                    
+                    // Google Sheet มักจะส่งรูปแบบ US (MM/DD/YYYY) มาในบางครั้ง
+                    // เช็คว่าถ้าตัวแรก > 12 แสดงว่าเป็นวันที่แน่นอน (DD/MM/YYYY)
+                    if (d > 12) {
+                        return new Date(y, m - 1, d);
+                    } 
+                    // ถ้าตัวที่สอง > 12 แสดงว่าเป็นวันที่แน่นอน (MM/DD/YYYY)
+                    else if (m > 12) {
+                        return new Date(y, d - 1, m);
+                    }
+                    // ถ้าไม่ชัวร์ ให้ถือว่าเป็น DD/MM/YYYY ไปก่อน (มาตรฐานไทย)
+                    return new Date(y, m - 1, d);
+                }
+            } 
+            // กรณีมี - (เช่น 2025-09-16)
+            else if (cleanStr.includes('-')) {
+                const parts = cleanStr.split('-');
+                if (parts.length === 3) {
+                    if (parts[0].length === 4) { // YYYY-MM-DD
+                        return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    } else { // DD-MM-YYYY
+                        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                    }
+                }
+            }
+            
+            // กรณีดึงมาเป็นตัวเลข (Serial Number จาก Excel/Sheets) เช่น 45551
+            if (!isNaN(cleanStr) && cleanStr > 10000) {
+                // แปลง Excel Serial Date เป็น JS Date (เริ่ม 1 Jan 1900)
+                let excelDate = new Date((cleanStr - (25567 + 2)) * 86400 * 1000); 
+                return excelDate;
+            }
+
+            // ถ้าหลุดเงื่อนไขทั้งหมด ลองใช้ Native JS Date Parse
+            const fallback = new Date(dateStr);
+            if (!isNaN(fallback.getTime())) return fallback;
+
+            return new Date(0);
         }
 
         function initFuse(data) {
@@ -687,9 +738,23 @@
                 const progress = parseFloat(progressRaw);
                 const isComplete = progress === 100;
                 
+                // จัดการรูปแบบวันที่ให้เป็น DD/MM/YYYY เสมอก่อนนำไปใช้แสดงผลและประมวลผลต่อ
+                let rawDateStr = row[dateKey] || '-';
+                let formattedDate = rawDateStr;
+                
+                if (rawDateStr !== '-') {
+                    let parsedDate = parseDate(rawDateStr);
+                    if (parsedDate.getTime() !== 0) {
+                        let dd = String(parsedDate.getDate()).padStart(2, '0');
+                        let mm = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                        let yyyy = parsedDate.getFullYear();
+                        formattedDate = `${dd}/${mm}/${yyyy}`; // บังคับโครงสร้างนี้เพื่อไม่ให้มีปัญหาตอน Sort
+                    }
+                }
+                
                 return {
                     id: index,
-                    date: row[dateKey] || '-',
+                    date: formattedDate,
                     jobNo: row[jobKey] || '-',
                     model: row[modelKey] || '-',
                     plan: plan,
