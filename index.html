@@ -846,6 +846,23 @@
                 keywords.some(kw => k.toLowerCase().trim() === kw.toLowerCase().trim() || k.toLowerCase().includes(kw.toLowerCase()))
             );
 
+            const sourceCheck = {
+                date: findHeaderByPriority(keys, ['Date'], ['date']),
+                time: findHeaderByPriority(keys, ['Time (เวลา)', 'Time'], ['time', 'เวลา']),
+                job: findHeaderByPriority(keys, ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'], ['job order', 'job no', 'หมายเลขกำกับงาน']),
+                qty: findHeaderByPriority(keys, ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'], ['fg qty', 'fgqty', 'จำนวน'])
+            };
+
+            const isYodProductionSource = sourceCheck.date && sourceCheck.time && sourceCheck.job && sourceCheck.qty;
+            if (!isYodProductionSource) {
+                console.warn('CSV source does not match ยอดผลิต headers', { keys: keys, sourceCheck: sourceCheck });
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'แหล่งข้อมูลไม่ใช่ชีท "ยอดผลิต"',
+                    html: 'กรุณาใช้ CSV ที่ Publish มาจากชีท <b>ยอดผลิต</b><br>และต้องมีคอลัมน์ Date, Time (เวลา), Job order, FG Qty'
+                });
+            }
+
             let jobKey = keys.find(k => k.includes('Job order No.')); 
             if (!jobKey) jobKey = findKey(['Job order', 'Job No']);
 
