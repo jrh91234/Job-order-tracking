@@ -736,31 +736,47 @@
             fuse = new Fuse(data, options);
         }
 
+        function normalizeSheetUrl(url) {
+            if (!url) return url;
+            const trimmed = String(url).trim();
+            if (/^https?:\/\//i.test(trimmed)) return trimmed;
+            if (/^(docs\.google\.com|doc-\w+-\w+-sheets\.googleusercontent\.com)/i.test(trimmed)) {
+                return `https://${trimmed}`;
+            }
+            return trimmed;
+        }
+
+        function canForceGid(parsedUrl) {
+            const path = parsedUrl.pathname || '';
+            const isGoogleSheetHost = parsedUrl.hostname.includes('docs.google.com');
+            const isSpreadsheetDocUrl = path.includes('/spreadsheets/d/');
+            const isPublishedEPattern = path.includes('/spreadsheets/d/e/');
+            return isGoogleSheetHost && isSpreadsheetDocUrl && !isPublishedEPattern;
+        }
+
         function forceYodProductionSheetUrl(url) {
             if (!url) return url;
             try {
-                const parsed = new URL(url);
-                const isGoogleSheet = parsed.hostname.includes('docs.google.com') && parsed.pathname.includes('/spreadsheets/');
-                if (!isGoogleSheet) return url;
+                const parsed = new URL(normalizeSheetUrl(url));
+                if (!canForceGid(parsed)) return parsed.toString();
 
                 parsed.searchParams.set('gid', YOD_PRODUCTION_GID);
                 return parsed.toString();
             } catch (err) {
-                return url;
+                return normalizeSheetUrl(url);
             }
         }
 
         function forcePlanSheetUrl(url) {
             if (!url) return url;
             try {
-                const parsed = new URL(url);
-                const isGoogleSheet = parsed.hostname.includes('docs.google.com') && parsed.pathname.includes('/spreadsheets/');
-                if (!isGoogleSheet) return url;
+                const parsed = new URL(normalizeSheetUrl(url));
+                if (!canForceGid(parsed)) return parsed.toString();
 
                 parsed.searchParams.set('gid', PLAN_GID);
                 return parsed.toString();
             } catch (err) {
-                return url;
+                return normalizeSheetUrl(url);
             }
         }
 
