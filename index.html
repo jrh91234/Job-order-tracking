@@ -1122,13 +1122,18 @@
             applyPendingSubmissionsToRawData();
             renderStats();
             renderList();
-            restoreScrollIfNeeded();
             loadBreakdownFromYodSheet();
         }
 
         function loadBreakdownFromYodSheet() {
             const sourceUrl = yodSheetUrl || sheetUrl;
-            if (!sourceUrl) return;
+            if (!sourceUrl) {
+                applyPendingSubmissionsToRawData();
+                renderStats();
+                renderList();
+                restoreScrollIfNeeded();
+                return;
+            }
             const yodUrl = yodSheetUrl ? normalizeSheetUrl(yodSheetUrl) : forceYodProductionSheetUrl(sheetUrl);
             const fetchYodUrl = yodUrl.includes('?') ? `${yodUrl}&_t=${Date.now()}` : `${yodUrl}?_t=${Date.now()}`;
 
@@ -1156,18 +1161,22 @@
                         return;
                     }
 
-                    reconcilePendingWithYodRows(rows, keys);
                     hourlyBreakdownByJob = buildHourlyBreakdownMap(rows, keys, findKey);
                     rawData = rawData.map(item => ({
                         ...item,
                         hourlyBreakdown: hourlyBreakdownByJob[item.jobNo] || []
                     }));
                     applyPendingSubmissionsToRawData();
+                    renderStats();
                     renderList();
                     restoreScrollIfNeeded();
                 },
                 error: function(err) {
                     console.warn('Cannot load ยอดผลิต breakdown CSV', err);
+                    applyPendingSubmissionsToRawData();
+                    renderStats();
+                    renderList();
+                    restoreScrollIfNeeded();
                 }
             });
         }
