@@ -632,42 +632,11 @@
             return `${dd}/${mm}/${yyyy}`;
         }
 
-        function findHeaderByPriority(keys, priorities, fallbackKeywords) {
-            for (let i = 0; i < priorities.length; i++) {
-                const expected = priorities[i].toLowerCase().trim();
-                const exact = keys.find(k => String(k).toLowerCase().trim() === expected);
-                if (exact) return exact;
-            }
-
-            return keys.find(k =>
-                fallbackKeywords.some(kw => String(k).toLowerCase().includes(kw.toLowerCase()))
-            );
-        }
-
         function buildHourlyBreakdownMap(rows, keys, findKey) {
-            const jobLogKey = findHeaderByPriority(
-                keys,
-                ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'],
-                ['job order', 'job no', 'หมายเลขกำกับงาน']
-            ) || findKey(['Job order', 'Job No', 'หมายเลขกำกับงาน']);
-
-            const qtyKey = findHeaderByPriority(
-                keys,
-                ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'],
-                ['fg qty', 'fgqty', 'จำนวน']
-            ) || findKey(['FG Qty', 'fgqty', 'จำนวน']);
-
-            // ตาม requirement: ใช้วันที่จากคอลัมน์ "Date" และเวลาจากคอลัมน์ "Time (เวลา)"
-            const dateKey = findHeaderByPriority(
-                keys,
-                ['Date'],
-                ['date']
-            );
-            const timeKey = findHeaderByPriority(
-                keys,
-                ['Time (เวลา)', 'Time'],
-                ['time', 'เวลา']
-            );
+            const jobLogKey = findKey(['Job order', 'Job No', 'หมายเลขกำกับงาน']);
+            const qtyKey = findKey(['FG Qty', 'fgqty', 'จำนวน']);
+            const dateKey = findKey(['Date', 'วันที่']);
+            const timeKey = findKey(['Time', 'เวลา']);
 
             if (!jobLogKey || !qtyKey || !dateKey || !timeKey) return {};
 
