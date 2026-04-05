@@ -366,6 +366,7 @@
         let currentEditingJob = null;
         let hourlyBreakdownByJob = {};
         let pendingScrollY = null;
+        let pendingSubmissions = JSON.parse(localStorage.getItem('job_tracker_pending_submissions') || '[]');
 
         const els = {
             mainHeader: document.getElementById('main-header'),
@@ -567,6 +568,90 @@
             requestAnimationFrame(() => {
                 window.scrollTo({ top: target, behavior: 'auto' });
             });
+        }
+
+        function persistPendingSubmissions() {
+            localStorage.setItem('job_tracker_pending_submissions', JSON.stringify(pendingSubmissions));
+        }
+
+        function applyPendingSubmissionsToRawData() {
+            if (!Array.isArray(pendingSubmissions) || pendingSubmissions.length === 0) return;
+
+            const byJob = {};
+            pendingSubmissions.forEach(item => {
+                if (!item || !item.jobNo) return;
+                if (!byJob[item.jobNo]) byJob[item.jobNo] = [];
+                byJob[item.jobNo].push(item);
+            });
+
+            rawData = rawData.map(job => {
+                const pendings = byJob[job.jobNo] || [];
+                if (pendings.length === 0) return job;
+
+                let actual = job.actual;
+                let mergedBreakdown = Array.isArray(job.hourlyBreakdown) ? [...job.hourlyBreakdown] : [];
+
+                pendings.forEach(p => {
+                    actual += Number(p.fgQty || 0);
+                    const dateObj = parseDate(p.date);
+                    mergedBreakdown.unshift({
+                        date: formatDateDMY(dateObj),
+                        time: p.time || '-',
+                        timeRange: (() => {
+                            const hour = parseHourFromTime(p.time);
+                            if (hour === null) return '-';
+                            const start = String(hour).padStart(2, '0');
+                            const end = String((hour + 1) % 24).padStart(2, '0');
+                            return `${start}:00-${end}:00`;
+                        })(),
+                        hour: parseHourFromTime(p.time),
+                        ts: dateObj.getTime(),
+                        qty: Number(p.fgQty || 0),
+                        isPending: true
+                    });
+                });
+
+                return {
+                    ...job,
+                    actual: actual,
+                    progress: Math.round((actual / job.plan) * 100),
+                    hourlyBreakdown: mergedBreakdown
+                };
+            });
+        }
+
+        function reconcilePendingWithYodRows(rows, keys) {
+            if (!pendingSubmissions.length || !rows.length) return;
+
+            const findKey = (keywords) => keys.find(k =>
+                keywords.some(kw => k.toLowerCase().trim() === kw.toLowerCase().trim() || k.toLowerCase().includes(kw.toLowerCase()))
+            );
+
+            const jobKey = findHeaderByPriority(keys, ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'], ['job order', 'job no', 'หมายเลขกำกับงาน']) || findKey(['Job order', 'Job No']);
+            const dateKey = findHeaderByPriority(keys, ['Date'], ['date']);
+            const timeKey = findHeaderByPriority(keys, ['Time (เวลา)', 'Time'], ['time', 'เวลา']);
+            const qtyKey = findHeaderByPriority(keys, ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'], ['fg qty', 'fgqty', 'จำนวน']);
+
+            if (!jobKey || !dateKey || !timeKey || !qtyKey) return;
+
+            const matched = new Set();
+            pendingSubmissions.forEach((pending, idx) => {
+                const found = rows.some(row => {
+                    const rowJob = String(row[jobKey] || '').trim();
+                    const rowDate = formatDateDMY(parseDate(row[dateKey]));
+                    const rowTime = normalizeTime24(row[timeKey]) || String(row[timeKey] || '').trim();
+                    const rowQty = Number(String(row[qtyKey] || '0').replace(/,/g, '')) || 0;
+                    const pendingDate = formatDateDMY(parseDate(pending.date));
+                    const pendingTime = normalizeTime24(pending.time) || String(pending.time || '').trim();
+                    return rowJob === pending.jobNo && rowDate === pendingDate && rowTime === pendingTime && rowQty === Number(pending.fgQty || 0);
+                });
+                if (found) matched.add(idx);
+            });
+
+            if (matched.size > 0) {
+                pendingSubmissions = pendingSubmissions.filter((_, idx) => !matched.has(idx));
+                persistPendingSubmissions();
+            }
         }
 
         // ==========================================
@@ -990,6 +1075,7 @@
             });
 
             initFuse(rawData);
+            applyPendingSubmissionsToRawData();
             renderStats();
             renderList();
             restoreScrollIfNeeded();
@@ -1026,11 +1112,13 @@
                         return;
                     }
 
+                    reconcilePendingWithYodRows(rows, keys);
                     hourlyBreakdownByJob = buildHourlyBreakdownMap(rows, keys, findKey);
                     rawData = rawData.map(item => ({
                         ...item,
                         hourlyBreakdown: hourlyBreakdownByJob[item.jobNo] || []
                     }));
+                    applyPendingSubmissionsToRawData();
                     renderList();
                     restoreScrollIfNeeded();
                 },
@@ -1312,6 +1400,10 @@
                 renderList();
             }
 
+            // Remove pending local submission immediately
+            pendingSubmissions = pendingSubmissions.filter(item => item.batchId !== payload.batchId);
+            persistPendingSubmissions();
+
             Swal.fire({
                 title: 'กำลังยกเลิก...',
                 text: 'กำลังลบข้อมูลออกจากระบบ',
@@ -1404,6 +1496,15 @@
                 line: line 
             };
 
+            pendingSubmissions.push({
+                batchId: batchId,
+                jobNo: currentEditingJob.jobNo,
+                date: dateStr,
+                time: timeStr,
+                fgQty: fgQty
+            });
+            persistPendingSubmissions();
+
             renderList(); 
             closeUpdateModal(); 
 
@@ -1441,6 +1542,15 @@
             })
             .catch(err => { 
                 console.error(err); 
+                // Rollback optimistic local update when submit fails
+                pendingSubmissions = pendingSubmissions.filter(item => item.batchId !== batchId);
+                persistPendingSubmissions();
+                const failedJob = rawData.find(j => j.jobNo === payload.jobNo);
+                if (failedJob) {
+                    failedJob.actual -= fgQty;
+                    failedJob.progress = Math.round((failedJob.actual / failedJob.plan) * 100);
+                    renderList();
+                }
                 Swal.fire({
                     icon: 'error',
                     title: 'เกิดข้อผิดพลาด',
