@@ -259,7 +259,7 @@
     </div>
 
     <!-- Date Range Filter -->
-    <div id="date-filter-panel" class="hidden px-4 mt-2 mb-2 transition-all duration-300 sticky top-[220px] z-10 bg-slate-50/95 backdrop-blur-sm">
+    <div id="date-filter-panel" class="hidden px-4 mt-2 mb-2 transition-all duration-300 sticky top-[170px] z-10 bg-slate-50/95 backdrop-blur-sm">
         <div class="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-xs font-bold text-slate-500 flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> กรองช่วงวันที่</span>
@@ -275,7 +275,7 @@
 
     <!-- Main Content Area -->
     <div class="px-4 mt-2">
-        <div id="list-toolbar" class="flex items-center justify-between text-sm text-slate-500 px-1 mb-3 sticky top-[270px] z-10 bg-slate-50/95 backdrop-blur-sm py-2">
+        <div id="list-toolbar" class="flex items-center justify-between text-sm text-slate-500 px-1 mb-3 sticky top-[220px] z-10 bg-slate-50/95 backdrop-blur-sm py-2">
             <span id="list-count">รายการ (0)</span>
             <div class="flex items-center gap-2">
                 <div id="loading-indicator" class="hidden"><div class="loader"></div></div>
@@ -365,6 +365,7 @@
         let isDemoMode = false;
         let currentEditingJob = null;
         let hourlyBreakdownByJob = {};
+        let pendingScrollY = null;
 
         const els = {
             mainHeader: document.getElementById('main-header'),
@@ -557,6 +558,15 @@
                 els.jobList.innerHTML = filteredData.map(item => createJobCard(item)).join('');
                 lucide.createIcons();
             }
+        }
+
+        function restoreScrollIfNeeded() {
+            if (pendingScrollY === null) return;
+            const target = pendingScrollY;
+            pendingScrollY = null;
+            requestAnimationFrame(() => {
+                window.scrollTo({ top: target, behavior: 'auto' });
+            });
         }
 
         // ==========================================
@@ -982,6 +992,7 @@
             initFuse(rawData);
             renderStats();
             renderList();
+            restoreScrollIfNeeded();
             loadBreakdownFromYodSheet();
         }
 
@@ -1021,6 +1032,7 @@
                         hourlyBreakdown: hourlyBreakdownByJob[item.jobNo] || []
                     }));
                     renderList();
+                    restoreScrollIfNeeded();
                 },
                 error: function(err) {
                     console.warn('Cannot load ยอดผลิต breakdown CSV', err);
@@ -1075,6 +1087,7 @@
         }
 
         function reloadData() {
+            pendingScrollY = window.scrollY || window.pageYOffset || 0;
             if(isDemoMode && !sheetUrl) toggleSettings();
             else fetchData();
         }
