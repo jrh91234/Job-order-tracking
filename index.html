@@ -574,6 +574,50 @@
             localStorage.setItem('job_tracker_pending_submissions', JSON.stringify(pendingSubmissions));
         }
 
+        function mergeBreakdownByHour(entries) {
+            if (!Array.isArray(entries) || entries.length === 0) return [];
+            const bucket = {};
+
+            entries.forEach(item => {
+                const dateLabel = item.date || '-';
+                const hour = item.hour !== undefined && item.hour !== null ? item.hour : parseHourFromTime(item.time || item.timeRange || '');
+                if (hour === null || hour === undefined || isNaN(hour)) return;
+                const key = `${dateLabel}|${hour}`;
+
+                if (!bucket[key]) {
+                    bucket[key] = {
+                        date: dateLabel,
+                        hour: hour,
+                        time: `${String(hour).padStart(2, '0')}:00`,
+                        timeRange: `${String(hour).padStart(2, '0')}:00-${String((hour + 1) % 24).padStart(2, '0')}:00`,
+                        ts: item.ts || 0,
+                        qty: 0
+                    };
+                }
+
+                bucket[key].qty += Number(item.qty || 0);
+                if (item.ts && item.ts > bucket[key].ts) bucket[key].ts = item.ts;
+            });
+
+            return Object.values(bucket).sort((a, b) => b.ts - a.ts);
+        }
+
+        function subtractBreakdownHour(entries, dateStr, timeStr, qtyToSubtract) {
+            const dateLabel = formatDateDMY(parseDate(dateStr));
+            const hour = parseHourFromTime(timeStr);
+            if (hour === null) return entries || [];
+
+            const normalized = mergeBreakdownByHour(entries || []);
+            return normalized
+                .map(item => {
+                    if (item.date === dateLabel && item.hour === hour) {
+                        return { ...item, qty: Number(item.qty || 0) - Number(qtyToSubtract || 0) };
+                    }
+                    return item;
+                })
+                .filter(item => Number(item.qty || 0) > 0);
+        }
+
         function applyPendingSubmissionsToRawData() {
             if (!Array.isArray(pendingSubmissions) || pendingSubmissions.length === 0) return;
 
@@ -594,7 +638,7 @@
                 pendings.forEach(p => {
                     actual += Number(p.fgQty || 0);
                     const dateObj = parseDate(p.date);
-                    mergedBreakdown.unshift({
+                    mergedBreakdown.push({
                         date: formatDateDMY(dateObj),
                         time: p.time || '-',
                         timeRange: (() => {
@@ -615,7 +659,7 @@
                     ...job,
                     actual: actual,
                     progress: Math.round((actual / job.plan) * 100),
-                    hourlyBreakdown: mergedBreakdown
+                    hourlyBreakdown: mergeBreakdownByHour(mergedBreakdown)
                 };
             });
         }
@@ -820,7 +864,7 @@
 
             const result = {};
             Object.keys(logsByJob).forEach(jobNo => {
-                result[jobNo] = logsByJob[jobNo].sort((a, b) => b.ts - a.ts);
+                result[jobNo] = mergeBreakdownByHour(logsByJob[jobNo]);
             });
 
             return result;
@@ -1397,6 +1441,7 @@
                 job.actual -= payload.fgQty;
                 // ปลดลิมิต 100% ออกในส่วนของการแสดงผลล่วงหน้า (Optimistic update)
                 job.progress = Math.round((job.actual / job.plan) * 100);
+                job.hourlyBreakdown = subtractBreakdownHour(job.hourlyBreakdown, payload.date, payload.time, payload.fgQty);
                 renderList();
             }
 
@@ -1505,6 +1550,16 @@
             });
             persistPendingSubmissions();
 
+            // Show breakdown immediately in UI (hourly-merged)
+            const pendingEntry = {
+                date: formatDateDMY(parseDate(dateStr)),
+                time: normalizeTime24(timeStr) || timeStr,
+                hour: parseHourFromTime(timeStr),
+                ts: parseDate(dateStr).getTime(),
+                qty: fgQty
+            };
+            currentEditingJob.hourlyBreakdown = mergeBreakdownByHour([...(currentEditingJob.hourlyBreakdown || []), pendingEntry]);
+
             renderList(); 
             closeUpdateModal(); 
 
@@ -1549,6 +1604,7 @@
                 if (failedJob) {
                     failedJob.actual -= fgQty;
                     failedJob.progress = Math.round((failedJob.actual / failedJob.plan) * 100);
+                    failedJob.hourlyBreakdown = subtractBreakdownHour(failedJob.hourlyBreakdown, payload.date, payload.time, fgQty);
                     renderList();
                 }
                 Swal.fire({
