@@ -820,7 +820,7 @@
             let progressKey = keys.find(k => k.includes('# Progress %'));
             if (!progressKey) progressKey = findKey(['Progress', '%']);
 
-            let dateKey = keys.find(k => k.includes('Date') || k.includes('วันที่'));
+            let dateKey = findHeaderByPriority(keys, ['Date'], ['date', 'วันที่']);
             let finishKey = keys.find(k => k.toLowerCase().includes('actual complete date'));
             hourlyBreakdownByJob = buildHourlyBreakdownMap(data, keys, findKey);
 
