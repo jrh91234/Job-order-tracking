@@ -303,8 +303,10 @@
                 <div>
                     <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2"><i data-lucide="link" class="w-4 h-4"></i> การเชื่อมต่อข้อมูล (Read)</h4>
                     <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Google Sheet)</label>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Plan)</label>
                         <input type="text" id="sheet-url-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2">
+                        <label class="block text-xs font-medium text-slate-500 mb-1 mt-2">ลิงก์ CSV (ยอดผลิต Breakdown)</label>
+                        <input type="text" id="yod-sheet-url-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
                     </div>
                 </div>
                 <div>
@@ -338,8 +340,11 @@
         // CONFIGURATION
         // ==========================================
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv"; 
+        const FIXED_YOD_SHEET_URL = "";
         const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
         const DEFAULT_PIN = "1234";
+        const PLAN_GID = "1416776201";
+        const YOD_PRODUCTION_GID = "934980474";
 
         const MOCK_DATA = [
             { id: 1, date: '16/9/2025', jobNo: 'TH-SCDD2025090244', model: 'S9HCL14', plan: 600, actual: 600, progress: 100, status: 'complete', finishDate: '2025/09/19' },
@@ -355,9 +360,11 @@
         let currentSort = 'default';
         let searchTerm = '';
         let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
+        let yodSheetUrl = FIXED_YOD_SHEET_URL || localStorage.getItem('job_tracker_yod_sheet_url') || '';
         let scriptUrl = FIXED_SCRIPT_URL || localStorage.getItem('job_tracker_script_url') || '';
         let isDemoMode = false;
-        let currentEditingJob = null; 
+        let currentEditingJob = null;
+        let hourlyBreakdownByJob = {};
 
         const els = {
             mainHeader: document.getElementById('main-header'),
@@ -377,6 +384,7 @@
             clearFilterBtn: document.getElementById('clear-filter-btn'),
             settingsModal: document.getElementById('settings-modal'),
             sheetUrlInput: document.getElementById('sheet-url-input'),
+            yodSheetUrlInput: document.getElementById('yod-sheet-url-input'),
             scriptUrlInput: document.getElementById('script-url-input'),
             loadingIndicator: document.getElementById('loading-indicator'),
             lastUpdated: document.getElementById('last-updated'),
@@ -433,6 +441,26 @@
                 ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
                 : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
 
+            const breakdownHtml = (data.hourlyBreakdown && data.hourlyBreakdown.length > 0)
+                ? `
+                    <div class="mt-3 bg-slate-50 rounded-lg border border-slate-100 p-3">
+                        <div class="text-xs font-semibold text-slate-600 mb-2">รายการตาม Job order (วันที่ / เวลา / จำนวน)</div>
+                        <div class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                            ${data.hourlyBreakdown.map(item => `
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="font-mono text-slate-500">${item.date} ${item.time}</span>
+                                    <span class="font-semibold text-indigo-600">${item.qty.toLocaleString()}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `
+                : `
+                    <div class="mt-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 p-3 text-xs text-slate-400">
+                        ยังไม่มีข้อมูล วันที่/เวลา/จำนวน ของ Job order นี้
+                    </div>
+                `;
+
             // เพิ่ม Math.min(data.progress, 100) เพื่อไม่ให้สีหลุดกรอบกรณี % เกิน
             return `
                 <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 relative overflow-hidden ${statusBorder}">
@@ -460,6 +488,7 @@
                         <div class="flex flex-col border-l border-slate-200 pl-3"><span class="text-xs text-slate-400">ทำได้จริง (Actual)</span><span class="font-bold ${data.actual < data.plan ? 'text-orange-600' : 'text-green-600'}">${data.actual.toLocaleString()}</span></div>
                         <div class="col-span-2 border-t border-slate-200 mt-1 pt-2 flex justify-between items-center"><span class="text-xs text-slate-400">คงเหลือ (Diff)</span><span class="font-mono font-medium ${diffClass}">${(data.actual - data.plan).toLocaleString()}</span></div>
                     </div>
+                    ${breakdownHtml}
                     <div class="mt-3 flex justify-between items-end border-t border-slate-100 pt-2"><div class="text-xs text-right flex-1">${footerText}</div></div>
                     <button onclick="openUpdateModal(${data.id})" class="absolute bottom-3 right-3 bg-indigo-50 text-indigo-600 p-2 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm border border-indigo-100 flex items-center gap-1 text-xs font-bold"><i data-lucide="clipboard-edit" class="w-3 h-3"></i> ลงยอด</button>
                 </div>
@@ -592,6 +621,116 @@
             return new Date(0);
         }
 
+        function parseHourFromTime(timeStr) {
+            if (!timeStr) return null;
+            const clean = String(timeStr).trim().replace(/^'/, '');
+            const match = clean.match(/(\d{1,2}):(\d{2})/);
+            if (!match) return null;
+            const hour = parseInt(match[1], 10);
+            if (isNaN(hour) || hour < 0 || hour > 23) return null;
+            return hour;
+        }
+
+        function normalizeTime24(timeStr) {
+            if (!timeStr) return null;
+            const clean = String(timeStr).trim().replace(/^'/, '');
+            const match = clean.match(/(\d{1,2}):(\d{2})/);
+            if (!match) return null;
+            const hour = parseInt(match[1], 10);
+            const minute = parseInt(match[2], 10);
+            if (isNaN(hour) || hour < 0 || hour > 23) return null;
+            if (isNaN(minute) || minute < 0 || minute > 59) return null;
+            return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        }
+
+        function formatDateDMY(dateObj) {
+            if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) return '-';
+            const dd = String(dateObj.getDate()).padStart(2, '0');
+            const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const yyyy = dateObj.getFullYear();
+            return `${dd}/${mm}/${yyyy}`;
+        }
+
+        function findHeaderByPriority(keys, priorities, fallbackKeywords) {
+            for (let i = 0; i < priorities.length; i++) {
+                const expected = priorities[i].toLowerCase().trim();
+                const exact = keys.find(k => String(k).toLowerCase().trim() === expected);
+                if (exact) return exact;
+            }
+
+            return keys.find(k =>
+                fallbackKeywords.some(kw => String(k).toLowerCase().includes(kw.toLowerCase()))
+            );
+        }
+
+        function buildHourlyBreakdownMap(rows, keys, findKey) {
+            const jobLogKey = findHeaderByPriority(
+                keys,
+                ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'],
+                ['job order', 'job no', 'หมายเลขกำกับงาน']
+            ) || findKey(['Job order', 'Job No', 'หมายเลขกำกับงาน']);
+
+            const qtyKey = findHeaderByPriority(
+                keys,
+                ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'],
+                ['fg qty', 'fgqty', 'จำนวน']
+            ) || findKey(['FG Qty', 'fgqty', 'จำนวน']);
+
+            // ตาม requirement: ใช้วันที่จากคอลัมน์ "Date" และเวลาจากคอลัมน์ "Time (เวลา)"
+            const dateKey = findHeaderByPriority(
+                keys,
+                ['Date'],
+                ['date']
+            );
+            const timeKey = findHeaderByPriority(
+                keys,
+                ['Time (เวลา)', 'Time'],
+                ['time', 'เวลา']
+            );
+
+            if (!jobLogKey || !qtyKey || !dateKey || !timeKey) return {};
+
+            const logsByJob = {};
+
+            rows.forEach(row => {
+                const jobNo = String(row[jobLogKey] || '').trim();
+                if (!jobNo) return;
+
+                const qty = parseInt(String(row[qtyKey] || '0').replace(/,/g, ''), 10);
+                if (isNaN(qty) || qty <= 0) return;
+
+                const dateObj = parseDate(row[dateKey]);
+                if (!(dateObj instanceof Date) || isNaN(dateObj.getTime()) || dateObj.getTime() === 0) return;
+
+                const hour = parseHourFromTime(row[timeKey]);
+                if (hour === null) return;
+                const time24 = normalizeTime24(row[timeKey]);
+                if (!time24) return;
+
+                const dateLabel = formatDateDMY(dateObj);
+                const startHour = String(hour).padStart(2, '0');
+                const endHour = String((hour + 1) % 24).padStart(2, '0');
+                const timeRange = `${startHour}:00-${endHour}:00`;
+
+                if (!logsByJob[jobNo]) logsByJob[jobNo] = [];
+                logsByJob[jobNo].push({
+                    date: dateLabel,
+                    time: time24,
+                    timeRange: timeRange,
+                    hour: hour,
+                    ts: new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), hour, 0, 0, 0).getTime(),
+                    qty: qty
+                });
+            });
+
+            const result = {};
+            Object.keys(logsByJob).forEach(jobNo => {
+                result[jobNo] = logsByJob[jobNo].sort((a, b) => b.ts - a.ts);
+            });
+
+            return result;
+        }
+
         function initFuse(data) {
             const options = {
                 keys: ['jobNo', 'model', 'date'],
@@ -600,6 +739,61 @@
                 minMatchCharLength: 2
             };
             fuse = new Fuse(data, options);
+        }
+
+        function normalizeSheetUrl(url) {
+            if (!url) return url;
+            const trimmed = String(url).trim();
+            if (/^https?:\/\//i.test(trimmed)) return trimmed;
+            if (/^(docs\.google\.com|doc-\w+-\w+-sheets\.googleusercontent\.com)/i.test(trimmed)) {
+                return `https://${trimmed}`;
+            }
+            return trimmed;
+        }
+
+        function buildGoogleSheetCsvUrl(url, gid) {
+            if (!url) return url;
+            try {
+                const parsed = new URL(normalizeSheetUrl(url));
+                const path = parsed.pathname || '';
+                const isDocsHost = parsed.hostname.includes('docs.google.com');
+                const isGoogleusercontentHost = parsed.hostname.includes('googleusercontent.com');
+
+                // กรณี Publish to web ลิงก์ทั้งเอกสาร (เช่น .../pubhtml) => แปลงเป็น .../pub?output=csv&gid=...
+                if (isDocsHost && path.includes('/spreadsheets/d/e/')) {
+                    parsed.pathname = path.replace('/pubhtml', '/pub');
+                    parsed.search = '';
+                    parsed.searchParams.set('output', 'csv');
+                    parsed.searchParams.set('gid', gid);
+                    return parsed.toString();
+                }
+
+                // กรณีลิงก์เอกสารปกติ (edit/view) => บังคับ export csv ตาม gid
+                if (isDocsHost && path.includes('/spreadsheets/d/')) {
+                    const match = path.match(/\/spreadsheets\/d\/([^/]+)/);
+                    if (match && match[1]) {
+                        parsed.pathname = `/spreadsheets/d/${match[1]}/export`;
+                        parsed.search = '';
+                        parsed.searchParams.set('format', 'csv');
+                        parsed.searchParams.set('gid', gid);
+                        return parsed.toString();
+                    }
+                }
+
+                // สำหรับโดเมนอื่น ๆ ส่งกลับตามเดิม (หลัง normalize)
+                if (isGoogleusercontentHost) return parsed.toString();
+                return parsed.toString();
+            } catch (err) {
+                return normalizeSheetUrl(url);
+            }
+        }
+
+        function forceYodProductionSheetUrl(url) {
+            return buildGoogleSheetCsvUrl(url, YOD_PRODUCTION_GID);
+        }
+
+        function forcePlanSheetUrl(url) {
+            return buildGoogleSheetCsvUrl(url, PLAN_GID);
         }
 
         function initTimeSelectors() {
@@ -729,8 +923,9 @@
             let progressKey = keys.find(k => k.includes('# Progress %'));
             if (!progressKey) progressKey = findKey(['Progress', '%']);
 
-            let dateKey = keys.find(k => k.includes('Date') || k.includes('วันที่'));
+            let dateKey = findHeaderByPriority(keys, ['Date'], ['date', 'วันที่']);
             let finishKey = keys.find(k => k.toLowerCase().includes('actual complete date'));
+            hourlyBreakdownByJob = {};
 
             rawData = data.filter(row => row[jobKey] && row[modelKey]).map((row, index) => {
                 const plan = parseInt(row[planKey]?.replace(/,/g, '') || 0);
@@ -762,13 +957,58 @@
                     actual: actual,
                     progress: progress,
                     status: isComplete ? 'complete' : 'incomplete',
-                    finishDate: row[finishKey] || '-'
+                    finishDate: row[finishKey] || '-',
+                    hourlyBreakdown: []
                 };
             });
 
             initFuse(rawData);
             renderStats();
             renderList();
+            loadBreakdownFromYodSheet();
+        }
+
+        function loadBreakdownFromYodSheet() {
+            const sourceUrl = yodSheetUrl || sheetUrl;
+            if (!sourceUrl) return;
+            const yodUrl = yodSheetUrl ? normalizeSheetUrl(yodSheetUrl) : forceYodProductionSheetUrl(sheetUrl);
+            const fetchYodUrl = yodUrl.includes('?') ? `${yodUrl}&_t=${Date.now()}` : `${yodUrl}?_t=${Date.now()}`;
+
+            Papa.parse(fetchYodUrl, {
+                download: true, header: true, skipEmptyLines: true,
+                complete: function(results) {
+                    const rows = results.data || [];
+                    if (rows.length === 0) return;
+
+                    const keys = Object.keys(rows[0]);
+                    const findKey = (keywords) => keys.find(k =>
+                        keywords.some(kw => k.toLowerCase().trim() === kw.toLowerCase().trim() || k.toLowerCase().includes(kw.toLowerCase()))
+                    );
+
+                    const sourceCheck = {
+                        date: findHeaderByPriority(keys, ['Date'], ['date']),
+                        time: findHeaderByPriority(keys, ['Time (เวลา)', 'Time'], ['time', 'เวลา']),
+                        job: findHeaderByPriority(keys, ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'], ['job order', 'job no', 'หมายเลขกำกับงาน']),
+                        qty: findHeaderByPriority(keys, ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'], ['fg qty', 'fgqty', 'จำนวน'])
+                    };
+
+                    const isYodProductionSource = sourceCheck.date && sourceCheck.time && sourceCheck.job && sourceCheck.qty;
+                    if (!isYodProductionSource) {
+                        console.warn('YOD breakdown source missing required headers', { keys: keys, sourceCheck: sourceCheck });
+                        return;
+                    }
+
+                    hourlyBreakdownByJob = buildHourlyBreakdownMap(rows, keys, findKey);
+                    rawData = rawData.map(item => ({
+                        ...item,
+                        hourlyBreakdown: hourlyBreakdownByJob[item.jobNo] || []
+                    }));
+                    renderList();
+                },
+                error: function(err) {
+                    console.warn('Cannot load ยอดผลิต breakdown CSV', err);
+                }
+            });
         }
 
         function fetchData() {
@@ -776,7 +1016,7 @@
             els.loadingIndicator.classList.remove('hidden');
             
             // เพิ่มระบบ Cache Busting บังคับให้ดึงไฟล์ใหม่ล่าสุดเสมอ
-            let fetchUrl = sheetUrl;
+            let fetchUrl = forcePlanSheetUrl(sheetUrl);
             if (fetchUrl.includes('?')) {
                 fetchUrl += '&_t=' + new Date().getTime();
             } else {
@@ -809,6 +1049,7 @@
         function startApp() {
             if (sheetUrl) {
                 els.sheetUrlInput.value = sheetUrl;
+                els.yodSheetUrlInput.value = yodSheetUrl;
                 els.scriptUrlInput.value = scriptUrl;
                 fetchData();
             } else {
@@ -826,16 +1067,20 @@
         function toggleSettings() { els.settingsModal.classList.toggle('hidden'); }
         function useDemoData() {
              localStorage.removeItem('job_tracker_sheet_url');
+             localStorage.removeItem('job_tracker_yod_sheet_url');
              sheetUrl = ''; els.sheetUrlInput.value = '';
+             yodSheetUrl = ''; els.yodSheetUrlInput.value = '';
              toggleSettings(); loadMockData();
         }
         function saveSettings() {
             const url = els.sheetUrlInput.value.trim();
+            const yodUrl = els.yodSheetUrlInput.value.trim();
             const script = els.scriptUrlInput.value.trim();
             if (!url) return alert('กรุณาใส่ลิงก์ CSV');
             localStorage.setItem('job_tracker_sheet_url', url);
+            localStorage.setItem('job_tracker_yod_sheet_url', yodUrl);
             localStorage.setItem('job_tracker_script_url', script);
-            sheetUrl = url; scriptUrl = script;
+            sheetUrl = url; yodSheetUrl = yodUrl; scriptUrl = script;
             toggleSettings(); fetchData();
         }
 
