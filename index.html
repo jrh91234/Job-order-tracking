@@ -303,8 +303,10 @@
                 <div>
                     <h4 class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2"><i data-lucide="link" class="w-4 h-4"></i> การเชื่อมต่อข้อมูล (Read)</h4>
                     <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Google Sheet)</label>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">ลิงก์ CSV (Plan)</label>
                         <input type="text" id="sheet-url-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm mb-2">
+                        <label class="block text-xs font-medium text-slate-500 mb-1 mt-2">ลิงก์ CSV (ยอดผลิต Breakdown)</label>
+                        <input type="text" id="yod-sheet-url-input" class="w-full p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
                     </div>
                 </div>
                 <div>
@@ -338,6 +340,7 @@
         // CONFIGURATION
         // ==========================================
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv"; 
+        const FIXED_YOD_SHEET_URL = "";
         const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
         const DEFAULT_PIN = "1234";
         const PLAN_GID = "1416776201";
@@ -357,6 +360,7 @@
         let currentSort = 'default';
         let searchTerm = '';
         let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
+        let yodSheetUrl = FIXED_YOD_SHEET_URL || localStorage.getItem('job_tracker_yod_sheet_url') || '';
         let scriptUrl = FIXED_SCRIPT_URL || localStorage.getItem('job_tracker_script_url') || '';
         let isDemoMode = false;
         let currentEditingJob = null;
@@ -380,6 +384,7 @@
             clearFilterBtn: document.getElementById('clear-filter-btn'),
             settingsModal: document.getElementById('settings-modal'),
             sheetUrlInput: document.getElementById('sheet-url-input'),
+            yodSheetUrlInput: document.getElementById('yod-sheet-url-input'),
             scriptUrlInput: document.getElementById('script-url-input'),
             loadingIndicator: document.getElementById('loading-indicator'),
             lastUpdated: document.getElementById('last-updated'),
@@ -970,8 +975,9 @@
         }
 
         function loadBreakdownFromYodSheet() {
-            if (!sheetUrl) return;
-            const yodUrl = forceYodProductionSheetUrl(sheetUrl);
+            const sourceUrl = yodSheetUrl || sheetUrl;
+            if (!sourceUrl) return;
+            const yodUrl = yodSheetUrl ? normalizeSheetUrl(yodSheetUrl) : forceYodProductionSheetUrl(sheetUrl);
             const fetchYodUrl = yodUrl.includes('?') ? `${yodUrl}&_t=${Date.now()}` : `${yodUrl}?_t=${Date.now()}`;
 
             Papa.parse(fetchYodUrl, {
@@ -1049,6 +1055,7 @@
         function startApp() {
             if (sheetUrl) {
                 els.sheetUrlInput.value = sheetUrl;
+                els.yodSheetUrlInput.value = yodSheetUrl;
                 els.scriptUrlInput.value = scriptUrl;
                 fetchData();
             } else {
@@ -1066,16 +1073,20 @@
         function toggleSettings() { els.settingsModal.classList.toggle('hidden'); }
         function useDemoData() {
              localStorage.removeItem('job_tracker_sheet_url');
+             localStorage.removeItem('job_tracker_yod_sheet_url');
              sheetUrl = ''; els.sheetUrlInput.value = '';
+             yodSheetUrl = ''; els.yodSheetUrlInput.value = '';
              toggleSettings(); loadMockData();
         }
         function saveSettings() {
             const url = els.sheetUrlInput.value.trim();
+            const yodUrl = els.yodSheetUrlInput.value.trim();
             const script = els.scriptUrlInput.value.trim();
             if (!url) return alert('กรุณาใส่ลิงก์ CSV');
             localStorage.setItem('job_tracker_sheet_url', url);
+            localStorage.setItem('job_tracker_yod_sheet_url', yodUrl);
             localStorage.setItem('job_tracker_script_url', script);
-            sheetUrl = url; scriptUrl = script;
+            sheetUrl = url; yodSheetUrl = yodUrl; scriptUrl = script;
             toggleSettings(); fetchData();
         }
 
