@@ -895,7 +895,7 @@
 
             let dateKey = findHeaderByPriority(keys, ['Date'], ['date', 'วันที่']);
             let finishKey = keys.find(k => k.toLowerCase().includes('actual complete date'));
-            hourlyBreakdownByJob = buildHourlyBreakdownMap(data, keys, findKey);
+            hourlyBreakdownByJob = {};
 
             rawData = data.filter(row => row[jobKey] && row[modelKey]).map((row, index) => {
                 const plan = parseInt(row[planKey]?.replace(/,/g, '') || 0);
@@ -928,13 +928,56 @@
                     progress: progress,
                     status: isComplete ? 'complete' : 'incomplete',
                     finishDate: row[finishKey] || '-',
-                    hourlyBreakdown: hourlyBreakdownByJob[row[jobKey] || '-'] || []
+                    hourlyBreakdown: []
                 };
             });
 
             initFuse(rawData);
             renderStats();
             renderList();
+            loadBreakdownFromYodSheet();
+        }
+
+        function loadBreakdownFromYodSheet() {
+            if (!sheetUrl) return;
+            const yodUrl = forceYodProductionSheetUrl(sheetUrl);
+            const fetchYodUrl = yodUrl.includes('?') ? `${yodUrl}&_t=${Date.now()}` : `${yodUrl}?_t=${Date.now()}`;
+
+            Papa.parse(fetchYodUrl, {
+                download: true, header: true, skipEmptyLines: true,
+                complete: function(results) {
+                    const rows = results.data || [];
+                    if (rows.length === 0) return;
+
+                    const keys = Object.keys(rows[0]);
+                    const findKey = (keywords) => keys.find(k =>
+                        keywords.some(kw => k.toLowerCase().trim() === kw.toLowerCase().trim() || k.toLowerCase().includes(kw.toLowerCase()))
+                    );
+
+                    const sourceCheck = {
+                        date: findHeaderByPriority(keys, ['Date'], ['date']),
+                        time: findHeaderByPriority(keys, ['Time (เวลา)', 'Time'], ['time', 'เวลา']),
+                        job: findHeaderByPriority(keys, ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'], ['job order', 'job no', 'หมายเลขกำกับงาน']),
+                        qty: findHeaderByPriority(keys, ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'], ['fg qty', 'fgqty', 'จำนวน'])
+                    };
+
+                    const isYodProductionSource = sourceCheck.date && sourceCheck.time && sourceCheck.job && sourceCheck.qty;
+                    if (!isYodProductionSource) {
+                        console.warn('YOD breakdown source missing required headers', { keys: keys, sourceCheck: sourceCheck });
+                        return;
+                    }
+
+                    hourlyBreakdownByJob = buildHourlyBreakdownMap(rows, keys, findKey);
+                    rawData = rawData.map(item => ({
+                        ...item,
+                        hourlyBreakdown: hourlyBreakdownByJob[item.jobNo] || []
+                    }));
+                    renderList();
+                },
+                error: function(err) {
+                    console.warn('Cannot load ยอดผลิต breakdown CSV', err);
+                }
+            });
         }
 
         function fetchData() {
