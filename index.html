@@ -340,6 +340,7 @@
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv"; 
         const FIXED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec";
         const DEFAULT_PIN = "1234";
+        const PLAN_GID = "0";
         const YOD_PRODUCTION_GID = "934980474";
 
         const MOCK_DATA = [
@@ -749,6 +750,20 @@
             }
         }
 
+        function forcePlanSheetUrl(url) {
+            if (!url) return url;
+            try {
+                const parsed = new URL(url);
+                const isGoogleSheet = parsed.hostname.includes('docs.google.com') && parsed.pathname.includes('/spreadsheets/');
+                if (!isGoogleSheet) return url;
+
+                parsed.searchParams.set('gid', PLAN_GID);
+                return parsed.toString();
+            } catch (err) {
+                return url;
+            }
+        }
+
         function initTimeSelectors() {
             let hoursHtml = '';
             for(let i=0; i<24; i++) {
@@ -985,7 +1000,7 @@
             els.loadingIndicator.classList.remove('hidden');
             
             // เพิ่มระบบ Cache Busting บังคับให้ดึงไฟล์ใหม่ล่าสุดเสมอ
-            let fetchUrl = forceYodProductionSheetUrl(sheetUrl);
+            let fetchUrl = forcePlanSheetUrl(sheetUrl);
             if (fetchUrl.includes('?')) {
                 fetchUrl += '&_t=' + new Date().getTime();
             } else {
