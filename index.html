@@ -751,38 +751,49 @@
             return trimmed;
         }
 
-        function canForceGid(parsedUrl) {
-            const path = parsedUrl.pathname || '';
-            const isGoogleSheetHost = parsedUrl.hostname.includes('docs.google.com');
-            const isSpreadsheetDocUrl = path.includes('/spreadsheets/d/');
-            const isPublishedEPattern = path.includes('/spreadsheets/d/e/');
-            return isGoogleSheetHost && isSpreadsheetDocUrl && !isPublishedEPattern;
+        function buildGoogleSheetCsvUrl(url, gid) {
+            if (!url) return url;
+            try {
+                const parsed = new URL(normalizeSheetUrl(url));
+                const path = parsed.pathname || '';
+                const isDocsHost = parsed.hostname.includes('docs.google.com');
+                const isGoogleusercontentHost = parsed.hostname.includes('googleusercontent.com');
+
+                // กรณี Publish to web ลิงก์ทั้งเอกสาร (เช่น .../pubhtml) => แปลงเป็น .../pub?output=csv&gid=...
+                if (isDocsHost && path.includes('/spreadsheets/d/e/')) {
+                    parsed.pathname = path.replace('/pubhtml', '/pub');
+                    parsed.search = '';
+                    parsed.searchParams.set('output', 'csv');
+                    parsed.searchParams.set('gid', gid);
+                    return parsed.toString();
+                }
+
+                // กรณีลิงก์เอกสารปกติ (edit/view) => บังคับ export csv ตาม gid
+                if (isDocsHost && path.includes('/spreadsheets/d/')) {
+                    const match = path.match(/\/spreadsheets\/d\/([^/]+)/);
+                    if (match && match[1]) {
+                        parsed.pathname = `/spreadsheets/d/${match[1]}/export`;
+                        parsed.search = '';
+                        parsed.searchParams.set('format', 'csv');
+                        parsed.searchParams.set('gid', gid);
+                        return parsed.toString();
+                    }
+                }
+
+                // สำหรับโดเมนอื่น ๆ ส่งกลับตามเดิม (หลัง normalize)
+                if (isGoogleusercontentHost) return parsed.toString();
+                return parsed.toString();
+            } catch (err) {
+                return normalizeSheetUrl(url);
+            }
         }
 
         function forceYodProductionSheetUrl(url) {
-            if (!url) return url;
-            try {
-                const parsed = new URL(normalizeSheetUrl(url));
-                if (!canForceGid(parsed)) return parsed.toString();
-
-                parsed.searchParams.set('gid', YOD_PRODUCTION_GID);
-                return parsed.toString();
-            } catch (err) {
-                return normalizeSheetUrl(url);
-            }
+            return buildGoogleSheetCsvUrl(url, YOD_PRODUCTION_GID);
         }
 
         function forcePlanSheetUrl(url) {
-            if (!url) return url;
-            try {
-                const parsed = new URL(normalizeSheetUrl(url));
-                if (!canForceGid(parsed)) return parsed.toString();
-
-                parsed.searchParams.set('gid', PLAN_GID);
-                return parsed.toString();
-            } catch (err) {
-                return normalizeSheetUrl(url);
-            }
+            return buildGoogleSheetCsvUrl(url, PLAN_GID);
         }
 
         function initTimeSelectors() {
