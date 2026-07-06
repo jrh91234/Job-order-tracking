@@ -294,11 +294,12 @@
                             <th class="p-3 text-right">ทำได้จริง (Actual)</th>
                             <th class="p-3 text-right">ผลต่าง (Diff)</th>
                             <th class="p-3 text-center">Efficiency (%)</th>
+                            <th class="p-3 text-center">Audit</th>
                         </tr>
                     </thead>
                     <tbody id="summaryTableBody" class="divide-y divide-slate-100">
                         <tr>
-                            <td colspan="10" class="text-center p-8 text-slate-400">
+                            <td colspan="11" class="text-center p-8 text-slate-400">
                                 <div class="loader mx-auto mb-2 border-2 border-indigo-500 border-t-transparent rounded-full w-6 h-6 animate-spin"></div>
                                 กำลังโหลดข้อมูล...
                             </td>
@@ -1081,6 +1082,7 @@
                     effBadge = 'bg-red-100 text-red-700 border border-red-200';
                 }
 
+                const rowDataAttr = encodeURIComponent(JSON.stringify(row));
                 const capDisplay = row.capPerHour > 0 ? `${row.capPerHour.toLocaleString()}` : '-';
 
                 return `
@@ -1103,9 +1105,15 @@
                                 ${row.efficiency}%
                             </span>
                         </td>
+                        <td class="p-3 text-center">
+                            <button onclick="showAuditFormula(JSON.parse(decodeURIComponent('${rowDataAttr}')))" class="p-1 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors inline-flex items-center justify-center w-7 h-7 shadow-sm" title="ดูรายละเอียดสูตรคำนวณจริงของแถวนี้">
+                                <i data-lucide="calculator" class="w-4 h-4"></i>
+                            </button>
+                        </td>
                     </tr>
                 `;
             }).join('');
+            lucide.createIcons(); // รีโหลดไอคอนให้ปุ่มใหม่
         }
 
         // ==========================================
@@ -1186,10 +1194,70 @@
         // ==========================================
         // AUDIT FORMULA POPUP
         // ==========================================
-        function showAuditFormula() {
-            Swal.fire({
-                title: '📌 สูตรการคำนวณประสิทธิภาพ (Efficiency Audit)',
-                html: `
+        function showAuditFormula(row) {
+            // หากไม่ระบุแถว (กดจากปุ่มใหญ่ด้านบน) ให้พยายามเลือกแถวแรกสุดของตารางเป็นตัวอย่างจริง
+            if (!row && filteredEfficiencyData && filteredEfficiencyData.length > 0) {
+                row = filteredEfficiencyData[0];
+            }
+
+            let auditHtml = '';
+            let titleText = '📌 สูตรการคำนวณประสิทธิภาพ (Efficiency Audit)';
+
+            if (row) {
+                const diffClass = row.diff >= 0 ? 'text-green-600' : 'text-red-500';
+                const diffPrefix = row.diff >= 0 ? '+' : '';
+                const capModeLabel = capacityMode === 'planning' ? 'Planning Cap (OEE 75%)' : 'Max Cap (OEE 100%)';
+                const capColName = capacityMode === 'planning' ? '"Cap/Hr (PC) for planing use"' : '"actual max cap by record history pc/hr"';
+
+                titleText = `🔍 Audit รายการ: ${row.model}`;
+                auditHtml = `
+                    <div class="text-left text-sm space-y-3 p-2 text-slate-700 font-sans leading-relaxed">
+                        <!-- หัวข้อรายละเอียดการรัน -->
+                        <div class="bg-slate-100 p-2.5 rounded-xl border border-slate-200 text-xs font-semibold grid grid-cols-2 gap-2 text-slate-600 mb-2">
+                            <div>📅 วันที่: <span class="text-slate-800">${row.date}</span></div>
+                            <div>🚀 Line: <span class="text-slate-800">${row.line}</span></div>
+                            <div>⏰ กะ (Shift): <span class="text-slate-800">${row.shift}</span></div>
+                            <div>📦 รุ่น (Model): <span class="text-slate-800">${row.model}</span></div>
+                        </div>
+
+                        <!-- บล็อกแสดงการคำนวณสด -->
+                        <div class="bg-indigo-50 p-3 rounded-xl border border-indigo-100 mb-2">
+                            <span class="font-bold text-indigo-800 block mb-1">ตัวเลขจากการคำนวณจริง:</span>
+                            <div class="text-center font-mono font-bold text-lg text-indigo-900 bg-white p-2.5 rounded border border-indigo-200">
+                                Efficiency = (Actual / Target) × 100 <br>
+                                <span class="text-xs text-indigo-500 font-normal">แทนค่า:</span> <br>
+                                = (${row.actualQty.toLocaleString()} / ${row.targetQty.toLocaleString()}) × 100 <br>
+                                = <span class="text-xl text-indigo-700 font-extrabold">${row.efficiency}%</span>
+                            </div>
+                        </div>
+
+                        <h4 class="font-bold text-slate-800 border-b border-slate-200 pb-1 text-xs uppercase tracking-wider">รายละเอียดการแทนค่าในสูตร:</h4>
+                        
+                        <p><strong>1. ทำได้จริง (Actual): <span class="font-mono text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded ml-1">${row.actualQty.toLocaleString()} ชิ้น</span></strong><br>
+                        เป็นผลรวมยอดผลิตสำเร็จรูป (FG Qty) จากแท็บ <strong>"ยอดผลิต"</strong> (GID: <span class="font-mono">934980474</span>) ที่ลงบันทึกไว้ในวัน/กะ/Line นี้
+                        </p>
+
+                        <p><strong>2. ชั่วโมงจริง (Active Hours): <span class="font-mono text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded ml-1">${row.activeHours} ชม.</span></strong><br>
+                        นับจากจำนวนชั่วโมงที่พบบันทึกยอดผลิตจริงเข้ามาในวันนี้ของรุ่นนี้
+                        </p>
+
+                        <p><strong>3. กำลังการผลิตต่อชั่วโมง (Cap/Hr): <span class="font-mono text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded ml-1">${row.capPerHour > 0 ? row.capPerHour.toLocaleString() + ' ชิ้น/ชม.' : '0 ชิ้น/ชม. (ไม่พบในตาราง)'}</span></strong><br>
+                        ดึงข้อมูลมาจากแท็บ <strong>"Capacity"</strong> (GID: <span class="font-mono">1140596720</span>)<br>
+                        <span class="text-xs text-slate-500 font-semibold">• อ้างอิงจากโหมดปัจจุบัน: ${capModeLabel} (จากคอลัมน์ ${capColName})</span>
+                        </p>
+
+                        <p><strong>4. เป้าหมายการผลิต (Target): <span class="font-mono text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded ml-1">${row.targetQty.toLocaleString()} ชิ้น</span></strong><br>
+                        คำนวณจากสูตร: <span class="font-mono font-semibold bg-slate-50 border px-1 rounded">Target = Cap/Hr × ชั่วโมงจริง</span> <br>
+                        แทนค่า: <span class="font-mono text-xs">${row.capPerHour} × ${row.activeHours} = ${row.targetQty} ชิ้น</span>
+                        </p>
+
+                        <p><strong>5. ผลต่าง (Diff): <span class="font-mono ${diffClass} bg-slate-50 border px-1 rounded ml-1">${diffPrefix}${row.diff.toLocaleString()} ชิ้น</span></strong><br>
+                        แทนค่า: <span class="font-mono text-xs">${row.actualQty} - ${row.targetQty} = ${diffPrefix}${row.diff} ชิ้น</span>
+                        </p>
+                    </div>
+                `;
+            } else {
+                auditHtml = `
                     <div class="text-left text-sm space-y-3 p-2 text-slate-700 font-sans leading-relaxed">
                         <div class="bg-indigo-50 p-3 rounded-xl border border-indigo-100 mb-2">
                             <span class="font-bold text-indigo-800">สูตรหลัก:</span>
@@ -1217,7 +1285,12 @@
                         <p><strong>5. ผลต่าง (Diff):</strong> <br>
                         <span class="font-mono font-semibold bg-slate-50 px-1 py-0.5 border rounded">Diff = Actual - Target</span> (หากเป็นบวกสีเขียวแปลว่าเกินเป้าหมาย หากติดลบสีแดงแปลว่ายังไม่ได้ยอดตามเป้า)</p>
                     </div>
-                `,
+                `;
+            }
+
+            Swal.fire({
+                title: titleText,
+                html: auditHtml,
                 confirmButtonText: 'รับทราบ',
                 confirmButtonColor: '#4f46e5',
                 width: '600px'
