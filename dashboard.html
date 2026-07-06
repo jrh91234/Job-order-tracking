@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Efficiency Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js for beautiful charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- SweetAlert2 for nice alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Google Fonts (Prompt for Thai) -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html { scroll-behavior: smooth; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 pb-12 min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white p-4 shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i data-lucide="layout-dashboard" class="w-6 h-6 text-indigo-300"></i>
+                Efficiency Dashboard
+            </h1>
+            <div class="flex items-center gap-2">
+                <span id="last-updated" class="text-xs bg-indigo-600/80 border border-indigo-500 px-3 py-1 rounded-full text-indigo-100 hidden">
+                    Updated: -
+                </span>
+                <a href="index.html" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all border border-indigo-500/50 flex items-center gap-1.5 text-xs font-semibold shadow-md active:scale-95">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                    <span>กลับไป Job Monitor</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Demo Mode Warning Banner -->
+    <div id="demo-banner" class="hidden bg-yellow-50 border-b border-yellow-200 px-4 py-2 sticky top-[68px] z-20 transition-all">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-2 text-xs text-yellow-800">
+                <i data-lucide="info" class="w-4 h-4 text-yellow-600"></i>
+                <span>กำลังแสดงข้อมูลจำลอง (Demo Mode)</span>
+            </div>
+            <button onclick="openConfigModal()" class="text-xs font-bold text-indigo-700 hover:text-indigo-950 underline">
+                ตั้งค่า Google Sheet
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto p-4 space-y-6">
+
+        <!-- Controls and Settings Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="sliders-horizontal" class="w-5 h-5 text-indigo-600"></i>
+                        ตัวกรองและควบคุมข้อมูล
+                    </h2>
+                    <p class="text-xs text-slate-400">กำหนดเป้าหมาย กำลังผลิต และขอบเขตการดึงข้อมูล</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- Toggle Capacity Mode -->
+                    <div class="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
+                        <button id="cap-mode-planning" onclick="setCapacityMode('planning')" 
+                            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm">
+                            Planning Cap
+                        </button>
+                        <button id="cap-mode-max" onclick="setCapacityMode('max')" 
+                            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-800">
+                            Max Cap (100%)
+                        </button>
+                    </div>
+                    <button onclick="openConfigModal()" class="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors border border-slate-200 text-slate-600 shadow-sm" title="ตั้งค่าการเชื่อมต่อ">
+                        <i data-lucide="settings" class="w-4.5 h-4.5"></i>
+                    </button>
+                    <button onclick="reloadData()" class="p-2 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors border border-indigo-100 text-indigo-600 shadow-sm" title="รีเฟรชข้อมูล">
+                        <i data-lucide="refresh-cw" class="w-4.5 h-4.5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">ช่วงวันที่ (เริ่มต้น)</label>
+                    <input type="date" id="filter-start-date" onchange="applyFilters()" 
+                        class="w-full text-sm p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">ช่วงวันที่ (สิ้นสุด)</label>
+                    <input type="date" id="filter-end-date" onchange="applyFilters()" 
+                        class="w-full text-sm p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-600 shadow-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">เลือก Line การผลิต</label>
+                    <select id="filter-line" onchange="applyFilters()" 
+                        class="w-full text-sm p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-700 shadow-sm appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e')] bg-[length:1em] bg-[right_0.75rem_center] bg-no-repeat">
+                        <option value="All">ทุก Line</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">กะการทำงาน (Shift)</label>
+                    <select id="filter-shift" onchange="applyFilters()" 
+                        class="w-full text-sm p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-700 shadow-sm appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e')] bg-[length:1em] bg-[right_0.75rem_center] bg-no-repeat">
+                        <option value="All">ทุกกะ</option>
+                        <option value="Day">Day (กลางวัน)</option>
+                        <option value="Night">Night (กลางคืน)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs">
+                <!-- Target Setting -->
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-slate-500">เป้าหมายความสำเร็จ:</span>
+                    <div class="flex items-center">
+                        <input type="number" id="target-eff-input" value="100" min="1" max="200" onchange="updateTargetEff()"
+                            class="w-16 px-2 py-1 text-center bg-white border border-slate-200 rounded-lg text-sm font-bold text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <span class="ml-1 text-slate-600 font-bold">%</span>
+                    </div>
+                    <span class="text-slate-400 text-[10px]">(คำนวณจาก OEE target หรือ Max Cap แล้วแต่โหมดที่เลือก)</span>
+                </div>
+                <button onclick="clearAllFilters()" class="text-indigo-600 hover:text-indigo-800 underline font-medium flex items-center gap-1">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> ล้างตัวกรองทั้งหมด
+                </button>
+            </div>
+        </div>
+
+        <!-- KPI Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Overall Efficiency Gauge Card -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div class="space-y-1">
+                    <span class="text-xs font-semibold text-slate-400 block uppercase">Efficiency เฉลี่ย</span>
+                    <h3 id="kpi-avg-eff" class="text-3xl font-extrabold text-indigo-600">-</h3>
+                    <span id="kpi-avg-eff-status" class="text-[10px] px-2 py-0.5 rounded-full inline-block font-semibold bg-slate-100 text-slate-500">-</span>
+                </div>
+                <!-- Semi circle canvas for gauge -->
+                <div class="relative w-20 h-20 flex items-center justify-center">
+                    <div class="absolute inset-0 rounded-full border-4 border-slate-100"></div>
+                    <div id="kpi-eff-ring" class="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent border-r-transparent rotate-45 transition-all duration-500"></div>
+                    <i data-lucide="activity" class="w-6 h-6 text-indigo-500 relative z-10"></i>
+                </div>
+            </div>
+
+            <!-- Total Actual Qty -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div class="space-y-1">
+                    <span class="text-xs font-semibold text-slate-400 block uppercase">ยอดผลิตจริงทั้งหมด</span>
+                    <h3 id="kpi-total-actual" class="text-3xl font-extrabold text-green-600">-</h3>
+                    <span class="text-slate-400 text-[10px] flex items-center gap-0.5">
+                        <i data-lucide="check" class="w-3.5 h-3.5 text-green-500"></i> ชิ้น (PCS)
+                    </span>
+                </div>
+                <div class="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center text-green-600">
+                    <i data-lucide="package-check" class="w-6 h-6"></i>
+                </div>
+            </div>
+
+            <!-- Total Target Qty -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div class="space-y-1">
+                    <span class="text-xs font-semibold text-slate-400 block uppercase">เป้าหมายตาม Cap</span>
+                    <h3 id="kpi-total-target" class="text-3xl font-extrabold text-slate-700">-</h3>
+                    <span id="kpi-total-diff" class="text-slate-500 text-[10px] font-mono">Diff: -</span>
+                </div>
+                <div class="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-600">
+                    <i data-lucide="target" class="w-6 h-6"></i>
+                </div>
+            </div>
+
+            <!-- Total Active Hours -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                <div class="space-y-1">
+                    <span class="text-xs font-semibold text-slate-400 block uppercase">ชั่วโมงผลิตรวม</span>
+                    <h3 id="kpi-total-hours" class="text-3xl font-extrabold text-orange-600">-</h3>
+                    <span id="kpi-model-count" class="text-slate-400 text-[10px]">รุ่นที่ผลิต: - รุ่น</span>
+                </div>
+                <div class="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600">
+                    <i data-lucide="clock" class="w-6 h-6"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Chart 1: Daily Efficiency Trend -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">แนวโน้ม Efficiency รายวัน (%)</h3>
+                        <p class="text-xs text-slate-400">เปรียบเทียบกับเส้นเป้าหมาย</p>
+                    </div>
+                    <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                        <i data-lucide="trending-up" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="relative h-72 w-full">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Production by Model -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">ยอดผลิตรวมสะสมแยกตามรุ่น (PCS)</h3>
+                        <p class="text-xs text-slate-400">เปรียบเทียบยอดจริงและเป้าหมาย</p>
+                    </div>
+                    <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center">
+                        <i data-lucide="bar-chart-2" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="relative h-72 w-full">
+                    <canvas id="modelChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Table Section -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="list-collapse" class="w-5 h-5 text-indigo-600"></i>
+                        รายละเอียดประสิทธิภาพรายวันรายรุ่น
+                    </h3>
+                    <p class="text-xs text-slate-400">ข้อมูลจำแนกตาม วันที่, Line, กะ, และรุ่นการผลิต</p>
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <!-- Search input -->
+                    <div class="relative flex-1 sm:w-64">
+                        <input type="text" id="tableSearch" placeholder="ค้นหารุ่น หรือ Line..." oninput="filterTable()"
+                            class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm">
+                        <i data-lucide="search" class="absolute left-3 top-2.5 text-slate-400 w-4 h-4"></i>
+                    </div>
+                    <button onclick="downloadCSV()" class="p-2 border border-slate-200 hover:bg-slate-100 rounded-xl transition-colors text-slate-600 shadow-sm flex items-center gap-1.5 text-xs font-semibold" title="ดาวน์โหลดไฟล์ CSV">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">Export</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div class="overflow-x-auto rounded-xl border border-slate-100">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-50/80 text-slate-500 border-b border-slate-100 font-semibold uppercase">
+                            <th class="p-3">วันที่</th>
+                            <th class="p-3">Line</th>
+                            <th class="p-3">กะ (Shift)</th>
+                            <th class="p-3">รุ่น (Model)</th>
+                            <th class="p-3 text-center">ชั่วโมงจริง (Hr)</th>
+                            <th class="p-3 text-right">Cap/Hr</th>
+                            <th class="p-3 text-right">เป้าหมาย (Target)</th>
+                            <th class="p-3 text-right">ทำได้จริง (Actual)</th>
+                            <th class="p-3 text-right">ผลต่าง (Diff)</th>
+                            <th class="p-3 text-center">Efficiency (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summaryTableBody" class="divide-y divide-slate-100">
+                        <tr>
+                            <td colspan="10" class="text-center p-8 text-slate-400">
+                                <div class="loader mx-auto mb-2 border-2 border-indigo-500 border-t-transparent rounded-full w-6 h-6 animate-spin"></div>
+                                กำลังโหลดข้อมูล...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Empty State -->
+            <div id="table-empty-state" class="hidden text-center py-10 text-slate-400">
+                <i data-lucide="search-code" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
+                <p class="text-sm">ไม่พบข้อมูลตามตัวเลือกและคำค้นหาของคุณ</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Configuration Modal -->
+    <div id="config-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl transform transition-all scale-100 max-h-[95vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="settings" class="w-5 h-5 text-indigo-600"></i>
+                    ตั้งค่าการเชื่อมต่อ Google Sheets
+                </h3>
+                <button onclick="closeConfigModal()" class="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-full transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="bg-indigo-50 text-indigo-700 p-3 rounded-xl border border-indigo-100 text-xs flex gap-2">
+                    <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+                    <div>แชร์ค่าการเชื่อมต่อชุดเดียวกับหน้าหลัก (Job Monitor) หากบันทึกแล้วจะอัปเดตทั้งคู่</div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">ลิงก์ Google Sheet URL (แก้ไข/เผยแพร่)</label>
+                    <input type="text" id="config-sheet-url" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">ลิงก์ CSV (ยอดผลิตหลัก - ตัวกรองแยก)</label>
+                    <input type="text" id="config-yod-sheet-url" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="(ปล่อยว่างเพื่ออ้างอิงลิงก์หลักแบบเปลี่ยน GID)">
+                </div>
+
+                <div class="border-t border-slate-100 pt-4 flex gap-2">
+                    <button onclick="saveConfig()" class="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors shadow-md shadow-indigo-100">บันทึกการตั้งค่า</button>
+                    <button onclick="useDemoData()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 rounded-xl text-xs font-semibold transition-colors">ใช้ข้อมูล Demo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Section -->
+    <script>
+        // ==========================================
+        // CONFIGURATION & STATIC GIDs
+        // ==========================================
+        const PLAN_GID = "1416776201";
+        const YOD_PRODUCTION_GID = "934980474";
+        const CAPACITY_GID = "1140596720"; // แท็บข้อมูล Capacity
+        const DEFAULT_TARGET_EFF = 100; // เป้าหมายมาตรฐาน %
+
+        // ==========================================
+        // MOCK DATA (DEMO MODE FALLBACKS)
+        // ==========================================
+        const MOCK_CAPACITY_DATA = [
+            { model: 'BOX100-S', planningCap: 56.25, maxCap: 75.00 },
+            { model: 'EZ9EPL104', planningCap: 90.45, maxCap: 120.60 },
+            { model: 'EZ9EPL106', planningCap: 87.76, maxCap: 117.01 },
+            { model: 'EZ9EPL108', planningCap: 78.75, maxCap: 105.00 },
+            { model: 'EZ9EPL110', planningCap: 78.00, maxCap: 104.00 },
+            { model: 'S9HCL14', planningCap: 83.08, maxCap: 110.77 },
+            { model: 'Q03-100EZ42G/SN', planningCap: 35.53, maxCap: 47.37 }
+        ];
+
+        const MOCK_YOD_DATA = [
+            { Date: '16/09/2026', Time: '08:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 80, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '09:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 85, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '10:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 82, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '11:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 83, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '13:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 75, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '14:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 80, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '15:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 78, Shift: 'Day', Line: 'Line 5' },
+            { Date: '16/09/2026', Time: '16:00', Job: 'TH-SCDD20260901', Model: 'S9HCL14', Qty: 60, Shift: 'Day', Line: 'Line 5' },
+            
+            { Date: '17/09/2026', Time: '08:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 36, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '09:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 35, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '10:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 40, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '11:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 38, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '13:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 32, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '14:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 35, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '15:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 36, Shift: 'Day', Line: 'Line 4' },
+            { Date: '17/09/2026', Time: '16:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 38, Shift: 'Day', Line: 'Line 4' },
+            
+            { Date: '18/09/2026', Time: '08:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 34, Shift: 'Day', Line: 'Line 4' },
+            { Date: '18/09/2026', Time: '09:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 37, Shift: 'Day', Line: 'Line 4' },
+            { Date: '18/09/2026', Time: '10:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 35, Shift: 'Day', Line: 'Line 4' },
+            { Date: '18/09/2026', Time: '11:00', Job: 'TH-SCDD20260902', Model: 'Q03-100EZ42G/SN', Qty: 32, Shift: 'Day', Line: 'Line 4' },
+            
+            { Date: '18/09/2026', Time: '20:00', Job: 'TH-SCDD20260903', Model: 'EZ9EPL104', Qty: 90, Shift: 'Night', Line: 'Line 5' },
+            { Date: '18/09/2026', Time: '21:00', Job: 'TH-SCDD20260903', Model: 'EZ9EPL104', Qty: 92, Shift: 'Night', Line: 'Line 5' },
+            { Date: '18/09/2026', Time: '22:00', Job: 'TH-SCDD20260903', Model: 'EZ9EPL104', Qty: 88, Shift: 'Night', Line: 'Line 5' },
+            { Date: '18/09/2026', Time: '23:00', Job: 'TH-SCDD20260903', Model: 'EZ9EPL104', Qty: 95, Shift: 'Night', Line: 'Line 5' },
+            { Date: '19/09/2026', Time: '01:00', Job: 'TH-SCDD20260903', Model: 'EZ9EPL104', Qty: 75, Shift: 'Night', Line: 'Line 5' },
+            { Date: '19/09/2026', Time: '02:00', Job: 'TH-SCDD20260903', Model: 'EZ9EPL104', Qty: 90, Shift: 'Night', Line: 'Line 5' },
+            
+            { Date: '20/09/2026', Time: '08:00', Job: 'TH-SCDD20260904', Model: 'EZ9EPL106', Qty: 85, Shift: 'Day', Line: 'Line 5' },
+            { Date: '20/09/2026', Time: '09:00', Job: 'TH-SCDD20260904', Model: 'EZ9EPL106', Qty: 90, Shift: 'Day', Line: 'Line 5' },
+            { Date: '20/09/2026', Time: '10:00', Job: 'TH-SCDD20260904', Model: 'EZ9EPL106', Qty: 87, Shift: 'Day', Line: 'Line 5' },
+            { Date: '20/09/2026', Time: '11:00', Job: 'TH-SCDD20260904', Model: 'EZ9EPL106', Qty: 60, Shift: 'Day', Line: 'Line 5' }
+        ];
+
+        // ==========================================
+        // APP STATE VARIABLES
+        // ==========================================
+        let sheetUrl = localStorage.getItem('job_tracker_sheet_url') || '';
+        let yodSheetUrl = localStorage.getItem('job_tracker_yod_sheet_url') || '';
+        let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
+        let rawActualLogs = []; // Array of actual logs parsed
+        let computedEfficiencyData = []; // Computed daily rows
+        let filteredEfficiencyData = []; // Rows after dropdown filters
+        
+        let capacityMode = 'planning'; // 'planning' or 'max'
+        let targetEffValue = parseInt(localStorage.getItem('job_tracker_target_eff') || DEFAULT_TARGET_EFF);
+        let isDemoMode = false;
+
+        // Charts references
+        let trendChartObj = null;
+        let modelChartObj = null;
+
+        // Elements lookup
+        const els = {
+            lastUpdated: document.getElementById('last-updated'),
+            demoBanner: document.getElementById('demo-banner'),
+            filterStartDate: document.getElementById('filter-start-date'),
+            filterEndDate: document.getElementById('filter-end-date'),
+            filterLine: document.getElementById('filter-line'),
+            filterShift: document.getElementById('filter-shift'),
+            targetEffInput: document.getElementById('target-eff-input'),
+            
+            kpiAvgEff: document.getElementById('kpi-avg-eff'),
+            kpiAvgEffStatus: document.getElementById('kpi-avg-eff-status'),
+            kpiEffRing: document.getElementById('kpi-eff-ring'),
+            kpiTotalActual: document.getElementById('kpi-total-actual'),
+            kpiTotalTarget: document.getElementById('kpi-total-target'),
+            kpiTotalDiff: document.getElementById('kpi-total-diff'),
+            kpiTotalHours: document.getElementById('kpi-total-hours'),
+            kpiModelCount: document.getElementById('kpi-model-count'),
+            
+            summaryTableBody: document.getElementById('summaryTableBody'),
+            tableSearch: document.getElementById('tableSearch'),
+            tableEmptyState: document.getElementById('table-empty-state'),
+            
+            configModal: document.getElementById('config-modal'),
+            configSheetUrl: document.getElementById('config-sheet-url'),
+            configYodSheetUrl: document.getElementById('config-yod-sheet-url')
+        };
+
+        // ==========================================
+        // INITIALIZATION
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            initApp();
+        });
+
+        function initApp() {
+            lucide.createIcons();
+            els.targetEffInput.value = targetEffValue;
+            
+            if (sheetUrl) {
+                loadGoogleSheetData();
+            } else {
+                loadMockData();
+            }
+        }
+
+        // ==========================================
+        // DATA LOADERS & PARSERS
+        // ==========================================
+
+        function loadMockData() {
+            isDemoMode = true;
+            els.demoBanner.classList.remove('hidden');
+            els.lastUpdated.textContent = 'Demo Mode';
+            els.lastUpdated.classList.remove('hidden');
+
+            // Map capacity mock
+            capacityDataMap = {};
+            MOCK_CAPACITY_DATA.forEach(c => {
+                capacityDataMap[c.model] = { planning: c.planningCap, max: c.maxCap };
+            });
+
+            // Parse raw logs
+            rawActualLogs = MOCK_YOD_DATA.map(log => ({
+                date: log.Date,
+                time: log.Time,
+                jobNo: log.Job,
+                model: log.Model,
+                qty: Number(log.Qty || 0),
+                shift: log.Shift,
+                line: log.Line
+            }));
+
+            processAndRender();
+        }
+
+        function loadGoogleSheetData() {
+            els.demoBanner.classList.add('hidden');
+            
+            const capacityCsvUrl = buildGoogleSheetCsvUrl(sheetUrl, CAPACITY_GID);
+            const actualLogsCsvUrl = yodSheetUrl ? normalizeSheetUrl(yodSheetUrl) : buildGoogleSheetCsvUrl(sheetUrl, YOD_PRODUCTION_GID);
+            
+            Swal.fire({
+                title: 'กำลังดึงข้อมูล...',
+                text: 'กำลังดาวน์โหลดตาราง Capacity และประวัติยอดผลิตรายชั่วโมง',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            // 1. Fetch Capacity Data
+            Papa.parse(capacityCsvUrl + '&_t=' + Date.now(), {
+                download: true,
+                header: false,
+                skipEmptyLines: true,
+                complete: function(capacityResults) {
+                    parseCapacitySheet(capacityResults.data);
+                    
+                    // 2. Fetch Actual Logs
+                    Papa.parse(actualLogsCsvUrl + '&_t=' + Date.now(), {
+                        download: true,
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: function(logsResults) {
+                            parseActualLogsSheet(logsResults.data, logsResults.meta.fields);
+                            
+                            Swal.close();
+                            const now = new Date();
+                            els.lastUpdated.textContent = `อัปเดต: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
+                            els.lastUpdated.classList.remove('hidden');
+                            
+                            processAndRender();
+                        },
+                        error: function(err) {
+                            console.error('Error fetching logs sheet', err);
+                            Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลยอดผลิตรายชั่วโมงได้ จะสลับไปข้อมูลจำลอง', 'error');
+                            loadMockData();
+                        }
+                    });
+                },
+                error: function(err) {
+                    console.error('Error fetching capacity sheet', err);
+                    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลกำลังผลิต (Capacity) ได้ จะสลับไปข้อมูลจำลอง', 'error');
+                    loadMockData();
+                }
+            });
+        }
+
+        function parseCapacitySheet(rows) {
+            capacityDataMap = {};
+            if (!rows || rows.length === 0) return;
+
+            // Find the header row (starts with "Model")
+            let headerIdx = -1;
+            for (let i = 0; i < rows.length; i++) {
+                if (rows[i] && String(rows[i][0]).trim() === 'Model') {
+                    headerIdx = i;
+                    break;
+                }
+            }
+
+            if (headerIdx === -1) {
+                console.warn('Cannot find Model header in capacity sheet, fallback to index mapping');
+                headerIdx = 11; // fallback default
+            }
+
+            // Parse subsequent rows
+            for (let i = headerIdx + 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || row.length === 0) continue;
+                
+                const model = String(row[0] || '').trim();
+                if (!model || model.toLowerCase() === 'model' || model.startsWith('---') || model.includes('Old data')) continue;
+                
+                // Column 4 is "actual max cap by record history pc/hr"
+                // Column 6 is "Cap/Hr (PC) for planing use"
+                const maxCap = parseFloat(String(row[4] || '0').replace(/,/g, '')) || 0;
+                const planningCap = parseFloat(String(row[6] || '0').replace(/,/g, '')) || 0;
+                
+                if (model) {
+                    capacityDataMap[model] = {
+                        planning: planningCap,
+                        max: maxCap
+                    };
+                }
+            }
+        }
+
+        function parseActualLogsSheet(data, fields) {
+            rawActualLogs = [];
+            if (!data || data.length === 0) return;
+
+            // Find header mappings
+            const findKey = (keywords) => fields.find(k => 
+                keywords.some(kw => k.toLowerCase().trim() === kw.toLowerCase().trim() || k.toLowerCase().includes(kw.toLowerCase()))
+            );
+
+            const jobKey = findHeaderByPriority(fields, ['Job order No. หมายเลขกำกับงาน', 'Job order No.', 'Job order', 'Job No'], ['job order', 'job no', 'หมายเลขกำกับงาน']) || findKey(['Job order', 'Job No']);
+            const dateKey = findHeaderByPriority(fields, ['Date'], ['date', 'วันที่']);
+            const timeKey = findHeaderByPriority(fields, ['Time (เวลา)', 'Time'], ['time', 'เวลา']);
+            const qtyKey = findHeaderByPriority(fields, ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'], ['fg qty', 'fgqty', 'จำนวน']);
+            const shiftKey = findHeaderByPriority(fields, ['Shift', 'กะ'], ['shift', 'กะ']);
+            const lineKey = findHeaderByPriority(fields, ['Line'], ['line']);
+            const modelKey = fields.find(k => k.trim() === 'Model') || findKey(['Model']);
+
+            if (!jobKey || !dateKey || !timeKey || !qtyKey || !modelKey) {
+                console.error('Missing critical headers in actual logs sheet', { fields });
+                return;
+            }
+
+            data.forEach(row => {
+                const jobNo = String(row[jobKey] || '').trim();
+                const model = String(row[modelKey] || '').trim();
+                const dateRaw = String(row[dateKey] || '').trim();
+                const timeRaw = String(row[timeKey] || '').trim();
+                const qty = parseInt(String(row[qtyKey] || '0').replace(/,/g, ''), 10) || 0;
+                const shift = String(row[shiftKey] || 'Day').trim();
+                const line = String(row[lineKey] || 'Line 1').trim();
+
+                if (!jobNo || !model || !dateRaw || isNaN(qty) || qty <= 0) return;
+
+                // Format Date standard: DD/MM/YYYY
+                let dateObj = parseDate(dateRaw);
+                let formattedDate = dateRaw;
+                if (dateObj.getTime() !== 0) {
+                    let dd = String(dateObj.getDate()).padStart(2, '0');
+                    let mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                    let yyyy = dateObj.getFullYear();
+                    formattedDate = `${dd}/${mm}/${yyyy}`;
+                }
+
+                rawActualLogs.push({
+                    date: formattedDate,
+                    time: normalizeTime24(timeRaw) || timeRaw,
+                    jobNo: jobNo,
+                    model: model,
+                    qty: qty,
+                    shift: shift,
+                    line: line
+                });
+            });
+        }
+
+        // ==========================================
+        // EFFICIENCY COMPUTATION LOGIC
+        // ==========================================
+
+        function processAndRender() {
+            computeEfficiency();
+            populateFilters();
+            applyFilters();
+        }
+
+        function computeEfficiency() {
+            computedEfficiencyData = [];
+            
+            // Group by key: Date | Line | Shift | Model
+            const groups = {};
+
+            rawActualLogs.forEach(log => {
+                const hour = parseHourFromTime(log.time);
+                if (hour === null) return;
+                
+                const groupKey = `${log.date}|${log.line}|${log.shift}|${log.model}`;
+                if (!groups[groupKey]) {
+                    groups[groupKey] = {
+                        date: log.date,
+                        line: log.line,
+                        shift: log.shift,
+                        model: log.model,
+                        qty: 0,
+                        hoursSet: new Set(),
+                        jobs: new Set()
+                    };
+                }
+
+                groups[groupKey].qty += log.qty;
+                groups[groupKey].hoursSet.add(hour);
+                groups[groupKey].jobs.add(log.jobNo);
+            });
+
+            // Map groups to array with metrics
+            Object.values(groups).forEach(g => {
+                const activeHours = g.hoursSet.size;
+                
+                // Lookup capacity
+                const capInfo = capacityDataMap[g.model];
+                let capPerHour = 0;
+                
+                if (capInfo) {
+                    capPerHour = capacityMode === 'planning' ? capInfo.planning : capInfo.max;
+                }
+                
+                // If capacity is 0 or undefined, target will be 0
+                const targetQty = Math.round(capPerHour * activeHours);
+                const diff = g.qty - targetQty;
+                
+                let efficiency = 0;
+                if (targetQty > 0) {
+                    efficiency = Math.round((g.qty / targetQty) * 100);
+                }
+
+                computedEfficiencyData.push({
+                    date: g.date,
+                    line: g.line,
+                    shift: g.shift,
+                    model: g.model,
+                    activeHours: activeHours,
+                    capPerHour: capPerHour,
+                    targetQty: targetQty,
+                    actualQty: g.qty,
+                    diff: diff,
+                    efficiency: efficiency,
+                    jobs: Array.from(g.jobs)
+                });
+            });
+
+            // Sort data by Date desc, Line asc, Shift desc
+            computedEfficiencyData.sort((a, b) => {
+                const dateA = parseDate(a.date);
+                const dateB = parseDate(b.date);
+                if (dateB.getTime() !== dateA.getTime()) {
+                    return dateB - dateA;
+                }
+                return a.line.localeCompare(b.line);
+            });
+        }
+
+        // ==========================================
+        // FILTERS & UI INTERACTIVE EVENTS
+        // ==========================================
+
+        function populateFilters() {
+            // Find all unique Lines from actual logs
+            const lines = new Set();
+            rawActualLogs.forEach(log => lines.add(log.line));
+            
+            // Re-populate line select element
+            const lineSelect = els.filterLine;
+            // Clear current options except "All"
+            lineSelect.innerHTML = '<option value="All">ทุก Line</option>';
+            
+            // Sort and append
+            Array.from(lines).sort().forEach(line => {
+                const opt = document.createElement('option');
+                opt.value = line;
+                opt.textContent = line;
+                lineSelect.appendChild(opt);
+            });
+
+            // Setup default dates: last 7 days from the latest data date
+            if (rawActualLogs.length > 0) {
+                // Find latest date in logs
+                let latestDate = new Date(0);
+                rawActualLogs.forEach(log => {
+                    const d = parseDate(log.date);
+                    if (d > latestDate) latestDate = d;
+                });
+
+                if (latestDate.getTime() !== 0) {
+                    const sevenDaysAgo = new Date(latestDate);
+                    sevenDaysAgo.setDate(latestDate.getDate() - 7);
+                    
+                    els.filterStartDate.value = formatDateYYYYMMDD(sevenDaysAgo);
+                    els.filterEndDate.value = formatDateYYYYMMDD(latestDate);
+                }
+            }
+        }
+
+        function applyFilters() {
+            const startDateVal = els.filterStartDate.value;
+            const endDateVal = els.filterEndDate.value;
+            const lineVal = els.filterLine.value;
+            const shiftVal = els.filterShift.value;
+
+            const start = startDateVal ? new Date(startDateVal) : null;
+            const end = endDateVal ? new Date(endDateVal) : null;
+            if (start) start.setHours(0,0,0,0);
+            if (end) end.setHours(23,59,59,999);
+
+            filteredEfficiencyData = computedEfficiencyData.filter(item => {
+                // Date Filter
+                if (start || end) {
+                    const itemDate = parseDate(item.date);
+                    if (itemDate.getTime() === 0) return false;
+                    if (start && itemDate < start) return false;
+                    if (end && itemDate > end) return false;
+                }
+
+                // Line Filter
+                if (lineVal !== 'All' && item.line !== lineVal) return false;
+
+                // Shift Filter
+                if (shiftVal !== 'All' && item.shift !== shiftVal) return false;
+
+                return true;
+            });
+
+            // Render output elements
+            renderKPIs();
+            renderCharts();
+            filterTable(); // renders table with search query
+        }
+
+        function clearAllFilters() {
+            els.filterLine.value = 'All';
+            els.filterShift.value = 'All';
+            els.tableSearch.value = '';
+            
+            // Reset to default date range (last 7 days from data)
+            populateFilters();
+            applyFilters();
+        }
+
+        function setCapacityMode(mode) {
+            capacityMode = mode;
+            
+            const planningBtn = document.getElementById('cap-mode-planning');
+            const maxBtn = document.getElementById('cap-mode-max');
+            
+            if (mode === 'planning') {
+                planningBtn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm";
+                maxBtn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-800";
+            } else {
+                maxBtn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm";
+                planningBtn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-800";
+            }
+
+            // Re-calculate based on new capacities
+            computeEfficiency();
+            applyFilters();
+        }
+
+        function updateTargetEff() {
+            const inputVal = parseInt(els.targetEffInput.value);
+            if (isNaN(inputVal) || inputVal <= 0) {
+                alert('กรุณากรอกเป้าหมายเป็นตัวเลขที่มากกว่า 0');
+                els.targetEffInput.value = targetEffValue;
+                return;
+            }
+            targetEffValue = inputVal;
+            localStorage.setItem('job_tracker_target_eff', targetEffValue);
+            applyFilters();
+        }
+
+        // ==========================================
+        // RENDER FUNCTIONS (KPI, CHARTS, TABLE)
+        // ==========================================
+
+        function renderKPIs() {
+            let totalActual = 0;
+            let totalTarget = 0;
+            let totalHours = 0;
+            let sumEff = 0;
+            let effCount = 0;
+            const models = new Set();
+
+            filteredEfficiencyData.forEach(item => {
+                totalActual += item.actualQty;
+                totalTarget += item.targetQty;
+                totalHours += item.activeHours;
+                models.add(item.model);
+
+                if (item.targetQty > 0) {
+                    sumEff += item.efficiency;
+                    effCount++;
+                }
+            });
+
+            // Avg efficiency is computed as the average efficiency percentage of all records
+            // Or totalActual / totalTarget * 100. Let's use overall ratio as it is mathematically sound.
+            let avgEff = 0;
+            if (totalTarget > 0) {
+                avgEff = Math.round((totalActual / totalTarget) * 100);
+            } else if (effCount > 0) {
+                avgEff = Math.round(sumEff / effCount);
+            }
+
+            // Draw KPI values
+            els.kpiAvgEff.textContent = `${avgEff}%`;
+            els.kpiTotalActual.textContent = totalActual.toLocaleString();
+            els.kpiTotalTarget.textContent = totalTarget.toLocaleString();
+            
+            const diff = totalActual - totalTarget;
+            const diffClass = diff >= 0 ? 'text-green-600' : 'text-red-500';
+            const diffPrefix = diff >= 0 ? '+' : '';
+            els.kpiTotalDiff.textContent = `Diff: ${diffPrefix}${diff.toLocaleString()}`;
+            els.kpiTotalDiff.className = `text-[10px] font-mono font-bold ${diffClass}`;
+
+            els.kpiTotalHours.textContent = `${totalHours.toLocaleString()} ชม.`;
+            els.kpiModelCount.textContent = `รุ่นที่ผลิต: ${models.size} รุ่น`;
+
+            // Style Avg Efficiency Status
+            let badgeClass = "text-[10px] px-2 py-0.5 rounded-full inline-block font-semibold";
+            let statusText = "ต่ำกว่าเป้าหมาย";
+            let ringColor = "border-red-500";
+            
+            if (avgEff >= targetEffValue) {
+                badgeClass += " bg-green-100 text-green-700";
+                statusText = "ผ่านเป้าหมาย";
+                ringColor = "border-green-500";
+            } else if (avgEff >= targetEffValue * 0.8) {
+                badgeClass += " bg-yellow-100 text-yellow-700";
+                statusText = "ใกล้เคียงเป้าหมาย";
+                ringColor = "border-yellow-500";
+            } else {
+                badgeClass += " bg-red-100 text-red-700";
+                statusText = "ต้องปรับปรุง";
+                ringColor = "border-red-500";
+            }
+            els.kpiAvgEffStatus.className = badgeClass;
+            els.kpiAvgEffStatus.textContent = statusText;
+
+            // Set Gauge Ring rotation
+            // 45deg is 0%, 225deg is 100%+
+            const rotation = 45 + Math.min((avgEff / 100) * 180, 180);
+            els.kpiEffRing.className = `absolute inset-0 rounded-full border-4 ${ringColor} border-t-transparent border-r-transparent transition-all duration-500`;
+            els.kpiEffRing.style.transform = `rotate(${rotation}deg)`;
+        }
+
+        function renderCharts() {
+            // --- 1. Process Trend Data (Group by Date) ---
+            const dateGroups = {};
+            filteredEfficiencyData.forEach(item => {
+                if (!dateGroups[item.date]) {
+                    dateGroups[item.date] = { actual: 0, target: 0 };
+                }
+                dateGroups[item.date].actual += item.actualQty;
+                dateGroups[item.date].target += item.targetQty;
+            });
+
+            // Sort dates chronologically for the chart
+            const sortedDates = Object.keys(dateGroups).sort((a, b) => parseDate(a) - parseDate(b));
+            const dailyEffValues = sortedDates.map(date => {
+                const g = dateGroups[date];
+                return g.target > 0 ? Math.round((g.actual / g.target) * 100) : 0;
+            });
+            const targetLineValues = sortedDates.map(() => targetEffValue);
+
+            // Draw Daily Trend Chart
+            if (trendChartObj) trendChartObj.destroy();
+            const ctxTrend = document.getElementById('trendChart').getContext('2d');
+            trendChartObj = new Chart(ctxTrend, {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [
+                        {
+                            label: 'Efficiency จริง (%)',
+                            data: dailyEffValues,
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            borderWidth: 3,
+                            tension: 0.25,
+                            fill: true,
+                            pointBackgroundColor: '#4f46e5',
+                            pointRadius: 4
+                        },
+                        {
+                            label: 'เป้าหมาย (%)',
+                            data: targetLineValues,
+                            borderColor: '#ef4444',
+                            borderWidth: 2,
+                            borderDash: [6, 6],
+                            fill: false,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: Math.max(120, ...dailyEffValues, targetEffValue + 10),
+                            ticks: { callback: value => value + '%' }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { family: 'Prompt' } } }
+                    }
+                }
+            });
+
+            // --- 2. Process Model Data (Group by Model) ---
+            const modelGroups = {};
+            filteredEfficiencyData.forEach(item => {
+                if (!modelGroups[item.model]) {
+                    modelGroups[item.model] = { actual: 0, target: 0 };
+                }
+                modelGroups[item.model].actual += item.actualQty;
+                modelGroups[item.model].target += item.targetQty;
+            });
+
+            // Sort models by actual output desc
+            const sortedModels = Object.keys(modelGroups).sort((a, b) => modelGroups[b].actual - modelGroups[a].actual).slice(0, 10); // show top 10 models
+            const modelActuals = sortedModels.map(m => modelGroups[m].actual);
+            const modelTargets = sortedModels.map(m => modelGroups[m].target);
+
+            // Draw Model bar chart
+            if (modelChartObj) modelChartObj.destroy();
+            const ctxModel = document.getElementById('modelChart').getContext('2d');
+            modelChartObj = new Chart(ctxModel, {
+                type: 'bar',
+                data: {
+                    labels: sortedModels,
+                    datasets: [
+                        {
+                            label: 'ยอดผลิตจริง',
+                            data: modelActuals,
+                            backgroundColor: '#10b981',
+                            borderRadius: 6
+                        },
+                        {
+                            label: 'เป้าหมายตาม Cap',
+                            data: modelTargets,
+                            backgroundColor: '#cbd5e1',
+                            borderRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { family: 'Prompt' } } }
+                    }
+                }
+            });
+        }
+
+        function filterTable() {
+            const query = els.tableSearch.value.trim().toLowerCase();
+            const tableBody = els.summaryTableBody;
+            
+            // Filter by search query
+            const tableRows = filteredEfficiencyData.filter(item => {
+                if (!query) return true;
+                return (
+                    item.model.toLowerCase().includes(query) ||
+                    item.line.toLowerCase().includes(query) ||
+                    item.date.includes(query)
+                );
+            });
+
+            if (tableRows.length === 0) {
+                tableBody.innerHTML = '';
+                els.tableEmptyState.classList.remove('hidden');
+                return;
+            }
+            els.tableEmptyState.classList.add('hidden');
+
+            // Render table rows
+            tableBody.innerHTML = tableRows.map(row => {
+                const diffClass = row.diff >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold';
+                const diffPrefix = row.diff >= 0 ? '+' : '';
+                
+                // Color code efficiency cells
+                let effBadge = '';
+                if (row.efficiency >= targetEffValue) {
+                    effBadge = 'bg-green-100 text-green-700 border border-green-200';
+                } else if (row.efficiency >= targetEffValue * 0.8) {
+                    effBadge = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+                } else {
+                    effBadge = 'bg-red-100 text-red-700 border border-red-200';
+                }
+
+                const capDisplay = row.capPerHour > 0 ? `${row.capPerHour.toLocaleString()}` : '-';
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="p-3 font-medium text-slate-700">${row.date}</td>
+                        <td class="p-3 text-slate-600 font-semibold">${row.line}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-medium ${row.shift === 'Day' ? 'bg-orange-50 text-orange-600' : 'bg-slate-800 text-slate-100'}">
+                                ${row.shift}
+                            </span>
+                        </td>
+                        <td class="p-3 font-semibold text-slate-800">${row.model}</td>
+                        <td class="p-3 text-center font-mono font-medium">${row.activeHours}</td>
+                        <td class="p-3 text-right font-mono text-slate-500">${capDisplay}</td>
+                        <td class="p-3 text-right font-mono text-slate-500 font-semibold">${row.targetQty.toLocaleString()}</td>
+                        <td class="p-3 text-right font-mono font-bold text-slate-800">${row.actualQty.toLocaleString()}</td>
+                        <td class="p-3 text-right font-mono ${diffClass}">${diffPrefix}${row.diff.toLocaleString()}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2.5 py-1 rounded-full text-xs font-bold ${effBadge}">
+                                ${row.efficiency}%
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // ==========================================
+        // SETTINGS & CONFIGURATION EVENTS
+        // ==========================================
+
+        function openConfigModal() {
+            els.configSheetUrl.value = sheetUrl;
+            els.configYodSheetUrl.value = yodSheetUrl;
+            els.configModal.classList.remove('hidden');
+        }
+
+        function closeConfigModal() {
+            els.configModal.classList.add('hidden');
+        }
+
+        function saveConfig() {
+            const url = els.configSheetUrl.value.trim();
+            const yodUrl = els.configYodSheetUrl.value.trim();
+
+            if (!url) {
+                alert('กรุณากรอกลิงก์ Google Sheet URL');
+                return;
+            }
+
+            localStorage.setItem('job_tracker_sheet_url', url);
+            localStorage.setItem('job_tracker_yod_sheet_url', yodUrl);
+            sheetUrl = url;
+            yodSheetUrl = yodUrl;
+            
+            closeConfigModal();
+            loadGoogleSheetData();
+        }
+
+        function useDemoData() {
+            localStorage.removeItem('job_tracker_sheet_url');
+            localStorage.removeItem('job_tracker_yod_sheet_url');
+            sheetUrl = '';
+            yodSheetUrl = '';
+            
+            closeConfigModal();
+            loadMockData();
+        }
+
+        function reloadData() {
+            if (isDemoMode && !sheetUrl) {
+                openConfigModal();
+            } else {
+                loadGoogleSheetData();
+            }
+        }
+
+        // ==========================================
+        // EXPORT TO CSV
+        // ==========================================
+        function downloadCSV() {
+            if (filteredEfficiencyData.length === 0) return alert('ไม่มีข้อมูลที่สามารถดาวน์โหลดได้');
+            
+            let csvContent = "\uFEFF"; // Add BOM for Excel UTF-8 Thai text compatibility
+            csvContent += "Date,Line,Shift,Model,Active Hours,Capacity Per Hour,Target Qty,Actual Qty,Diff,Efficiency (%)\n";
+            
+            filteredEfficiencyData.forEach(row => {
+                csvContent += `"${row.date}","${row.line}","${row.shift}","${row.model}",${row.activeHours},${row.capPerHour},${row.targetQty},${row.actualQty},${row.diff},${row.efficiency}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", `efficiency_report_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // ==========================================
+        // HELPER FUNCTIONS (DATES, STRINGS, ETC)
+        // ==========================================
+
+        function parseDate(dateStr) {
+            if (!dateStr || dateStr === '-') return new Date(0); 
+            let cleanStr = String(dateStr).trim().split(' ')[0];
+            if (cleanStr.includes('/')) {
+                const parts = cleanStr.split('/');
+                if (parts.length === 3) {
+                    let d = parseInt(parts[0]);
+                    let m = parseInt(parts[1]);
+                    let y = parseInt(parts[2]);
+                    if (d > 1000) {
+                        return new Date(d, m - 1, y);
+                    }
+                    if (m > 12) {
+                        return new Date(y, d - 1, m);
+                    }
+                    return new Date(y, m - 1, d);
+                }
+            } else if (cleanStr.includes('-')) {
+                const parts = cleanStr.split('-');
+                if (parts.length === 3) {
+                    let y = parseInt(parts[0]);
+                    let m = parseInt(parts[1]);
+                    let d = parseInt(parts[2]);
+                    if (y < 100) {
+                        y += 2000;
+                    }
+                    return new Date(y, m - 1, d);
+                }
+            }
+            return new Date(dateStr);
+        }
+
+        function formatDateYYYYMMDD(date) {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        // Helper to extract hour (integer) from "HH:MM" format
+        function parseHourFromTime(timeStr) {
+            if (!timeStr) return null;
+            const parts = timeStr.split(':');
+            if (parts.length >= 1) {
+                const hr = parseInt(parts[0], 10);
+                if (!isNaN(hr)) return hr;
+            }
+            return null;
+        }
+
+        function normalizeTime24(timeStr) {
+            if (!timeStr) return '';
+            const clean = String(timeStr).trim();
+            if (clean.includes(':')) {
+                const parts = clean.split(':');
+                if (parts.length >= 2) {
+                    const hr = String(parseInt(parts[0])).padStart(2, '0');
+                    const min = String(parseInt(parts[1])).padStart(2, '0');
+                    return `${hr}:${min}`;
+                }
+            }
+            return '';
+        }
+
+        function normalizeSheetUrl(url) {
+            if (!url) return url;
+            const trimmed = String(url).trim();
+            if (/^https?:\/\//i.test(trimmed)) return trimmed;
+            if (/^(docs\.google\.com)/i.test(trimmed)) {
+                return `https://${trimmed}`;
+            }
+            return trimmed;
+        }
+
+        function buildGoogleSheetCsvUrl(url, gid) {
+            if (!url) return url;
+            try {
+                const parsed = new URL(normalizeSheetUrl(url));
+                const path = parsed.pathname || '';
+                const isDocsHost = parsed.hostname.includes('docs.google.com');
+
+                if (isDocsHost && path.includes('/spreadsheets/d/e/')) {
+                    parsed.pathname = path.replace('/pubhtml', '/pub');
+                    parsed.search = '';
+                    parsed.searchParams.set('output', 'csv');
+                    parsed.searchParams.set('gid', gid);
+                    return parsed.toString();
+                }
+
+                if (isDocsHost && path.includes('/spreadsheets/d/')) {
+                    const match = path.match(/\/spreadsheets\/d\/([^/]+)/);
+                    if (match && match[1]) {
+                        parsed.pathname = `/spreadsheets/d/${match[1]}/export`;
+                        parsed.search = '';
+                        parsed.searchParams.set('format', 'csv');
+                        parsed.searchParams.set('gid', gid);
+                        return parsed.toString();
+                    }
+                }
+                return parsed.toString();
+            } catch (err) {
+                return normalizeSheetUrl(url);
+            }
+        }
+
+        function findHeaderByPriority(headers, exactKeywords, fallbackKeywords) {
+            const foundExact = headers.find(k => 
+                exactKeywords.some(kw => String(k).trim().toLowerCase() === kw.toLowerCase())
+            );
+            if (foundExact) return foundExact;
+            return headers.find(k =>
+                fallbackKeywords.some(kw => String(k).toLowerCase().includes(kw.toLowerCase()))
+            );
+        }
+    </script>
+</body>
+</html>
