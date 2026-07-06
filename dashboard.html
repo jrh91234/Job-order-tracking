@@ -943,11 +943,11 @@
             let statusText = "ต่ำกว่าเป้าหมาย";
             let ringColor = "border-red-500";
             
-            if (avgEff >= targetEffValue) {
+            if (avgEff >= 85) {
                 badgeClass += " bg-green-100 text-green-700";
                 statusText = "ผ่านเป้าหมาย";
                 ringColor = "border-green-500";
-            } else if (avgEff >= targetEffValue * 0.8) {
+            } else if (avgEff >= 75) {
                 badgeClass += " bg-yellow-100 text-yellow-700";
                 statusText = "ใกล้เคียงเป้าหมาย";
                 ringColor = "border-yellow-500";
@@ -1109,9 +1109,9 @@
                 
                 // Color code efficiency cells
                 let effBadge = '';
-                if (row.efficiency >= targetEffValue) {
+                if (row.efficiency >= 85) {
                     effBadge = 'bg-green-100 text-green-700 border border-green-200';
-                } else if (row.efficiency >= targetEffValue * 0.8) {
+                } else if (row.efficiency >= 75) {
                     effBadge = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
                 } else {
                     effBadge = 'bg-red-100 text-red-700 border border-red-200';
