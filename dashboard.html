@@ -114,7 +114,7 @@
             </div>
 
             <!-- Filters Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1.5">ช่วงวันที่ (เริ่มต้น)</label>
                     <input type="date" id="filter-start-date" onchange="applyFilters()" 
@@ -139,6 +139,13 @@
                         <option value="All">ทุกกะ</option>
                         <option value="Day">Day (กลางวัน)</option>
                         <option value="Night">Night (กลางคืน)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">กลุ่มกะย่อย (Shift A/B)</label>
+                    <select id="filter-shift-ab" onchange="applyFilters()" 
+                        class="w-full text-sm p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-700 shadow-sm appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e')] bg-[length:1em] bg-[right_0.75rem_center] bg-no-repeat">
+                        <option value="All">ทุกกลุ่ม (A/B)</option>
                     </select>
                 </div>
             </div>
@@ -287,6 +294,7 @@
                             <th class="p-3">วันที่</th>
                             <th class="p-3">Line</th>
                             <th class="p-3">กะ (Shift)</th>
+                            <th class="p-3 text-center">Shift A/B</th>
                             <th class="p-3">รุ่น (Model)</th>
                             <th class="p-3 text-center">ชั่วโมงจริง (Hr)</th>
                             <th class="p-3 text-right">Cap/Hr</th>
@@ -299,7 +307,7 @@
                     </thead>
                     <tbody id="summaryTableBody" class="divide-y divide-slate-100">
                         <tr>
-                            <td colspan="11" class="text-center p-8 text-slate-400">
+                            <td colspan="12" class="text-center p-8 text-slate-400">
                                 <div class="loader mx-auto mb-2 border-2 border-indigo-500 border-t-transparent rounded-full w-6 h-6 animate-spin"></div>
                                 กำลังโหลดข้อมูล...
                             </td>
@@ -440,6 +448,7 @@
             filterEndDate: document.getElementById('filter-end-date'),
             filterLine: document.getElementById('filter-line'),
             filterShift: document.getElementById('filter-shift'),
+            filterShiftAB: document.getElementById('filter-shift-ab'),
             targetEffInput: document.getElementById('target-eff-input'),
             
             kpiAvgEff: document.getElementById('kpi-avg-eff'),
@@ -502,7 +511,8 @@
                 model: log.Model,
                 qty: Number(log.Qty || 0),
                 shift: log.Shift,
-                line: log.Line
+                line: log.Line,
+                shiftAB: log.Shift === 'Day' ? 'A' : 'B'
             }));
 
             processAndRender();
@@ -613,6 +623,7 @@
             const timeKey = findHeaderByPriority(fields, ['Time (เวลา)', 'Time'], ['time', 'เวลา']);
             const qtyKey = findHeaderByPriority(fields, ['FG Qty (จำนวน)', 'FG Qty', 'fgqty'], ['fg qty', 'fgqty', 'จำนวน']);
             const shiftKey = findHeaderByPriority(fields, ['Shift', 'กะ'], ['shift', 'กะ']);
+            const shiftABKey = findHeaderByPriority(fields, ['Shift A/B', 'ShiftA/B'], ['shift a/b', 'shiftab', 'กะย่อย']);
             const lineKey = findHeaderByPriority(fields, ['Line'], ['line']);
             const modelKey = fields.find(k => k.trim() === 'Model') || findKey(['Model']);
 
@@ -628,6 +639,7 @@
                 const timeRaw = String(row[timeKey] || '').trim();
                 const qty = parseInt(String(row[qtyKey] || '0').replace(/,/g, ''), 10) || 0;
                 const shift = String(row[shiftKey] || 'Day').trim();
+                const shiftAB = String(row[shiftABKey] || '-').trim();
                 const line = String(row[lineKey] || 'Line 1').trim();
 
                 if (!jobNo || !model || !dateRaw || isNaN(qty) || qty <= 0) return;
@@ -649,6 +661,7 @@
                     model: model,
                     qty: qty,
                     shift: shift,
+                    shiftAB: shiftAB,
                     line: line
                 });
             });
@@ -667,19 +680,20 @@
         function computeEfficiency() {
             computedEfficiencyData = [];
             
-            // Group by key: Date | Line | Shift | Model
+            // Group by key: Date | Line | Shift | Shift A/B | Model
             const groups = {};
 
             rawActualLogs.forEach(log => {
                 const hour = parseHourFromTime(log.time);
                 if (hour === null) return;
                 
-                const groupKey = `${log.date}|${log.line}|${log.shift}|${log.model}`;
+                const groupKey = `${log.date}|${log.line}|${log.shift}|${log.shiftAB}|${log.model}`;
                 if (!groups[groupKey]) {
                     groups[groupKey] = {
                         date: log.date,
                         line: log.line,
                         shift: log.shift,
+                        shiftAB: log.shiftAB,
                         model: log.model,
                         qty: 0,
                         hoursSet: new Set(),
@@ -717,6 +731,7 @@
                     date: g.date,
                     line: g.line,
                     shift: g.shift,
+                    shiftAB: g.shiftAB,
                     model: g.model,
                     activeHours: activeHours,
                     capPerHour: capPerHour,
@@ -761,6 +776,21 @@
                 lineSelect.appendChild(opt);
             });
 
+            // Find all unique Shift A/B from actual logs
+            const shiftABs = new Set();
+            rawActualLogs.forEach(log => {
+                if (log.shiftAB) shiftABs.add(log.shiftAB);
+            });
+
+            const shiftABSelect = els.filterShiftAB;
+            shiftABSelect.innerHTML = '<option value="All">ทุกกลุ่ม (A/B)</option>';
+            Array.from(shiftABs).sort().forEach(sab => {
+                const opt = document.createElement('option');
+                opt.value = sab;
+                opt.textContent = `กลุ่ม ${sab}`;
+                shiftABSelect.appendChild(opt);
+            });
+
             // Setup default dates: last 7 days from the latest data date
             if (rawActualLogs.length > 0) {
                 // Find latest date in logs
@@ -785,6 +815,7 @@
             const endDateVal = els.filterEndDate.value;
             const lineVal = els.filterLine.value;
             const shiftVal = els.filterShift.value;
+            const shiftABVal = els.filterShiftAB.value;
 
             const start = startDateVal ? new Date(startDateVal) : null;
             const end = endDateVal ? new Date(endDateVal) : null;
@@ -806,6 +837,9 @@
                 // Shift Filter
                 if (shiftVal !== 'All' && item.shift !== shiftVal) return false;
 
+                // Shift A/B Filter
+                if (shiftABVal !== 'All' && item.shiftAB !== shiftABVal) return false;
+
                 return true;
             });
 
@@ -818,6 +852,7 @@
         function clearAllFilters() {
             els.filterLine.value = 'All';
             els.filterShift.value = 'All';
+            els.filterShiftAB.value = 'All';
             els.tableSearch.value = '';
             
             // Reset to default date range (last 7 days from data)
@@ -1094,6 +1129,11 @@
                                 ${row.shift}
                             </span>
                         </td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                ${row.shiftAB || '-'}
+                            </span>
+                        </td>
                         <td class="p-3 font-semibold text-slate-800">${row.model}</td>
                         <td class="p-3 text-center font-mono font-medium">${row.activeHours}</td>
                         <td class="p-3 text-right font-mono text-slate-500">${capDisplay}</td>
@@ -1173,10 +1213,10 @@
             if (filteredEfficiencyData.length === 0) return alert('ไม่มีข้อมูลที่สามารถดาวน์โหลดได้');
             
             let csvContent = "\uFEFF"; // Add BOM for Excel UTF-8 Thai text compatibility
-            csvContent += "Date,Line,Shift,Model,Active Hours,Capacity Per Hour,Target Qty,Actual Qty,Diff,Efficiency (%)\n";
+            csvContent += "Date,Line,Shift,Shift A/B,Model,Active Hours,Capacity Per Hour,Target Qty,Actual Qty,Diff,Efficiency (%)\n";
             
             filteredEfficiencyData.forEach(row => {
-                csvContent += `"${row.date}","${row.line}","${row.shift}","${row.model}",${row.activeHours},${row.capPerHour},${row.targetQty},${row.actualQty},${row.diff},${row.efficiency}\n`;
+                csvContent += `"${row.date}","${row.line}","${row.shift}","${row.shiftAB}","${row.model}",${row.activeHours},${row.capPerHour},${row.targetQty},${row.actualQty},${row.diff},${row.efficiency}\n`;
             });
 
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1217,7 +1257,8 @@
                             <div>📅 วันที่: <span class="text-slate-800">${row.date}</span></div>
                             <div>🚀 Line: <span class="text-slate-800">${row.line}</span></div>
                             <div>⏰ กะ (Shift): <span class="text-slate-800">${row.shift}</span></div>
-                            <div>📦 รุ่น (Model): <span class="text-slate-800">${row.model}</span></div>
+                            <div>👥 Shift A/B: <span class="text-slate-800">${row.shiftAB || '-'}</span></div>
+                            <div class="col-span-2">📦 รุ่น (Model): <span class="text-slate-800">${row.model}</span></div>
                         </div>
 
                         <!-- บล็อกแสดงการคำนวณสด -->
