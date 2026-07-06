@@ -1018,6 +1018,16 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    onHover: (event, chartElement) => {
+                        event.native.target.style.cursor = chartElement.length ? 'pointer' : 'default';
+                    },
+                    onClick: (e, elements) => {
+                        if (elements && elements.length > 0) {
+                            const index = elements[0].index;
+                            const date = trendChartObj.data.labels[index];
+                            showDailyAuditModal(date);
+                        }
+                    },
                     scales: {
                         y: {
                             min: 0,
@@ -1026,7 +1036,24 @@
                         }
                     },
                     plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { family: 'Prompt' } } }
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { family: 'Prompt' } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const date = context.label;
+                                    const g = dateGroups[date];
+                                    if (g) {
+                                        return [
+                                            `Efficiency: ${context.parsed.y}%`,
+                                            `ทำได้จริง (Actual): ${g.actual.toLocaleString()} ชิ้น`,
+                                            `เป้าหมาย (Target): ${g.target.toLocaleString()} ชิ้น`,
+                                            `👉 คลิกเพื่อดูรายละเอียดการคำนวณ (Audit)`
+                                        ];
+                                    }
+                                    return `Efficiency: ${context.parsed.y}%`;
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -1335,6 +1362,106 @@
                 confirmButtonText: 'รับทราบ',
                 confirmButtonColor: '#4f46e5',
                 width: '600px'
+            });
+        }
+
+        // ==========================================
+        // DAILY AUDIT POPUP FOR CHART
+        // ==========================================
+        function showDailyAuditModal(targetDate) {
+            const items = filteredEfficiencyData.filter(item => item.date === targetDate);
+            if (items.length === 0) {
+                Swal.fire({
+                    icon: 'info',
+                    title: 'ไม่พบข้อมูลการผลิต',
+                    text: `ไม่พบรายละเอียดการผลิตในวันที่ ${targetDate}`,
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#4f46e5'
+                });
+                return;
+            }
+
+            const totalActual = items.reduce((sum, item) => sum + item.actualQty, 0);
+            const totalTarget = items.reduce((sum, item) => sum + item.targetQty, 0);
+            const totalHours = items.reduce((sum, item) => sum + item.activeHours, 0);
+            const overallEff = totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100) : 0;
+            const diff = totalActual - totalTarget;
+            const diffClass = diff >= 0 ? 'text-green-600' : 'text-red-500';
+            const diffPrefix = diff >= 0 ? '+' : '';
+
+            let tableHtml = `
+                <div class="overflow-x-auto border border-slate-100 rounded-xl shadow-sm mt-3 max-h-[300px] overflow-y-auto">
+                    <table class="w-full text-xs text-left text-slate-600 font-sans">
+                        <thead class="bg-slate-50 text-slate-700 font-bold uppercase sticky top-0 border-b border-slate-100">
+                            <tr>
+                                <th class="p-2.5">Line</th>
+                                <th class="p-2.5 text-center">กะ (Shift)</th>
+                                <th class="p-2.5 text-center">กลุ่ม (A/B)</th>
+                                <th class="p-2.5">Model</th>
+                                <th class="p-2.5 text-center">ชั่วโมงจริง</th>
+                                <th class="p-2.5 text-right">Target</th>
+                                <th class="p-2.5 text-right">Actual</th>
+                                <th class="p-2.5 text-center">Eff (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 bg-white">
+            `;
+
+            items.forEach(row => {
+                let sabColor = row.efficiency >= 85 ? 'bg-green-100 text-green-700' : (row.efficiency >= 75 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700');
+                tableHtml += `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="p-2 font-semibold">${row.line}</td>
+                        <td class="p-2 text-center text-[10px]">${row.shift}</td>
+                        <td class="p-2 text-center text-[10px]">${row.shiftAB || '-'}</td>
+                        <td class="p-2 font-medium text-slate-800">${row.model}</td>
+                        <td class="p-2 text-center font-mono">${row.activeHours}</td>
+                        <td class="p-2 text-right font-mono">${row.targetQty.toLocaleString()}</td>
+                        <td class="p-2 text-right font-mono">${row.actualQty.toLocaleString()}</td>
+                        <td class="p-2 text-center">
+                            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold ${sabColor}">
+                                ${row.efficiency}%
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            const auditHtml = `
+                <div class="text-left text-sm space-y-3 p-1 text-slate-700 font-sans leading-relaxed">
+                    <div class="bg-indigo-50 p-3.5 rounded-2xl border border-indigo-100 shadow-inner mb-3">
+                        <span class="font-bold text-indigo-900 block text-xs uppercase tracking-wider mb-1">สูตรคำนวณของวันที่ ${targetDate}</span>
+                        <div class="text-center font-mono font-bold text-base text-indigo-900 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm leading-relaxed">
+                            <div class="text-xs text-slate-400 mb-1">Efficiency (%) = (Total Actual / Total Target) × 100</div>
+                            <div>= (${totalActual.toLocaleString()} / ${totalTarget.toLocaleString()}) × 100</div>
+                            <div class="text-xl text-indigo-700 font-extrabold mt-1.5">${overallEff}%</div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5 text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div>• <strong>รวมผลผลิตจริง (Total Actual):</strong> <span class="font-mono text-indigo-600 font-bold">${totalActual.toLocaleString()} ชิ้น</span></div>
+                        <div>• <strong>รวมเป้าหมายตาม Cap (Total Target):</strong> <span class="font-mono text-indigo-600 font-bold">${totalTarget.toLocaleString()} ชิ้น</span></div>
+                        <div>• <strong>ผลต่างสะสมรายวัน (Diff):</strong> <span class="font-mono font-bold ${diffClass}">${diffPrefix}${diff.toLocaleString()} ชิ้น</span></div>
+                        <div>• <strong>จำนวนชั่วโมงรวมสะสม:</strong> <span class="font-mono text-slate-700">${totalHours} ชม.</span></div>
+                    </div>
+
+                    <div class="font-semibold text-slate-800 text-xs mt-4 mb-1">📂 ตารางแจกแจงรายการการผลิต (ใช้ในการ Audit):</div>
+                    ${tableHtml}
+                </div>
+            `;
+
+            Swal.fire({
+                title: `🔍 รายการคำนวณรายวัน: วันที่ ${targetDate}`,
+                html: auditHtml,
+                confirmButtonText: 'ตกลง',
+                confirmButtonColor: '#4f46e5',
+                width: '700px'
             });
         }
 
