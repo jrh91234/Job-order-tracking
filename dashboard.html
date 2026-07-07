@@ -96,11 +96,11 @@
                     <!-- Toggle Capacity Mode -->
                     <div class="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
                         <button id="cap-mode-planning" onclick="setCapacityMode('planning')" 
-                            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm">
+                            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-800">
                             Planning Cap
                         </button>
                         <button id="cap-mode-max" onclick="setCapacityMode('max')" 
-                            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-slate-500 hover:text-slate-800">
+                            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-indigo-700 shadow-sm">
                             Max Cap (100%)
                         </button>
                     </div>
@@ -432,7 +432,7 @@
         let computedEfficiencyData = []; // Computed daily rows
         let filteredEfficiencyData = []; // Rows after dropdown filters
         
-        let capacityMode = 'planning'; // 'planning' or 'max'
+        let capacityMode = 'max'; // 'planning' or 'max'
         let targetEffValue = parseInt(localStorage.getItem('job_tracker_target_eff') || DEFAULT_TARGET_EFF);
         let isDemoMode = false;
 
