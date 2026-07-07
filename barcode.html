@@ -127,13 +127,21 @@
             </div>
 
             <!-- Filters Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
                 <!-- Date Filter -->
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1.5">เลือกวันผลิต (Production Date)</label>
                     <div class="relative">
                         <input type="date" id="filter-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
                     </div>
+                </div>
+
+                <!-- Line Filter -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">เลือก Line การผลิต (Line)</label>
+                    <select id="filter-line" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="All">ทุก Line การผลิต (All)</option>
+                    </select>
                 </div>
 
                 <!-- Shift Filter -->
@@ -392,6 +400,7 @@
         // Element Lookups
         const els = {
             filterDate: document.getElementById('filter-date'),
+            filterLine: document.getElementById('filter-line'),
             filterShift: document.getElementById('filter-shift'),
             filterJob: document.getElementById('filter-job'),
             filterModel: document.getElementById('filter-model'),
@@ -439,6 +448,7 @@
 
             // Event Listeners for Filters
             els.filterDate.addEventListener('change', () => { applyFilters(); });
+            els.filterLine.addEventListener('change', () => { applyFilters(); });
             els.filterShift.addEventListener('change', () => { applyFilters(); });
             els.filterJob.addEventListener('change', () => { applyFilters(); });
             els.filterModel.addEventListener('change', () => { applyFilters(); });
@@ -543,7 +553,8 @@
                     jobOrder: String(row['Job Order'] || 'MANUAL_MODE').trim(),
                     model: String(row['Model'] || '-').trim(),
                     barcode: String(row['Barcode'] || '-').trim(),
-                    status: String(row['Status'] || 'OK').trim()
+                    status: String(row['Status'] || 'OK').trim(),
+                    line: String(row['Line'] || '-').trim()
                 });
             });
 
@@ -578,16 +589,37 @@
 
             const activeDate = els.filterDate.value;
 
-            // Extract unique jobs and models for the selected date
+            // Extract unique lines, jobs and models for the selected date
+            const lines = new Set();
             const jobs = new Set();
             const models = new Set();
 
             processedScans.forEach(s => {
                 if (s.prodDate === activeDate) {
-                    jobs.add(s.jobOrder);
-                    models.add(s.model);
+                    lines.add(s.line);
+                    const activeLine = els.filterLine ? els.filterLine.value : 'All';
+                    if (activeLine === 'All' || s.line === activeLine) {
+                        jobs.add(s.jobOrder);
+                        models.add(s.model);
+                    }
                 }
             });
+
+            // Populate Line Dropdown
+            const lineSelect = els.filterLine;
+            if (lineSelect) {
+                const currentLineVal = lineSelect.value;
+                lineSelect.innerHTML = '<option value="All">ทุก Line การผลิต (All)</option>';
+                Array.from(lines).sort().forEach(l => {
+                    if (l && l !== '-') {
+                        const opt = document.createElement('option');
+                        opt.value = l;
+                        opt.textContent = `Line ${l}`;
+                        lineSelect.appendChild(opt);
+                    }
+                });
+                if (lines.has(currentLineVal)) lineSelect.value = currentLineVal;
+            }
 
             // Populate Job Order Dropdown
             const jobSelect = els.filterJob;
@@ -617,6 +649,7 @@
         function applyFilters() {
             const activeDate = els.filterDate.value;
             const activeShift = els.filterShift.value;
+            const activeLine = els.filterLine ? els.filterLine.value : 'All';
             const activeJob = els.filterJob.value;
             const activeModel = els.filterModel.value;
 
@@ -624,13 +657,13 @@
             filteredScans = processedScans.filter(s => {
                 if (s.prodDate !== activeDate) return false;
                 if (activeShift !== 'All' && s.shift !== activeShift) return false;
+                if (activeLine !== 'All' && s.line !== activeLine) return false;
                 if (activeJob !== 'All' && s.jobOrder !== activeJob) return false;
                 if (activeModel !== 'All' && s.model !== activeModel) return false;
                 return true;
             });
 
             // Repopulate dynamic drop-downs if date changed
-            // We pass activeDate to ensure we don't overwrite it
             populateFilters(activeDate);
 
             // Compute KPIs
@@ -765,47 +798,68 @@
             // Get all unique models in filteredScans
             const uniqueModels = Array.from(new Set(filteredScans.map(s => s.model))).sort();
 
-            // Calculate daily average capacity fallback
-            const activeModelsForDay = Array.from(new Set(filteredScans.map(s => s.model)));
+            // Calculate daily average capacity fallback (grouped by line to sum them if all lines active)
             let dailyAvgCapacity = 0;
-            if (activeModelsForDay.length > 0) {
-                let sumCap = 0;
-                let validModelsCount = 0;
-                activeModelsForDay.forEach(modelName => {
-                    const capInfo = findCapacityInfo(modelName);
+            const activeLinesAndModels = {};
+            filteredScans.forEach(s => {
+                const lineKey = s.line || 'DEFAULT';
+                if (!activeLinesAndModels[lineKey]) activeLinesAndModels[lineKey] = new Set();
+                activeLinesAndModels[lineKey].add(s.model);
+            });
+            
+            let sumOfLineAverages = 0;
+            Object.entries(activeLinesAndModels).forEach(([lineKey, modelsSet]) => {
+                let lineSumCap = 0;
+                let lineValidModelsCount = 0;
+                modelsSet.forEach(modelName => {
+                    const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
                     if (capInfo) {
                         const capVal = capacityMode === 'planning' ? capInfo.planning : capInfo.max;
-                        sumCap += capVal;
-                        validModelsCount++;
+                        lineSumCap += capVal;
+                        lineValidModelsCount++;
                     }
                 });
-                if (validModelsCount > 0) {
-                    dailyAvgCapacity = Math.round(sumCap / validModelsCount);
+                if (lineValidModelsCount > 0) {
+                    sumOfLineAverages += Math.round(lineSumCap / lineValidModelsCount);
+                } else {
+                    sumOfLineAverages += barcodeTargetSpeed;
                 }
-            }
-            if (!dailyAvgCapacity) dailyAvgCapacity = barcodeTargetSpeed;
+            });
+            dailyAvgCapacity = sumOfLineAverages || barcodeTargetSpeed;
 
-            // Calculate weighted target for each hour in sequence
+            // Calculate weighted target for each hour in sequence (grouped by line, then summed across active lines)
             const hourlyTargets = hourSequence.map(hr => {
                 const hourScans = filteredScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
                     return dailyAvgCapacity;
                 }
                 
-                let totalScans = hourScans.length;
-                let weightedCapSum = 0;
-                const modelCountsInHour = {};
+                const scansByLine = {};
                 hourScans.forEach(s => {
-                    modelCountsInHour[s.model] = (modelCountsInHour[s.model] || 0) + 1;
+                    const lineKey = s.line || 'DEFAULT';
+                    if (!scansByLine[lineKey]) scansByLine[lineKey] = [];
+                    scansByLine[lineKey].push(s);
                 });
                 
-                Object.entries(modelCountsInHour).forEach(([modelName, count]) => {
-                    const capInfo = findCapacityInfo(modelName);
-                    const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
-                    weightedCapSum += (count / totalScans) * capVal;
+                let sumOfLineTargets = 0;
+                Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
+                    let totalLineScans = lineScans.length;
+                    let weightedCapSum = 0;
+                    const modelCountsInHour = {};
+                    
+                    lineScans.forEach(s => {
+                        modelCountsInHour[s.model] = (modelCountsInHour[s.model] || 0) + 1;
+                    });
+                    
+                    Object.entries(modelCountsInHour).forEach(([modelName, count]) => {
+                        const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
+                        const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                        weightedCapSum += (count / totalLineScans) * capVal;
+                    });
+                    sumOfLineTargets += weightedCapSum;
                 });
                 
-                return Math.round(weightedCapSum);
+                return Math.round(sumOfLineTargets);
             });
 
             // Build datasets array:
@@ -849,46 +903,72 @@
             hourSequence.forEach((hr, idx) => {
                 const hrStr = `${String(hr).padStart(2, '0')}:00`;
                 const hourScans = filteredScans.filter(s => s.hour === hr);
+                const totalScans = hourScans.length;
+                const targetVal = hourlyTargets[idx];
                 
-                if (hourScans.length === 0) {
+                if (totalScans === 0) {
                     calcListHtml += `
-                        <div class="flex justify-between items-center py-1 border-b border-slate-50 text-[10px] text-slate-400">
-                            <span class="font-medium">🕒 ${hrStr}</span>
-                            <span>ไม่มีการสแกน (ใช้ค่าเฉลี่ยรายวัน: ${dailyAvgCapacity} ชิ้น/ชม.)</span>
+                        <div class="py-2 border-b border-slate-100 text-[10px] space-y-0.5">
+                            <div class="flex justify-between items-center font-semibold text-slate-700">
+                                <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(0 สแกน)</span></span>
+                                <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target: ${targetVal} PCS</span>
+                            </div>
+                            <div class="text-slate-400 text-[9px] italic pl-3">ไม่มีการผลิตในชั่วโมงนี้ (ใช้ค่าเฉลี่ยรายวัน)</div>
                         </div>
                     `;
                     return;
                 }
                 
-                const totalScans = hourScans.length;
-                const modelCounts = {};
+                const scansByLine = {};
                 hourScans.forEach(s => {
-                    modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                    const lineKey = s.line || 'DEFAULT';
+                    if (!scansByLine[lineKey]) scansByLine[lineKey] = [];
+                    scansByLine[lineKey].push(s);
                 });
                 
-                let formulaParts = [];
-                let capDetails = [];
-                
-                Object.entries(modelCounts).forEach(([modelName, count]) => {
-                    const capInfo = findCapacityInfo(modelName);
-                    const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                let lineCalculationsHtml = '';
+                Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
+                    const totalLineScans = lineScans.length;
+                    const modelCounts = {};
+                    lineScans.forEach(s => {
+                        modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                    });
                     
-                    formulaParts.push(`(${count}/${totalScans} × ${capVal})`);
-                    capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal})`);
+                    const formulaParts = [];
+                    const capDetails = [];
+                    let lineWeightedSum = 0;
+                    
+                    Object.entries(modelCounts).forEach(([modelName, count]) => {
+                        const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
+                        const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                        const weightedPart = (count / totalLineScans) * capVal;
+                        lineWeightedSum += weightedPart;
+                        
+                        formulaParts.push(`(${count}/${totalLineScans} × ${capVal})`);
+                        capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal})`);
+                    });
+                    
+                    const lineName = lineKey !== 'DEFAULT' ? `Line ${lineKey}` : 'General';
+                    const formulaStr = formulaParts.join(' + ');
+                    const detailsStr = capDetails.join(', ');
+                    const lineTargetRounded = Math.round(lineWeightedSum);
+                    
+                    lineCalculationsHtml += `
+                        <div class="pl-3 mt-1.5 space-y-0.5 border-l-2 border-indigo-200">
+                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetRounded} PCS <span class="text-slate-400 font-normal">(${totalLineScans} สแกน)</span></div>
+                            <div class="text-[9px] font-mono text-slate-500">${formulaStr} = ${Math.round(lineWeightedSum * 10) / 10}</div>
+                            <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
+                        </div>
+                    `;
                 });
-                
-                const targetVal = hourlyTargets[idx];
-                const formulaStr = formulaParts.join(' + ');
-                const detailsStr = capDetails.join(', ');
                 
                 calcListHtml += `
-                    <div class="py-1.5 border-b border-slate-100 text-[10px] space-y-0.5">
+                    <div class="py-2 border-b border-slate-100 text-[10px] space-y-1.5">
                         <div class="flex justify-between items-center font-semibold text-slate-700">
-                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกน)</span></span>
-                            <span class="text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded font-mono font-bold">Target: ${targetVal} PCS</span>
+                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกนรวม)</span></span>
+                            <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS</span>
                         </div>
-                        <div class="text-slate-500 font-mono text-[9px]">${formulaStr} = ${targetVal}</div>
-                        <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
+                        ${lineCalculationsHtml}
                     </div>
                 `;
             });
@@ -1498,41 +1578,80 @@
             for (let i = headerIdx + 1; i < rows.length; i++) {
                 const row = rows[i];
                 if (!row || row.length < 12) continue;
-                const model = String(row[1] || '').trim();
+                const line = String(row[0] || '').trim().toUpperCase();
+                const model = String(row[1] || '').trim().toUpperCase();
                 const maxCap = parseFloat(String(row[5] || '0').replace(/,/g, '')) || 0;
                 const planningCap = parseFloat(String(row[6] || '0').replace(/,/g, '')) || 0;
                 
                 if (model) {
-                    capacityDataMap[model] = {
+                    const val = {
                         planning: planningCap,
                         max: maxCap
                     };
+                    if (line) {
+                        capacityDataMap[`${line}_${model}`] = val;
+                    }
+                    if (!capacityDataMap[model]) {
+                        capacityDataMap[model] = val;
+                    }
                 }
             }
         }
 
-        function findCapacityInfo(logModel) {
+        function findCapacityInfo(logLine, logModel) {
+            // Handle one-argument call fallback
+            if (arguments.length === 1) {
+                logModel = logLine;
+                logLine = '';
+            }
             if (!logModel) return null;
             
-            // 1. Exact match
+            const cleanLine = logLine ? String(logLine).trim().toUpperCase() : '';
+            const cleanModel = logModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+            
+            // 1. Try Line + Model exact match
+            if (cleanLine) {
+                const lineModelKey = `${cleanLine}_${logModel.trim().toUpperCase()}`;
+                if (capacityDataMap[lineModelKey]) {
+                    return capacityDataMap[lineModelKey];
+                }
+                const lineCleanModelKey = `${cleanLine}_${cleanModel}`;
+                if (capacityDataMap[lineCleanModelKey]) {
+                    return capacityDataMap[lineCleanModelKey];
+                }
+            }
+            
+            // 2. Fallback to Model only match
             if (capacityDataMap[logModel]) {
                 return capacityDataMap[logModel];
             }
-            
-            // Normalize and clean suffix (e.g. -S, -SNE, /SN, /SNE, /S)
-            const cleanModel = logModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
             if (capacityDataMap[cleanModel]) {
                 return capacityDataMap[cleanModel];
             }
             
-            // 2. Fuzzy prefix / substring matching
+            // 3. Substring matching
             const keys = Object.keys(capacityDataMap);
             for (const key of keys) {
-                const cleanKey = key.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
-                if (cleanModel === cleanKey) {
-                    return capacityDataMap[key];
+                const keyParts = key.split('_');
+                const keyModel = keyParts.length > 1 ? keyParts[1] : keyParts[0];
+                const cleanKeyModel = keyModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+                
+                if (cleanModel === cleanKeyModel) {
+                    if (cleanLine && keyParts.length > 1 && keyParts[0].trim().toUpperCase() === cleanLine) {
+                        return capacityDataMap[key];
+                    }
+                    if (!cleanLine || keyParts.length === 1) {
+                        return capacityDataMap[key];
+                    }
                 }
-                if (cleanModel.startsWith(cleanKey) || cleanKey.startsWith(cleanModel)) {
+            }
+            
+            // Last fallback substring
+            for (const key of keys) {
+                const keyParts = key.split('_');
+                const keyModel = keyParts.length > 1 ? keyParts[1] : keyParts[0];
+                const cleanKeyModel = keyModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+                if (cleanModel.startsWith(cleanKeyModel) || cleanKeyModel.startsWith(cleanModel)) {
                     return capacityDataMap[key];
                 }
             }
