@@ -230,7 +230,13 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <h3 class="text-base font-bold text-slate-800">แนวโน้ม Efficiency รายวัน (%)</h3>
-                        <p class="text-xs text-slate-400">เปรียบเทียบกับเส้นเป้าหมาย</p>
+                        <p class="text-xs text-slate-400">
+                            เปรียบเทียบกับเส้นเป้าหมาย 
+                            <span class="inline-flex items-center gap-3 ml-3 font-semibold text-[10px]">
+                                <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-[#f97316]"></span>☀️ อยู่เช้า (Day)</span>
+                                <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-[#1e293b]"></span>🌙 อยู่ดึก (Night)</span>
+                            </span>
+                        </p>
                     </div>
                     <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
                         <i data-lucide="trending-up" class="w-4 h-4"></i>
@@ -958,10 +964,15 @@
             const dateGroups = {};
             filteredEfficiencyData.forEach(item => {
                 if (!dateGroups[item.date]) {
-                    dateGroups[item.date] = { actual: 0, target: 0 };
+                    dateGroups[item.date] = { actual: 0, target: 0, dayQty: 0, nightQty: 0 };
                 }
                 dateGroups[item.date].actual += item.actualQty;
                 dateGroups[item.date].target += item.targetQty;
+                if (item.shift === 'Day') {
+                    dateGroups[item.date].dayQty += item.actualQty;
+                } else if (item.shift === 'Night') {
+                    dateGroups[item.date].nightQty += item.actualQty;
+                }
             });
 
             // Sort dates chronologically for the chart
@@ -971,6 +982,13 @@
                 return g.target > 0 ? Math.round((g.actual / g.target) * 100) : 0;
             });
             const targetLineValues = sortedDates.map(() => targetEffValue);
+
+            // Determine dominant shift color for each date
+            const dateShifts = sortedDates.map(date => {
+                const g = dateGroups[date];
+                return g.nightQty > g.dayQty ? 'Night' : 'Day';
+            });
+            const pointColors = dateShifts.map(s => s === 'Day' ? '#f97316' : '#1e293b');
 
             // Draw Daily Trend Chart
             if (trendChartObj) trendChartObj.destroy();
@@ -983,13 +1001,23 @@
                         {
                             label: 'Efficiency จริง (%)',
                             data: dailyEffValues,
-                            borderColor: '#4f46e5',
-                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
                             borderWidth: 3,
                             tension: 0.25,
                             fill: true,
-                            pointBackgroundColor: '#4f46e5',
-                            pointRadius: 4
+                            pointBackgroundColor: pointColors,
+                            pointBorderColor: pointColors,
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            segment: {
+                                borderColor: ctx => {
+                                    const idx = ctx.p1DataIndex;
+                                    return dateShifts[idx] === 'Night' ? '#1e293b' : '#f97316';
+                                },
+                                backgroundColor: ctx => {
+                                    const idx = ctx.p1DataIndex;
+                                    return dateShifts[idx] === 'Night' ? 'rgba(30, 41, 59, 0.08)' : 'rgba(249, 115, 22, 0.08)';
+                                }
+                            }
                         },
                         {
                             label: 'เป้าหมาย (%)',
