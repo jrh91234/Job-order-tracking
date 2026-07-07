@@ -445,8 +445,8 @@
         const FIXED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3FKz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv";
         const FIXED_YOD_SHEET_URL = "";
 
-        let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
-        let yodSheetUrl = FIXED_YOD_SHEET_URL || localStorage.getItem('job_tracker_yod_sheet_url') || '';
+        let sheetUrl = localStorage.getItem('job_tracker_sheet_url') || FIXED_SHEET_URL || '';
+        let yodSheetUrl = localStorage.getItem('job_tracker_yod_sheet_url') || FIXED_YOD_SHEET_URL || '';
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
         let rawActualLogs = []; // Array of actual logs parsed
         let computedEfficiencyData = []; // Computed daily rows
@@ -553,7 +553,7 @@
             els.demoBanner.classList.add('hidden');
             
             const capacityCsvUrl = buildGoogleSheetCsvUrl(sheetUrl, CAPACITY_GID);
-            const actualLogsCsvUrl = yodSheetUrl ? normalizeSheetUrl(yodSheetUrl) : buildGoogleSheetCsvUrl(sheetUrl, YOD_PRODUCTION_GID);
+            const actualLogsCsvUrl = yodSheetUrl ? buildGoogleSheetCsvUrl(yodSheetUrl, '0') : buildGoogleSheetCsvUrl(sheetUrl, YOD_PRODUCTION_GID);
             
             Swal.fire({
                 title: 'กำลังดึงข้อมูล...',
@@ -562,40 +562,60 @@
                 didOpen: () => { Swal.showLoading(); }
             });
 
+            function loadActualLogs() {
+                Papa.parse(actualLogsCsvUrl + (actualLogsCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now(), {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(logsResults) {
+                        parseActualLogsSheet(logsResults.data, logsResults.meta.fields);
+                        
+                        Swal.close();
+                        const now = new Date();
+                        els.lastUpdated.textContent = `อัปเดต: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
+                        els.lastUpdated.classList.remove('hidden');
+                        
+                        processAndRender();
+                    },
+                    error: function(err) {
+                        console.error('Error fetching logs sheet', err);
+                        Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลยอดผลิตรายชั่วโมงได้ จะสลับไปข้อมูลจำลอง', 'error');
+                        loadMockData();
+                    }
+                });
+            }
+
             // 1. Fetch Capacity Data
-            Papa.parse(capacityCsvUrl + '&_t=' + Date.now(), {
+            Papa.parse(capacityCsvUrl + (capacityCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now(), {
                 download: true,
                 header: false,
                 skipEmptyLines: true,
                 complete: function(capacityResults) {
                     parseCapacitySheet(capacityResults.data);
-                    
-                    // 2. Fetch Actual Logs
-                    Papa.parse(actualLogsCsvUrl + '&_t=' + Date.now(), {
-                        download: true,
-                        header: true,
-                        skipEmptyLines: true,
-                        complete: function(logsResults) {
-                            parseActualLogsSheet(logsResults.data, logsResults.meta.fields);
-                            
-                            Swal.close();
-                            const now = new Date();
-                            els.lastUpdated.textContent = `อัปเดต: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})}`;
-                            els.lastUpdated.classList.remove('hidden');
-                            
-                            processAndRender();
-                        },
-                        error: function(err) {
-                            console.error('Error fetching logs sheet', err);
-                            Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลยอดผลิตรายชั่วโมงได้ จะสลับไปข้อมูลจำลอง', 'error');
-                            loadMockData();
-                        }
-                    });
+                    loadActualLogs();
                 },
                 error: function(err) {
-                    console.error('Error fetching capacity sheet', err);
-                    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลกำลังผลิต (Capacity) ได้ จะสลับไปข้อมูลจำลอง', 'error');
-                    loadMockData();
+                    console.error('Error fetching capacity sheet, trying fallback', err);
+                    if (sheetUrl !== FIXED_SHEET_URL) {
+                        const fallbackUrl = buildGoogleSheetCsvUrl(FIXED_SHEET_URL, CAPACITY_GID);
+                        Papa.parse(fallbackUrl + (fallbackUrl.includes('?') ? '&' : '?') + '_t=' + Date.now(), {
+                            download: true,
+                            header: false,
+                            skipEmptyLines: true,
+                            complete: function(fallbackResults) {
+                                parseCapacitySheet(fallbackResults.data);
+                                loadActualLogs();
+                            },
+                            error: function(fallbackErr) {
+                                console.error('Fallback capacity failed too', fallbackErr);
+                                Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลกำลังผลิต (Capacity) ได้ จะสลับไปข้อมูลจำลอง', 'error');
+                                loadMockData();
+                            }
+                        });
+                    } else {
+                        Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดข้อมูลกำลังผลิต (Capacity) ได้ จะสลับไปข้อมูลจำลอง', 'error');
+                        loadMockData();
+                    }
                 }
             });
         }
@@ -1634,17 +1654,17 @@
         function buildGoogleSheetCsvUrl(url, gid) {
             if (!url) return url;
             try {
-                const parsed = new URL(normalizeSheetUrl(url));
-                const path = parsed.pathname || '';
-                const isDocsHost = parsed.hostname.includes('docs.google.com');
-
-                if (isDocsHost && path.includes('/spreadsheets/d/e/')) {
-                    parsed.pathname = path.replace('/pubhtml', '/pub');
-                    parsed.search = '';
-                    parsed.searchParams.set('output', 'csv');
+                // If it is already a published URL (/d/e/)
+                if (url.includes('/spreadsheets/d/e/')) {
+                    const parsed = new URL(normalizeSheetUrl(url));
                     parsed.searchParams.set('gid', gid);
+                    parsed.searchParams.set('single', 'true');
+                    parsed.searchParams.set('output', 'csv');
                     return parsed.toString();
                 }
+                const parsed = new URL(normalizeSheetUrl(url).replace('/edit', '/').replace('/#', '/'));
+                const path = parsed.pathname || '';
+                const isDocsHost = parsed.hostname.includes('docs.google.com');
 
                 if (isDocsHost && path.includes('/spreadsheets/d/')) {
                     const match = path.match(/\/spreadsheets\/d\/([^/]+)/);
@@ -1656,7 +1676,7 @@
                         return parsed.toString();
                     }
                 }
-                return parsed.toString();
+                return url;
             } catch (err) {
                 return normalizeSheetUrl(url);
             }
