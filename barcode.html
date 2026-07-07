@@ -363,11 +363,12 @@
     <script>
         // Default barcode sheet URL
         const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
-        const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3FKz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
+        const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
         const CAPACITY_GID = '1140596720';
         
         let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_SHEET_URL || '';
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
+        let oeeSheetUrl = localStorage.getItem('job_tracker_sheet_url') || FIXED_OEE_SHEET_URL || '';
         let capacityMode = 'max'; // Default capacity mode: max cap
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
         let modelColorMap = {};   // Stable model name -> hex color mapping
@@ -1364,7 +1365,7 @@
             }
 
             const csvUrl = buildGoogleSheetCsvUrl(barcodeSheetUrl, '0');
-            const capacityCsvUrl = buildGoogleSheetCsvUrl(FIXED_OEE_SHEET_URL, CAPACITY_GID);
+            const capacityCsvUrl = buildGoogleSheetCsvUrl(oeeSheetUrl, CAPACITY_GID);
 
             const fetchText = (url) => fetch(url).then(res => {
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
