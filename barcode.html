@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barcode Real-time Monitor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Google Fonts (Prompt for Thai) -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html { scroll-behavior: smooth; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 pb-12 min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white p-4 shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-4">
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <i data-lucide="scan-barcode" class="w-6 h-6 text-indigo-300"></i>
+                    Barcode Real-time
+                </h1>
+                <!-- Navigation Tabs -->
+                <nav class="hidden md:flex items-center gap-1 bg-indigo-950/40 p-1 rounded-xl border border-indigo-500/20 text-xs">
+                    <a href="dashboard.html" class="px-3 py-1.5 rounded-lg text-indigo-200 hover:text-white font-semibold transition-all">
+                        Efficiency (OEE)
+                    </a>
+                    <a href="barcode.html" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold transition-all">
+                        Barcode Real-time
+                    </a>
+                </nav>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="last-updated" class="text-xs bg-indigo-600/80 border border-indigo-500 px-3 py-1 rounded-full text-indigo-100 hidden">
+                    Updated: -
+                </span>
+                <a href="index.html" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all border border-indigo-500/50 flex items-center gap-1.5 text-xs font-semibold shadow-md active:scale-95">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                    <span>กลับไป Job Monitor</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Auto Refresh Banner -->
+    <div id="refresh-banner" class="bg-indigo-50 border-b border-indigo-100 px-4 py-2 sticky top-[68px] z-20 transition-all text-xs text-indigo-800 flex items-center justify-between">
+        <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="relative flex h-2 w-2">
+                    <span id="refresh-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                <span id="refresh-status">ระบบดึงข้อมูลอัตโนมัติเปิดอยู่</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="refresh-timer" class="font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-semibold">30s</span>
+                <button onclick="openConfigModal()" class="font-bold text-indigo-700 hover:text-indigo-950 underline">
+                    ตั้งค่า Google Sheet
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto p-4 space-y-6">
+
+        <!-- Controls Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="sliders-horizontal" class="w-5 h-5 text-indigo-600"></i>
+                        การควบคุมและคัดกรองข้อมูลบาร์โค้ด
+                    </h2>
+                    <p class="text-xs text-slate-400">การสแกนและคัดแยกวันผลิตตามเวลาทำกะจริง (Day: 08:00 - 20:00 | Night: 20:00 - 08:00)</p>
+                </div>
+                <div class="flex items-center gap-2.5">
+                    <!-- Auto Refresh Toggle -->
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="refresh-toggle" checked class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span class="ml-2 text-xs font-semibold text-slate-600">Auto Refresh</span>
+                    </label>
+                    
+                    <button onclick="openConfigModal()" class="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors border border-slate-200 text-slate-600 shadow-sm" title="ตั้งค่าการเชื่อมต่อ">
+                        <i data-lucide="settings" class="w-4.5 h-4.5"></i>
+                    </button>
+                    <button onclick="loadBarcodeData()" class="p-2 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors border border-indigo-100 text-indigo-600 shadow-sm" title="รีเฟรชข้อมูลด่วน">
+                        <i data-lucide="refresh-cw" class="w-4.5 h-4.5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <!-- Date Filter -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">เลือกวันผลิต (Production Date)</label>
+                    <div class="relative">
+                        <input type="date" id="filter-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                    </div>
+                </div>
+
+                <!-- Shift Filter -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">กะการทำงาน (Shift)</label>
+                    <select id="filter-shift" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="All">ทุกกะทำงาน (All)</option>
+                        <option value="Day">☀️ กะเช้า (Day Shift)</option>
+                        <option value="Night">🌙 กะดึก (Night Shift)</option>
+                    </select>
+                </div>
+
+                <!-- Job Order Filter -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">Job Order</label>
+                    <select id="filter-job" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="All">ทุก Job Order</option>
+                    </select>
+                </div>
+
+                <!-- Model Filter -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">รุ่นสินค้า (Model)</label>
+                    <select id="filter-model" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="All">ทุกรุ่นสินค้า</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPI Dashboard Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Card 1: Today Scans -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-bold text-slate-400 block mb-1">ยอดสแกนสะสมวันผลิตนี้</span>
+                    <span id="kpi-total-scans" class="text-2xl font-black text-indigo-700 font-mono">0</span>
+                    <span class="text-[10px] text-slate-400 block mt-1">ชิ้น (PCS)</span>
+                </div>
+                <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
+                    <i data-lucide="barcode" class="w-6 h-6"></i>
+                </div>
+            </div>
+
+            <!-- Card 2: Average Speed -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-bold text-slate-400 block mb-1">ความเร็วเฉลี่ยวันนี้</span>
+                    <span id="kpi-avg-speed" class="text-2xl font-black text-emerald-600 font-mono">0</span>
+                    <span class="text-[10px] text-slate-400 block mt-1">ชิ้น / ชั่วโมง (PCS/Hr)</span>
+                </div>
+                <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
+                    <i data-lucide="zap" class="w-6 h-6"></i>
+                </div>
+            </div>
+
+            <!-- Card 3: Active Models -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-bold text-slate-400 block mb-1">รุ่นสินค้าที่สแกน</span>
+                    <span id="kpi-active-models" class="text-2xl font-black text-amber-500 font-mono">0</span>
+                    <span class="text-[10px] text-slate-400 block mt-1">โมเดลสินค้า</span>
+                </div>
+                <div class="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500">
+                    <i data-lucide="box" class="w-6 h-6"></i>
+                </div>
+            </div>
+
+            <!-- Card 4: Last Scan Time -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between col-span-2 md:col-span-1">
+                <div>
+                    <span class="text-xs font-bold text-slate-400 block mb-1">เวลาสแกนชิ้นล่าสุด</span>
+                    <span id="kpi-last-scan" class="text-base font-bold text-slate-700 block font-mono">-</span>
+                    <span id="kpi-last-elapsed" class="text-[10px] text-indigo-500 font-semibold block mt-1">-</span>
+                </div>
+                <div class="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-500">
+                    <i data-lucide="clock" class="w-6 h-6"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Chart 1: Hourly Production Rate -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800">แนวโน้มการสแกนรายชั่วโมง (PCS/Hour)</h3>
+                    <p class="text-xs text-slate-400">แสดงลำดับตามชั่วโมงการเข้ากะจริง (Day & Night)</p>
+                </div>
+                <div class="relative h-72 w-full">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Production by Model -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800">สัดส่วนและยอดผลิตรายรุ่นวันนี้</h3>
+                    <p class="text-xs text-slate-400">เปรียบเทียบยอดสแกนบาร์โค้ดสะสมแยกตามรุ่น (PCS)</p>
+                </div>
+                <div class="relative h-72 w-full">
+                    <canvas id="modelChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Scan Feed Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800">ประวัติการตรวจสแกนสดรายรายการ (Live Scan Feed)</h3>
+                    <p class="text-xs text-slate-400">รายการสแกนจริงจากระบบบาร์โค้ดสตรีมมิ่ง</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <!-- Search Field -->
+                    <div class="relative w-full sm:w-64">
+                        <input type="text" id="table-search" placeholder="ค้นหา Job, รุ่น, บาร์โค้ด..." 
+                            class="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
+                        <i data-lucide="search" class="absolute left-2.5 top-2.5 text-slate-400 w-4 h-4"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div id="table-scroll-container" class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm" style="max-height: 480px; overflow-y: auto;">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-50/80 text-slate-500 border-b border-slate-100 font-semibold uppercase sticky top-0 z-10 backdrop-blur-md">
+                            <th class="p-3">เวลาสแกนจริง</th>
+                            <th class="p-3">วันผลิต (ตามกะ)</th>
+                            <th class="p-3 text-center">กะ (Shift)</th>
+                            <th class="p-3">Job Order</th>
+                            <th class="p-3">รุ่นสินค้า (Model)</th>
+                            <th class="p-3">รหัสบาร์โค้ด (Barcode)</th>
+                            <th class="p-3 text-center">สถานะ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scanTableBody" class="divide-y divide-slate-100">
+                        <tr>
+                            <td colspan="7" class="text-center p-8 text-slate-400">
+                                <div class="loader mx-auto mb-2 border-2 border-indigo-500 border-t-transparent rounded-full w-6 h-6 animate-spin"></div>
+                                กำลังโหลดข้อมูลประวัติสแกน...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Empty State -->
+            <div id="table-empty-state" class="hidden text-center py-10 text-slate-400">
+                <i data-lucide="search-slash" class="w-12 h-12 mx-auto mb-3 opacity-20 text-slate-500"></i>
+                <p class="text-sm">ไม่พบประวัติการสแกนในระบบตามตัวกรองนี้</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Settings Modal -->
+    <div id="config-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="database" class="text-indigo-600 w-5 h-5"></i>
+                    เชื่อมต่อ Google Sheet บาร์โค้ด
+                </h3>
+                <button onclick="closeConfigModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Google Sheet URL ของเครื่องสแกนบาร์โค้ด</label>
+                    <input type="text" id="config-barcode-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/..." 
+                        class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
+                    <p class="text-[10px] text-slate-400 mt-1">คัดลอกลิ้งก์แชร์จากเบราว์เซอร์มาวางได้โดยตรง ระบบจะสลับไปดึงแผ่นงานแท็บแรก GID 0 ให้เองครับ</p>
+                </div>
+            </div>
+
+            <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
+                <button onclick="useDemoData()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
+                    ใช้ข้อมูล Demo
+                </button>
+                <button onclick="saveConfig()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
+                    บันทึกและโหลดใหม่
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Block -->
+    <script>
+        // Default barcode sheet URL
+        const DEFAULT_BARCODE_SHEET = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
+        
+        let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || DEFAULT_BARCODE_SHEET;
+        let isDemoMode = false;
+
+        // Data Pools
+        let rawBarcodeLogs = [];      // Raw rows parsed from sheet
+        let processedScans = [];      // Scan logs with mapped Production Dates & Shifts
+        let filteredScans = [];       // Filtered logs matching UI inputs
+        
+        // Lazy Load State
+        let allFilteredRows = [];
+        let currentRenderIndex = 0;
+        const RENDER_BATCH_SIZE = 30;
+
+        // Charts
+        let hourlyChartObj = null;
+        let modelChartObj = null;
+
+        // Auto Refresh
+        let refreshIntervalId = null;
+        let refreshSecondsLeft = 30;
+        const REFRESH_RATE = 30;
+
+        // Element Lookups
+        const els = {
+            filterDate: document.getElementById('filter-date'),
+            filterShift: document.getElementById('filter-shift'),
+            filterJob: document.getElementById('filter-job'),
+            filterModel: document.getElementById('filter-model'),
+            kpiTotalScans: document.getElementById('kpi-total-scans'),
+            kpiAvgSpeed: document.getElementById('kpi-avg-speed'),
+            kpiActiveModels: document.getElementById('kpi-active-models'),
+            kpiLastScan: document.getElementById('kpi-last-scan'),
+            kpiLastElapsed: document.getElementById('kpi-last-elapsed'),
+            scanTableBody: document.getElementById('scanTableBody'),
+            tableSearch: document.getElementById('table-search'),
+            tableEmptyState: document.getElementById('table-empty-state'),
+            refreshBanner: document.getElementById('refresh-banner'),
+            refreshStatus: document.getElementById('refresh-status'),
+            refreshTimer: document.getElementById('refresh-timer'),
+            refreshToggle: document.getElementById('refresh-toggle'),
+            refreshPing: document.getElementById('refresh-ping'),
+            configModal: document.getElementById('config-modal'),
+            configBarcodeSheetUrl: document.getElementById('config-barcode-sheet-url'),
+            lastUpdated: document.getElementById('last-updated')
+        };
+
+        // Standard hour sequence matching shift boundaries: Day (08-20) then Night (20-08 next day)
+        const hourSequence = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7];
+
+        // ==========================================
+        // INITIALIZATION
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            initApp();
+        });
+
+        function initApp() {
+            lucide.createIcons();
+            
+            // Set scroll listener
+            const scrollContainer = document.getElementById('table-scroll-container');
+            if (scrollContainer) {
+                scrollContainer.addEventListener('scroll', () => {
+                    if (scrollContainer.scrollHeight - scrollContainer.scrollTop <= scrollContainer.clientHeight + 80) {
+                        renderNextBatch();
+                    }
+                });
+            }
+
+            // Event Listeners for Filters
+            els.filterDate.addEventListener('change', () => { applyFilters(); });
+            els.filterShift.addEventListener('change', () => { applyFilters(); });
+            els.filterJob.addEventListener('change', () => { applyFilters(); });
+            els.filterModel.addEventListener('change', () => { applyFilters(); });
+            els.tableSearch.addEventListener('input', () => { filterTable(); });
+
+            // Toggle auto refresh
+            els.refreshToggle.addEventListener('change', () => {
+                toggleAutoRefresh();
+            });
+
+            // Start Refresh Timer
+            startAutoRefreshTimer();
+
+            // Load Data
+            if (barcodeSheetUrl) {
+                loadBarcodeData();
+            } else {
+                loadMockData();
+            }
+        }
+
+        // ==========================================
+        // DATA PROCESSING & DATE SPLITTING
+        // ==========================================
+
+        /**
+         * Mappings day logic:
+         * Day Shift: 08:00 - 20:00 (Today)
+         * Night Shift: 20:00 (Today) - 08:00 (Next calendar day)
+         */
+        function getProductionDateAndShift(beDateStr, timeStr) {
+            // beDateStr: "7/7/2569" (Buddhist Era)
+            // timeStr: "02:15:30" or "10:12:34"
+            const [d, m, yBE] = beDateStr.split('/').map(Number);
+            const yGreg = yBE - 543;
+            
+            const [hour, min, sec] = timeStr.split(':').map(Number);
+            
+            let prodDate = new Date(yGreg, m - 1, d);
+            let shift = 'Day';
+            
+            if (hour < 8) {
+                // Hour 00:00 - 07:59 belongs to Night Shift of the previous day
+                prodDate.setDate(prodDate.getDate() - 1);
+                shift = 'Night';
+            } else if (hour >= 20) {
+                // Hour 20:00 - 23:59 belongs to Night Shift of the same day
+                shift = 'Night';
+            } else {
+                // Hour 08:00 - 19:59 belongs to Day Shift of the same day
+                shift = 'Day';
+            }
+            
+            const year = prodDate.getFullYear();
+            const month = String(prodDate.getMonth() + 1).padStart(2, '0');
+            const day = String(prodDate.getDate()).padStart(2, '0');
+            
+            return {
+                prodDateStr: `${year}-${month}-${day}`, // YYYY-MM-DD
+                displayDateStr: `${prodDate.getDate()}/${prodDate.getMonth() + 1}/${prodDate.getFullYear() + 543}`, // D/M/BE
+                shift: shift,
+                hour: hour
+            };
+        }
+
+        function parseRawLogs() {
+            processedScans = [];
+            
+            rawBarcodeLogs.forEach(row => {
+                const dateTimeRaw = String(row['Date/Time'] || '').trim();
+                if (!dateTimeRaw || dateTimeRaw.toLowerCase() === 'date/time') return; // Skip headers
+
+                const parts = dateTimeRaw.split(' ');
+                if (parts.length < 2) return;
+                
+                const beDateStr = parts[0]; // D/M/BE e.g. "7/7/2569"
+                const timeStr = parts[1];   // H:M:S e.g. "08:19:39"
+
+                // Apply day splitting rules
+                const mapping = getProductionDateAndShift(beDateStr, timeStr);
+                
+                processedScans.push({
+                    rawDateTime: dateTimeRaw,
+                    prodDate: mapping.prodDateStr,
+                    displayDate: mapping.displayDateStr,
+                    shift: mapping.shift,
+                    hour: mapping.hour,
+                    time: timeStr,
+                    jobOrder: String(row['Job Order'] || 'MANUAL_MODE').trim(),
+                    model: String(row['Model'] || '-').trim(),
+                    barcode: String(row['Barcode'] || '-').trim(),
+                    status: String(row['Status'] || 'OK').trim()
+                });
+            });
+
+            // Sort processed scans chronologically (latest first for display feed)
+            processedScans.sort((a, b) => {
+                const parseToTime = (item) => {
+                    const pDate = item.prodDate.split('-').map(Number);
+                    const pTime = item.time.split(':').map(Number);
+                    return new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
+                };
+                return parseToTime(b) - parseToTime(a);
+            });
+        }
+
+        // ==========================================
+        // FILTERS & POPULATORS
+        // ==========================================
+        function populateFilters(selectedDate = null) {
+            // Find all unique dates
+            const dates = new Set();
+            processedScans.forEach(s => dates.add(s.prodDate));
+            const sortedDates = Array.from(dates).sort((a, b) => new Date(b) - new Date(a)); // Descending
+
+            if (sortedDates.length === 0) return;
+
+            // Set Date Picker default to latest available production date
+            const latestDate = sortedDates[0];
+            
+            if (!els.filterDate.value || selectedDate === null) {
+                els.filterDate.value = latestDate;
+            }
+
+            const activeDate = els.filterDate.value;
+
+            // Extract unique jobs and models for the selected date
+            const jobs = new Set();
+            const models = new Set();
+
+            processedScans.forEach(s => {
+                if (s.prodDate === activeDate) {
+                    jobs.add(s.jobOrder);
+                    models.add(s.model);
+                }
+            });
+
+            // Populate Job Order Dropdown
+            const jobSelect = els.filterJob;
+            const currentJobVal = jobSelect.value;
+            jobSelect.innerHTML = '<option value="All">ทุก Job Order (All)</option>';
+            Array.from(jobs).sort().forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j;
+                opt.textContent = j;
+                jobSelect.appendChild(opt);
+            });
+            if (Array.from(jobs).has(currentJobVal)) jobSelect.value = currentJobVal;
+
+            // Populate Model Dropdown
+            const modelSelect = els.filterModel;
+            const currentModelVal = modelSelect.value;
+            modelSelect.innerHTML = '<option value="All">ทุกรุ่นสินค้า (All)</option>';
+            Array.from(models).sort().forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                modelSelect.appendChild(opt);
+            });
+            if (Array.from(models).has(currentModelVal)) modelSelect.value = currentModelVal;
+        }
+
+        function applyFilters() {
+            const activeDate = els.filterDate.value;
+            const activeShift = els.filterShift.value;
+            const activeJob = els.filterJob.value;
+            const activeModel = els.filterModel.value;
+
+            // Filter
+            filteredScans = processedScans.filter(s => {
+                if (s.prodDate !== activeDate) return false;
+                if (activeShift !== 'All' && s.shift !== activeShift) return false;
+                if (activeJob !== 'All' && s.jobOrder !== activeJob) return false;
+                if (activeModel !== 'All' && s.model !== activeModel) return false;
+                return true;
+            });
+
+            // Repopulate dynamic drop-downs if date changed
+            // We pass activeDate to ensure we don't overwrite it
+            populateFilters(activeDate);
+
+            // Compute KPIs
+            calculateKPIs();
+
+            // Render Charts
+            renderCharts();
+
+            // Render Table
+            filterTable();
+        }
+
+        // ==========================================
+        // KPIs CALCULATIONS
+        // ==========================================
+        function calculateKPIs() {
+            const total = filteredScans.length;
+            els.kpiTotalScans.textContent = total.toLocaleString();
+
+            // Average Speed (PCS/Hour)
+            // Calculate distinct active hours in the filtered data
+            const activeHoursSet = new Set(filteredScans.map(s => s.hour));
+            const activeHoursCount = activeHoursSet.size || 1;
+            const avgSpeed = Math.round(total / activeHoursCount);
+            els.kpiAvgSpeed.textContent = avgSpeed.toLocaleString();
+
+            // Active Models
+            const modelsSet = new Set(filteredScans.map(s => s.model));
+            els.kpiActiveModels.textContent = modelsSet.size.toString();
+
+            // Last Scan and Elapsed Time
+            if (filteredScans.length > 0) {
+                // Raw sorted scans has the latest first
+                const latest = filteredScans[0];
+                els.kpiLastScan.textContent = `${latest.time} (${latest.shift})`;
+
+                // Calculate elapsed time from current clock
+                const pDate = latest.prodDate.split('-').map(Number);
+                const pTime = latest.time.split(':').map(Number);
+                // Convert BE back to Gregorian year for exact math
+                const lastScanMs = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
+                
+                const nowMs = new Date().getTime();
+                const elapsedMin = Math.round((nowMs - lastScanMs) / 60000);
+
+                if (isNaN(elapsedMin) || elapsedMin < 0) {
+                    els.kpiLastElapsed.textContent = 'บันทึกเรียลไทม์';
+                } else if (elapsedMin < 1) {
+                    els.kpiLastElapsed.textContent = 'เมื่อไม่กี่วินาทีที่แล้ว';
+                } else if (elapsedMin < 60) {
+                    els.kpiLastElapsed.textContent = `เมื่อ ${elapsedMin} นาทีที่แล้ว`;
+                } else {
+                    const elapsedHours = Math.floor(elapsedMin / 60);
+                    els.kpiLastElapsed.textContent = `เมื่อ ${elapsedHours} ชั่วโมงที่แล้ว`;
+                }
+            } else {
+                els.kpiLastScan.textContent = '-';
+                els.kpiLastElapsed.textContent = '-';
+            }
+        }
+
+        // ==========================================
+        // CHARTS RENDERING
+        // ==========================================
+        function renderCharts() {
+            // --- 1. Hourly Bar Chart ---
+            // Sum scans per hour sequence
+            const hourlyCounts = hourSequence.map(hr => {
+                return filteredScans.filter(s => s.hour === hr).length;
+            });
+
+            const hourLabels = hourSequence.map(hr => {
+                return `${String(hr).padStart(2, '0')}:00`;
+            });
+
+            if (hourlyChartObj) hourlyChartObj.destroy();
+            const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
+            hourlyChartObj = new Chart(ctxHourly, {
+                type: 'bar',
+                data: {
+                    labels: hourLabels,
+                    datasets: [{
+                        label: 'ยอดสแกน (PCS)',
+                        data: hourlyCounts,
+                        backgroundColor: hourSequence.map(hr => hr >= 20 || hr < 8 ? '#1e293b' : '#f97316'), // Midnight Blue for Night, Orange for Day
+                        borderRadius: 6,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // --- 2. Model Breakdown Horizontal Bar Chart ---
+            const modelGroups = {};
+            filteredScans.forEach(s => {
+                modelGroups[s.model] = (modelGroups[s.model] || 0) + 1;
+            });
+
+            // Sort models by quantity descending
+            const sortedModels = Object.entries(modelGroups).sort((a, b) => b[1] - a[1]);
+            const topModels = sortedModels.slice(0, 10); // Display top 10
+
+            const modelLabels = topModels.map(m => m[0]);
+            const modelCounts = topModels.map(m => m[1]);
+
+            if (modelChartObj) modelChartObj.destroy();
+            const ctxModel = document.getElementById('modelChart').getContext('2d');
+            modelChartObj = new Chart(ctxModel, {
+                type: 'bar',
+                data: {
+                    labels: modelLabels,
+                    datasets: [{
+                        data: modelCounts,
+                        backgroundColor: '#6366f1',
+                        borderRadius: 6,
+                        borderWidth: 0,
+                        barThickness: 16
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ==========================================
+        // TABLE LAZY LOADING & RENDERING
+        // ==========================================
+        function filterTable() {
+            const query = els.tableSearch.value.trim().toLowerCase();
+            const tableBody = els.scanTableBody;
+
+            allFilteredRows = filteredScans.filter(s => {
+                if (!query) return true;
+                return (
+                    s.jobOrder.toLowerCase().includes(query) ||
+                    s.model.toLowerCase().includes(query) ||
+                    s.barcode.includes(query)
+                );
+            });
+
+            currentRenderIndex = 0;
+            tableBody.innerHTML = '';
+
+            if (allFilteredRows.length === 0) {
+                els.tableEmptyState.classList.remove('hidden');
+                return;
+            }
+            els.tableEmptyState.classList.add('hidden');
+
+            renderNextBatch();
+        }
+
+        function renderNextBatch() {
+            if (currentRenderIndex >= allFilteredRows.length) return;
+
+            const nextBatch = allFilteredRows.slice(currentRenderIndex, currentRenderIndex + RENDER_BATCH_SIZE);
+            const tableBody = els.scanTableBody;
+
+            const rowsHtml = nextBatch.map(row => {
+                const statusBadge = row.status === 'OK' 
+                    ? 'bg-green-100 text-green-700 border-green-200' 
+                    : 'bg-red-100 text-red-700 border-red-200';
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="p-3 font-semibold text-slate-700 font-mono">${row.time}</td>
+                        <td class="p-3 font-medium text-slate-500">${row.displayDate}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-medium ${row.shift === 'Day' ? 'bg-orange-50 text-orange-600' : 'bg-slate-800 text-slate-100'}">
+                                ${row.shift}
+                            </span>
+                        </td>
+                        <td class="p-3 font-semibold text-indigo-600 font-mono">${row.jobOrder}</td>
+                        <td class="p-3 font-semibold text-slate-800">${row.model}</td>
+                        <td class="p-3 font-mono font-medium text-slate-600">${row.barcode}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2.5 py-0.5 rounded text-[10px] font-bold border ${statusBadge}">
+                                ${row.status}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            tableBody.insertAdjacentHTML('beforeend', rowsHtml);
+            currentRenderIndex += RENDER_BATCH_SIZE;
+        }
+
+        // ==========================================
+        // AUTO REFRESH POLLING
+        // ==========================================
+        function toggleAutoRefresh() {
+            const isChecked = els.refreshToggle.checked;
+            if (isChecked) {
+                els.refreshPing.classList.remove('hidden');
+                els.refreshStatus.textContent = 'ระบบดึงข้อมูลอัตโนมัติเปิดอยู่';
+                refreshSecondsLeft = REFRESH_RATE;
+            } else {
+                els.refreshPing.classList.add('hidden');
+                els.refreshStatus.textContent = 'ปิดระบบดึงข้อมูลอัตโนมัติ';
+            }
+        }
+
+        function startAutoRefreshTimer() {
+            if (refreshIntervalId) clearInterval(refreshIntervalId);
+            
+            refreshIntervalId = setInterval(() => {
+                if (els.refreshToggle.checked && !isDemoMode) {
+                    refreshSecondsLeft--;
+                    els.refreshTimer.textContent = `${refreshSecondsLeft}s`;
+                    
+                    if (refreshSecondsLeft <= 0) {
+                        refreshSecondsLeft = REFRESH_RATE;
+                        loadBarcodeData(true);
+                    }
+                } else if (isDemoMode) {
+                    els.refreshTimer.textContent = 'Demo';
+                } else {
+                    els.refreshTimer.textContent = 'Paused';
+                }
+            }, 1000);
+        }
+
+        // ==========================================
+        // DATA FETCHERS
+        // ==========================================
+        function loadBarcodeData(isSilent = false) {
+            if (!isSilent) {
+                els.scanTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center p-8 text-slate-400">
+                            <div class="loader mx-auto mb-2 border-2 border-indigo-500 border-t-transparent rounded-full w-6 h-6 animate-spin"></div>
+                            กำลังโหลดและวิเคราะห์ข้อมูลเรียลไทม์...
+                        </td>
+                    </tr>
+                `;
+            }
+
+            const csvUrl = buildGoogleSheetCsvUrl(barcodeSheetUrl, '0');
+
+            fetch(csvUrl)
+                .then(res => res.text())
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: function(results) {
+                            rawBarcodeLogs = results.data;
+                            isDemoMode = false;
+                            
+                            // Set Last Updated time
+                            const now = new Date();
+                            els.lastUpdated.textContent = `สด: ${now.toLocaleTimeString()}`;
+                            els.lastUpdated.classList.remove('hidden');
+
+                            parseRawLogs();
+                            populateFilters();
+                            applyFilters();
+                        }
+                    });
+                })
+                .catch(err => {
+                    console.error('Error loading barcode GID 0:', err);
+                    if (!isSilent) {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'โหลดข้อมูลไม่สำเร็จ',
+                            text: 'ไม่สามารถดึงข้อมูลจาก Google Sheet ได้ กรุณาตรวจสอบการตั้งค่า URL หรือการแชร์ชีทครับ',
+                            confirmButtonText: 'เปิดตั้งค่า'
+                        }).then((r) => {
+                            if (r.isConfirmed) openConfigModal();
+                        });
+                    }
+                });
+        }
+
+        function loadMockData() {
+            isDemoMode = true;
+            els.lastUpdated.textContent = 'Demo Mode';
+            els.lastUpdated.classList.remove('hidden');
+            
+            // Generate some beautiful mock data matching 7/7/2569
+            const mockLogs = [];
+            const todayBE = '7/7/2569';
+            const yesterdayBE = '6/7/2569';
+
+            const models = ['S9HCL14', 'S9HCL16', 'S9HCL110', 'EZ9EPL104', 'QO3-100EZ12G/SN'];
+            const jobs = ['TH-SCDD2026060564', 'TH-SCDD2026060565', 'MANUAL_MODE'];
+
+            // Night shift yesterday (00:00 to 07:59 belongs to previous day, let's generate)
+            // Generate for today Day shift (08:00 to 20:00)
+            for (let hour = 8; hour < 18; hour++) {
+                const scansThisHour = Math.floor(Math.random() * 40) + 15;
+                for (let i = 0; i < scansThisHour; i++) {
+                    const min = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+                    const sec = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+                    const model = models[Math.floor(Math.random() * models.length)];
+                    const job = jobs[Math.floor(Math.random() * jobs.length)];
+                    const barcode = '8852625' + String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+                    
+                    mockLogs.push({
+                        'Date/Time': `${todayBE} ${String(hour).padStart(2, '0')}:${min}:${sec}`,
+                        'Job Order': job,
+                        'Model': model,
+                        'Barcode': barcode,
+                        'Status': 'OK'
+                    });
+                }
+            }
+
+            // Night shift (20:00 to 23:59 and 00:00 to 07:59 next day)
+            // Yesterday's Night Shift (belonging to yesterday production date)
+            for (let hour = 20; hour < 24; hour++) {
+                const scansThisHour = Math.floor(Math.random() * 35) + 10;
+                for (let i = 0; i < scansThisHour; i++) {
+                    const min = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+                    const sec = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+                    const model = models[Math.floor(Math.random() * models.length)];
+                    const job = jobs[Math.floor(Math.random() * jobs.length)];
+                    const barcode = '8852625' + String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+                    
+                    mockLogs.push({
+                        'Date/Time': `${yesterdayBE} ${String(hour).padStart(2, '0')}:${min}:${sec}`,
+                        'Job Order': job,
+                        'Model': model,
+                        'Barcode': barcode,
+                        'Status': 'OK'
+                    });
+                }
+            }
+
+            // Scans today at early morning (00:00 - 07:59 today calendar, belonging to yesterday prod date night shift)
+            for (let hour = 0; hour < 8; hour++) {
+                const scansThisHour = Math.floor(Math.random() * 30) + 10;
+                for (let i = 0; i < scansThisHour; i++) {
+                    const min = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+                    const sec = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+                    const model = models[Math.floor(Math.random() * models.length)];
+                    const job = jobs[Math.floor(Math.random() * jobs.length)];
+                    const barcode = '8852625' + String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+                    
+                    mockLogs.push({
+                        'Date/Time': `${todayBE} ${String(hour).padStart(2, '0')}:${min}:${sec}`,
+                        'Job Order': job,
+                        'Model': model,
+                        'Barcode': barcode,
+                        'Status': 'OK'
+                    });
+                }
+            }
+
+            rawBarcodeLogs = mockLogs;
+            parseRawLogs();
+            populateFilters();
+            applyFilters();
+        }
+
+        // ==========================================
+        // SETTINGS & CONFIGURATION MODAL
+        // ==========================================
+        function openConfigModal() {
+            els.configBarcodeSheetUrl.value = barcodeSheetUrl;
+            els.configModal.classList.remove('hidden');
+        }
+
+        function closeConfigModal() {
+            els.configModal.classList.add('hidden');
+        }
+
+        function saveConfig() {
+            const url = els.configBarcodeSheetUrl.value.trim();
+            if (!url) {
+                return Swal.fire({ icon: 'warning', title: 'กรุณากรอก URL' });
+            }
+
+            localStorage.setItem('job_tracker_barcode_sheet_url', url);
+            barcodeSheetUrl = url;
+            
+            closeConfigModal();
+            loadBarcodeData();
+        }
+
+        function useDemoData() {
+            localStorage.removeItem('job_tracker_barcode_sheet_url');
+            barcodeSheetUrl = '';
+            
+            closeConfigModal();
+            loadMockData();
+        }
+
+        // Helper to format Google Sheets edit link to export URL
+        function buildGoogleSheetCsvUrl(url, gid) {
+            if (!url) return url;
+            try {
+                const parsed = new URL(url.replace('/edit', '/').replace('/#', '/'));
+                const path = parsed.pathname || '';
+                const isDocsHost = parsed.hostname.includes('docs.google.com');
+
+                if (isDocsHost && path.includes('/spreadsheets/d/')) {
+                    const match = path.match(/\/spreadsheets\/d\/([^/]+)/);
+                    if (match && match[1]) {
+                        parsed.pathname = `/spreadsheets/d/${match[1]}/export`;
+                        parsed.search = '';
+                        parsed.searchParams.set('format', 'csv');
+                        parsed.searchParams.set('gid', gid);
+                        return parsed.toString();
+                    }
+                }
+                return url;
+            } catch (err) {
+                return url;
+            }
+        }
+    </script>
+</body>
+</html>
