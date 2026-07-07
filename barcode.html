@@ -354,6 +354,8 @@
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
         let capacityMode = 'max'; // Default capacity mode: max cap
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
+        let modelColorMap = {};   // Stable model name -> hex color mapping
+        let prevModelCounts = []; // To track production increases for energy surge animation
         let isDemoMode = false;
 
         // Data Pools
@@ -669,6 +671,43 @@
         // CHARTS RENDERING
         // ==========================================
         function renderCharts() {
+            // Nice color palette for model stacking & bar colors
+            const modelColors = [
+                '#6366f1', // Indigo
+                '#f59e0b', // Amber
+                '#10b981', // Emerald
+                '#ec4899', // Pink
+                '#06b6d4', // Cyan
+                '#8b5cf6', // Violet
+                '#ef4444', // Red
+                '#14b8a6', // Teal
+                '#f97316', // Orange
+                '#3b82f6'  // Blue
+            ];
+
+            // Map base color to glowing neon/lighter counterparts for horizontal gradients
+            const baseToGlowMap = {
+                '#6366f1': '#a5b4fc', // Indigo -> Light Indigo
+                '#f59e0b': '#fcd34d', // Amber -> Light Amber
+                '#10b981': '#6ee7b7', // Emerald -> Light Emerald
+                '#ec4899': '#fbcfe8', // Pink -> Light Pink
+                '#06b6d4': '#67e8f9', // Cyan -> Light Cyan
+                '#8b5cf6': '#c7d2fe', // Violet -> Light Violet
+                '#ef4444': '#fca5a5', // Red -> Light Red
+                '#14b8a6': '#99f6e4', // Teal -> Light Teal
+                '#f97316': '#ffedd5', // Orange -> Light Orange
+                '#3b82f6': '#93c5fd'  // Blue -> Light Blue
+            };
+
+            // Stable mapping to ensure each model keeps its assigned color index
+            const getModelColor = (modelName) => {
+                if (!modelColorMap[modelName]) {
+                    const idx = Object.keys(modelColorMap).length;
+                    modelColorMap[modelName] = modelColors[idx % modelColors.length];
+                }
+                return modelColorMap[modelName];
+            };
+
             // --- 1. Hourly Stacked Bar Chart with Dynamic Target Line ---
             const hourLabels = hourSequence.map(hr => {
                 return `${String(hr).padStart(2, '0')}:00`;
@@ -720,20 +759,6 @@
                 return Math.round(weightedCapSum);
             });
 
-            // Nice color palette for model stacking
-            const modelColors = [
-                '#6366f1', // Indigo
-                '#f59e0b', // Amber
-                '#10b981', // Emerald
-                '#ec4899', // Pink
-                '#06b6d4', // Cyan
-                '#8b5cf6', // Violet
-                '#ef4444', // Red
-                '#14b8a6', // Teal
-                '#f97316', // Orange
-                '#3b82f6'  // Blue
-            ];
-
             // Build datasets array:
             // First dataset is the dynamic target line
             const hourlyDatasets = [
@@ -751,9 +776,9 @@
                 }
             ];
 
-            // Add stacked bar dataset for each model
-            uniqueModels.forEach((modelName, index) => {
-                const color = modelColors[index % modelColors.length];
+            // Add stacked bar dataset for each model (using stable coloring)
+            uniqueModels.forEach((modelName) => {
+                const color = getModelColor(modelName);
                 const modelCounts = hourSequence.map(hr => {
                     return filteredScans.filter(s => s.hour === hr && s.model === modelName).length;
                 });
@@ -892,7 +917,7 @@
                 });
             }
 
-            // --- 2. Model Breakdown Horizontal Bar Chart with Energy Animation ---
+            // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
             filteredScans.forEach(s => {
                 modelGroups[s.model] = (modelGroups[s.model] || 0) + 1;
@@ -907,17 +932,50 @@
 
             const ctxModel = document.getElementById('modelChart').getContext('2d');
             
-            // Create a solid horizontal energy gradient from base to tip (ensuring high visibility on white bg)
-            const modelGradient = ctxModel.createLinearGradient(0, 0, 500, 0);
-            modelGradient.addColorStop(0, '#4f46e5');   // Solid Indigo base
-            modelGradient.addColorStop(0.5, '#8b5cf6'); // Solid Purple body
-            modelGradient.addColorStop(1, '#ec4899');   // Solid neon pink tip
+            // Build synced individual gradients for each bar matching Chart 1 colors
+            const modelBarGradients = modelLabels.map(modelName => {
+                const baseColor = getModelColor(modelName);
+                const glowColor = baseToGlowMap[baseColor] || '#ffffff';
+                
+                const grad = ctxModel.createLinearGradient(0, 0, 500, 0);
+                grad.addColorStop(0, baseColor);
+                grad.addColorStop(1, glowColor);
+                return grad;
+            });
+
+            // Check if production increased to trigger dynamic slide-out animation
+            let shouldTriggerSurge = false;
+            if (prevModelCounts.length === modelCounts.length) {
+                for (let i = 0; i < modelCounts.length; i++) {
+                    if (modelCounts[i] > prevModelCounts[i]) {
+                        shouldTriggerSurge = true;
+                        break;
+                    }
+                }
+            } else {
+                shouldTriggerSurge = true; // Trigger full entry on change of model list / initial load
+            }
+            prevModelCounts = [...modelCounts];
 
             if (modelChartObj) {
                 modelChartObj.data.labels = modelLabels;
-                modelChartObj.data.datasets[0].data = modelCounts;
-                modelChartObj.data.datasets[0].backgroundColor = modelGradient;
-                modelChartObj.update();
+                modelChartObj.data.datasets[0].backgroundColor = modelBarGradients;
+                
+                if (shouldTriggerSurge) {
+                    // Reset to 0 first to force the full energy surge animation from base to tip
+                    modelChartObj.data.datasets[0].data = Array(modelCounts.length).fill(0);
+                    modelChartObj.update('none'); // Update instantly
+                    
+                    requestAnimationFrame(() => {
+                        if (modelChartObj) {
+                            modelChartObj.data.datasets[0].data = modelCounts;
+                            modelChartObj.update(); // Animate back up
+                        }
+                    });
+                } else {
+                    modelChartObj.data.datasets[0].data = modelCounts;
+                    modelChartObj.update();
+                }
             } else {
                 modelChartObj = new Chart(ctxModel, {
                     type: 'bar',
@@ -925,7 +983,7 @@
                         labels: modelLabels,
                         datasets: [{
                             data: modelCounts,
-                            backgroundColor: modelGradient,
+                            backgroundColor: modelBarGradients,
                             borderRadius: 6,
                             borderWidth: 0,
                             barThickness: 16
@@ -937,7 +995,7 @@
                         maintainAspectRatio: false,
                         animation: {
                             duration: 1400,
-                            easing: 'easeOutBack' // Springy extension animation representing energy surge
+                            easing: 'easeOutBack' // Springy momentum transition
                         },
                         plugins: {
                             legend: { display: false }
