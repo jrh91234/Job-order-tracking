@@ -692,6 +692,30 @@
             }
         }
 
+        // Floating number transition drawer for realtime barcode updates
+        function tickFloatingEffects(chart) {
+            if (!chart) return;
+            if (chart.isTickLoopRunning) return;
+            chart.isTickLoopRunning = true;
+            
+            function loop() {
+                const now = Date.now();
+                chart.floatingEffects = (chart.floatingEffects || []).filter(effect => {
+                    return now - effect.createdAt < effect.duration;
+                });
+                
+                if (chart.floatingEffects.length > 0) {
+                    chart.render();
+                    requestAnimationFrame(loop);
+                } else {
+                    chart.isTickLoopRunning = false;
+                    chart.render();
+                }
+            }
+            
+            loop();
+        }
+
         // ==========================================
         // CHARTS RENDERING
         // ==========================================
