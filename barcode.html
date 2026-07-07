@@ -654,39 +654,46 @@
                 return `${String(hr).padStart(2, '0')}:00`;
             });
 
-            if (hourlyChartObj) hourlyChartObj.destroy();
-            const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
-            hourlyChartObj = new Chart(ctxHourly, {
-                type: 'bar',
-                data: {
-                    labels: hourLabels,
-                    datasets: [{
-                        label: 'ยอดสแกน (PCS)',
-                        data: hourlyCounts,
-                        backgroundColor: hourSequence.map(hr => hr >= 20 || hr < 8 ? '#1e293b' : '#f97316'), // Midnight Blue for Night, Orange for Day
-                        borderRadius: 6,
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
+            const hourlyBgColors = hourSequence.map(hr => hr >= 20 || hr < 8 ? '#1e293b' : '#f97316');
+            if (hourlyChartObj) {
+                hourlyChartObj.data.labels = hourLabels;
+                hourlyChartObj.data.datasets[0].data = hourlyCounts;
+                hourlyChartObj.data.datasets[0].backgroundColor = hourlyBgColors;
+                hourlyChartObj.update();
+            } else {
+                const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
+                hourlyChartObj = new Chart(ctxHourly, {
+                    type: 'bar',
+                    data: {
+                        labels: hourLabels,
+                        datasets: [{
+                            label: 'ยอดสแกน (PCS)',
+                            data: hourlyCounts,
+                            backgroundColor: hourlyBgColors,
+                            borderRadius: 6,
+                            borderWidth: 0
+                        }]
                     },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#f1f5f9' },
-                            ticks: { font: { family: 'Prompt', size: 10 } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
                         },
-                        x: {
-                            grid: { display: false },
-                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: '#f1f5f9' },
+                                ticks: { font: { family: 'Prompt', size: 10 } }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { font: { family: 'Prompt', size: 10 } }
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
 
             // --- 2. Model Breakdown Horizontal Bar Chart ---
             const modelGroups = {};
@@ -701,40 +708,45 @@
             const modelLabels = topModels.map(m => m[0]);
             const modelCounts = topModels.map(m => m[1]);
 
-            if (modelChartObj) modelChartObj.destroy();
-            const ctxModel = document.getElementById('modelChart').getContext('2d');
-            modelChartObj = new Chart(ctxModel, {
-                type: 'bar',
-                data: {
-                    labels: modelLabels,
-                    datasets: [{
-                        data: modelCounts,
-                        backgroundColor: '#6366f1',
-                        borderRadius: 6,
-                        borderWidth: 0,
-                        barThickness: 16
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
+            if (modelChartObj) {
+                modelChartObj.data.labels = modelLabels;
+                modelChartObj.data.datasets[0].data = modelCounts;
+                modelChartObj.update();
+            } else {
+                const ctxModel = document.getElementById('modelChart').getContext('2d');
+                modelChartObj = new Chart(ctxModel, {
+                    type: 'bar',
+                    data: {
+                        labels: modelLabels,
+                        datasets: [{
+                            data: modelCounts,
+                            backgroundColor: '#6366f1',
+                            borderRadius: 6,
+                            borderWidth: 0,
+                            barThickness: 16
+                        }]
                     },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            grid: { color: '#f1f5f9' },
-                            ticks: { font: { family: 'Prompt', size: 10 } }
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
                         },
-                        y: {
-                            grid: { display: false },
-                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                grid: { color: '#f1f5f9' },
+                                ticks: { font: { family: 'Prompt', size: 10 } }
+                            },
+                            y: {
+                                grid: { display: false },
+                                ticks: { font: { family: 'Prompt', size: 10 } }
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
 
         // ==========================================
