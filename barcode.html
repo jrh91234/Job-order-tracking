@@ -226,6 +226,19 @@
                 <div class="relative h-72 w-full">
                     <canvas id="hourlyChart"></canvas>
                 </div>
+                <!-- Target Calculation Details Panel -->
+                <div class="border-t border-slate-100 pt-3 space-y-2">
+                    <button onclick="toggleTargetCalcPanel()" class="w-full flex justify-between items-center text-xs font-bold text-slate-700 hover:text-indigo-600 focus:outline-none transition-colors">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="calculator" class="w-4 h-4 text-indigo-500"></i>
+                            สูตรคำนวณและรายละเอียดเป้าหมายรายชั่วโมง (Dynamic Target)
+                        </span>
+                        <i id="target-calc-chevron" data-lucide="chevron-down" class="w-4 h-4 transition-transform"></i>
+                    </button>
+                    <div id="target-calc-content" class="hidden pt-2 max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                        <!-- Calculation items will be populated here -->
+                    </div>
+                </div>
             </div>
 
             <!-- Chart 2: Production by Model -->
@@ -334,9 +347,13 @@
     <script>
         // Default barcode sheet URL
         const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
+        const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3FKz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
+        const CAPACITY_GID = '1140596720';
         
         let barcodeSheetUrl = FIXED_BARCODE_SHEET_URL || localStorage.getItem('job_tracker_barcode_sheet_url') || '';
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
+        let capacityMode = 'max'; // Default capacity mode: max cap
+        let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
         let isDemoMode = false;
 
         // Data Pools
@@ -652,13 +669,56 @@
         // CHARTS RENDERING
         // ==========================================
         function renderCharts() {
-            // --- 1. Hourly Stacked Bar Chart with Target Line ---
+            // --- 1. Hourly Stacked Bar Chart with Dynamic Target Line ---
             const hourLabels = hourSequence.map(hr => {
                 return `${String(hr).padStart(2, '0')}:00`;
             });
 
             // Get all unique models in filteredScans
             const uniqueModels = Array.from(new Set(filteredScans.map(s => s.model))).sort();
+
+            // Calculate daily average capacity fallback
+            const activeModelsForDay = Array.from(new Set(filteredScans.map(s => s.model)));
+            let dailyAvgCapacity = 0;
+            if (activeModelsForDay.length > 0) {
+                let sumCap = 0;
+                let validModelsCount = 0;
+                activeModelsForDay.forEach(modelName => {
+                    const capInfo = findCapacityInfo(modelName);
+                    if (capInfo) {
+                        const capVal = capacityMode === 'planning' ? capInfo.planning : capInfo.max;
+                        sumCap += capVal;
+                        validModelsCount++;
+                    }
+                });
+                if (validModelsCount > 0) {
+                    dailyAvgCapacity = Math.round(sumCap / validModelsCount);
+                }
+            }
+            if (!dailyAvgCapacity) dailyAvgCapacity = barcodeTargetSpeed;
+
+            // Calculate weighted target for each hour in sequence
+            const hourlyTargets = hourSequence.map(hr => {
+                const hourScans = filteredScans.filter(s => s.hour === hr);
+                if (hourScans.length === 0) {
+                    return dailyAvgCapacity;
+                }
+                
+                let totalScans = hourScans.length;
+                let weightedCapSum = 0;
+                const modelCountsInHour = {};
+                hourScans.forEach(s => {
+                    modelCountsInHour[s.model] = (modelCountsInHour[s.model] || 0) + 1;
+                });
+                
+                Object.entries(modelCountsInHour).forEach(([modelName, count]) => {
+                    const capInfo = findCapacityInfo(modelName);
+                    const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                    weightedCapSum += (count / totalScans) * capVal;
+                });
+                
+                return Math.round(weightedCapSum);
+            });
 
             // Nice color palette for model stacking
             const modelColors = [
@@ -675,12 +735,12 @@
             ];
 
             // Build datasets array:
-            // First dataset is the target line
+            // First dataset is the dynamic target line
             const hourlyDatasets = [
                 {
                     type: 'line',
                     label: 'เป้าหมาย (Target)',
-                    data: Array(hourLabels.length).fill(barcodeTargetSpeed),
+                    data: hourlyTargets,
                     borderColor: '#ef4444',
                     borderWidth: 2,
                     borderDash: [5, 5],
@@ -710,6 +770,60 @@
                 });
             });
 
+            // Build target calculation panel details list
+            let calcListHtml = '';
+            hourSequence.forEach((hr, idx) => {
+                const hrStr = `${String(hr).padStart(2, '0')}:00`;
+                const hourScans = filteredScans.filter(s => s.hour === hr);
+                
+                if (hourScans.length === 0) {
+                    calcListHtml += `
+                        <div class="flex justify-between items-center py-1 border-b border-slate-50 text-[10px] text-slate-400">
+                            <span class="font-medium">🕒 ${hrStr}</span>
+                            <span>ไม่มีการสแกน (ใช้ค่าเฉลี่ยรายวัน: ${dailyAvgCapacity} ชิ้น/ชม.)</span>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const totalScans = hourScans.length;
+                const modelCounts = {};
+                hourScans.forEach(s => {
+                    modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                });
+                
+                let formulaParts = [];
+                let capDetails = [];
+                
+                Object.entries(modelCounts).forEach(([modelName, count]) => {
+                    const capInfo = findCapacityInfo(modelName);
+                    const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                    
+                    formulaParts.push(`(${count}/${totalScans} × ${capVal})`);
+                    capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal})`);
+                });
+                
+                const targetVal = hourlyTargets[idx];
+                const formulaStr = formulaParts.join(' + ');
+                const detailsStr = capDetails.join(', ');
+                
+                calcListHtml += `
+                    <div class="py-1.5 border-b border-slate-100 text-[10px] space-y-0.5">
+                        <div class="flex justify-between items-center font-semibold text-slate-700">
+                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกน)</span></span>
+                            <span class="text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded font-mono font-bold">Target: ${targetVal} PCS</span>
+                        </div>
+                        <div class="text-slate-500 font-mono text-[9px]">${formulaStr} = ${targetVal}</div>
+                        <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
+                    </div>
+                `;
+            });
+            
+            const calcContentEl = document.getElementById('target-calc-content');
+            if (calcContentEl) {
+                calcContentEl.innerHTML = calcListHtml || '<p class="text-slate-400 text-center py-2">ไม่มีข้อมูลการผลิต</p>';
+            }
+
             if (hourlyChartObj) {
                 hourlyChartObj.data.labels = hourLabels;
                 
@@ -726,7 +840,7 @@
                     if (newDatasetsMap[ds.label]) {
                         ds.data = newDatasetsMap[ds.label].data;
                         if (ds.type === 'line') {
-                            ds.data = Array(hourLabels.length).fill(barcodeTargetSpeed);
+                            ds.data = hourlyTargets; // Update line dynamic target
                         }
                         delete newDatasetsMap[ds.label];
                     } else {
@@ -959,47 +1073,70 @@
             }
 
             const csvUrl = buildGoogleSheetCsvUrl(barcodeSheetUrl, '0');
+            const capacityCsvUrl = buildGoogleSheetCsvUrl(FIXED_OEE_SHEET_URL, CAPACITY_GID);
 
-            fetch(csvUrl)
-                .then(res => res.text())
-                .then(csvText => {
-                    Papa.parse(csvText, {
-                        header: true,
-                        skipEmptyLines: true,
-                        complete: function(results) {
-                            rawBarcodeLogs = results.data;
-                            isDemoMode = false;
-                            
-                            // Set Last Updated time
-                            const now = new Date();
-                            els.lastUpdated.textContent = `สด: ${now.toLocaleTimeString()}`;
-                            els.lastUpdated.classList.remove('hidden');
+            Promise.all([
+                fetch(csvUrl + (csvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()).then(res => res.text()),
+                fetch(capacityCsvUrl + (capacityCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()).then(res => res.text())
+            ])
+            .then(([barcodeText, capacityText]) => {
+                // Parse capacity data
+                Papa.parse(capacityText, {
+                    header: false,
+                    skipEmptyLines: true,
+                    complete: function(capResults) {
+                        parseCapacitySheet(capResults.data);
 
-                            parseRawLogs();
-                            populateFilters();
-                            applyFilters();
-                        }
-                    });
-                })
-                .catch(err => {
-                    console.error('Error loading barcode GID 0:', err);
-                    if (!isSilent) {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'โหลดข้อมูลไม่สำเร็จ',
-                            text: 'ไม่สามารถดึงข้อมูลจาก Google Sheet ได้ กรุณาตรวจสอบการตั้งค่า URL หรือการแชร์ชีทครับ',
-                            confirmButtonText: 'เปิดตั้งค่า'
-                        }).then((r) => {
-                            if (r.isConfirmed) openConfigModal();
+                        // Parse barcode data
+                        Papa.parse(barcodeText, {
+                            header: true,
+                            skipEmptyLines: true,
+                            complete: function(results) {
+                                rawBarcodeLogs = results.data;
+                                isDemoMode = false;
+                                
+                                // Set Last Updated time
+                                const now = new Date();
+                                els.lastUpdated.textContent = `สด: ${now.toLocaleTimeString()}`;
+                                els.lastUpdated.classList.remove('hidden');
+
+                                parseRawLogs();
+                                populateFilters();
+                                applyFilters();
+                            }
                         });
                     }
                 });
+            })
+            .catch(err => {
+                console.error('Error loading sheets:', err);
+                if (!isSilent) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'โหลดข้อมูลไม่สำเร็จ',
+                        text: 'ไม่สามารถดึงข้อมูลจาก Google Sheet ได้ กรุณาตรวจสอบการตั้งค่า URL หรือการแชร์ชีทครับ',
+                        confirmButtonText: 'เปิดตั้งค่า'
+                    }).then((r) => {
+                        if (r.isConfirmed) openConfigModal();
+                    });
+                }
+            });
         }
 
         function loadMockData() {
             isDemoMode = true;
             els.lastUpdated.textContent = 'Demo Mode';
             els.lastUpdated.classList.remove('hidden');
+            
+            // Mock capacity data
+            capacityDataMap = {
+                'S9HCL14': { planning: 110, max: 135 },
+                'S9HCL16': { planning: 150, max: 190 },
+                'S9HCL110': { planning: 80, max: 100 },
+                'EZ9EPL104': { planning: 120, max: 150 },
+                'QO3-100EZ12G/SN': { planning: 70, max: 90 },
+                'QWKDE3100EZ30': { planning: 40, max: 50 }
+            };
             
             // Generate some beautiful mock data matching 7/7/2569
             const mockLogs = [];
@@ -1114,6 +1251,81 @@
             
             closeConfigModal();
             loadMockData();
+        }
+
+        function toggleTargetCalcPanel() {
+            const panel = document.getElementById('target-calc-content');
+            const chevron = document.getElementById('target-calc-chevron');
+            if (panel.classList.contains('hidden')) {
+                panel.classList.remove('hidden');
+                if (chevron) chevron.style.transform = 'rotate(180deg)';
+            } else {
+                panel.classList.add('hidden');
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function parseCapacitySheet(rows) {
+            capacityDataMap = {};
+            if (!rows || rows.length === 0) return;
+
+            // Find the header row (starts with "Model")
+            let headerIdx = -1;
+            for (let i = 0; i < rows.length; i++) {
+                if (rows[i] && String(rows[i][1]).trim().toLowerCase() === 'model') {
+                    headerIdx = i;
+                    break;
+                }
+            }
+
+            if (headerIdx === -1) {
+                console.warn('Cannot find Model header in capacity sheet, fallback to index mapping');
+                headerIdx = 11; // fallback default
+            }
+
+            // Map models
+            for (let i = headerIdx + 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || row.length < 12) continue;
+                const model = String(row[1] || '').trim();
+                const maxCap = parseFloat(String(row[5] || '0').replace(/,/g, '')) || 0;
+                const planningCap = parseFloat(String(row[6] || '0').replace(/,/g, '')) || 0;
+                
+                if (model) {
+                    capacityDataMap[model] = {
+                        planning: planningCap,
+                        max: maxCap
+                    };
+                }
+            }
+        }
+
+        function findCapacityInfo(logModel) {
+            if (!logModel) return null;
+            
+            // 1. Exact match
+            if (capacityDataMap[logModel]) {
+                return capacityDataMap[logModel];
+            }
+            
+            // Normalize and clean suffix (e.g. -S, -SNE, /SN, /SNE, /S)
+            const cleanModel = logModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+            if (capacityDataMap[cleanModel]) {
+                return capacityDataMap[cleanModel];
+            }
+            
+            // 2. Fuzzy prefix / substring matching
+            const keys = Object.keys(capacityDataMap);
+            for (const key of keys) {
+                const cleanKey = key.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+                if (cleanModel === cleanKey) {
+                    return capacityDataMap[key];
+                }
+                if (cleanModel.startsWith(cleanKey) || cleanKey.startsWith(cleanModel)) {
+                    return capacityDataMap[key];
+                }
+            }
+            return null;
         }
 
         // Helper to format Google Sheets edit link to export URL
