@@ -1566,36 +1566,61 @@
             capacityDataMap = {};
             if (!rows || rows.length === 0) return;
 
-            // Find the header row (starts with "Model")
+            // Find the header row by searching for a cell containing exactly 'model' (case-insensitive)
             let headerIdx = -1;
             for (let i = 0; i < rows.length; i++) {
-                if (rows[i] && String(rows[i][1]).trim().toLowerCase() === 'model') {
+                if (rows[i] && rows[i].some(cell => String(cell).trim().toLowerCase() === 'model')) {
                     headerIdx = i;
                     break;
                 }
             }
 
             if (headerIdx === -1) {
-                console.warn('Cannot find Model header in capacity sheet, fallback to index mapping');
-                headerIdx = 11; // fallback default
+                console.warn('Cannot find Model header in capacity sheet, fallback to default indices');
+                parseWithIndices(rows, 3, 0, 13, 4, 6);
+                return;
             }
 
-            // Map models
+            const headerRow = rows[headerIdx].map(cell => String(cell).trim().toLowerCase());
+            
+            // Find column indices dynamically
+            let modelColIdx = headerRow.findIndex(cell => cell === 'model');
+            let lineColIdx = headerRow.findIndex(cell => cell === 'line');
+            
+            // Look for max cap column: contains 'max cap' or 'max' or '(100%)'
+            let maxCapColIdx = headerRow.findIndex(cell => cell.includes('max cap') || cell.includes('max') || cell.includes('100%'));
+            // Look for planning cap column: contains 'planning' or 'plan' or '(85%)'
+            let planningCapColIdx = headerRow.findIndex(cell => cell.includes('planning') || cell.includes('plan') || cell.includes('85%'));
+
+            // Fallback default indices if not found dynamically
+            if (modelColIdx === -1) modelColIdx = 0;
+            if (lineColIdx === -1) lineColIdx = 13;
+            if (maxCapColIdx === -1) maxCapColIdx = 4;
+            if (planningCapColIdx === -1) planningCapColIdx = 6;
+
+            console.log(`Parsed capacity headers at index ${headerIdx}: ModelCol=${modelColIdx}, LineCol=${lineColIdx}, MaxCapCol=${maxCapColIdx}, PlanCapCol=${planningCapColIdx}`);
+            parseWithIndices(rows, headerIdx, modelColIdx, lineColIdx, maxCapColIdx, planningCapColIdx);
+        }
+
+        function parseWithIndices(rows, headerIdx, modelColIdx, lineColIdx, maxCapColIdx, planningCapColIdx) {
             for (let i = headerIdx + 1; i < rows.length; i++) {
                 const row = rows[i];
-                if (!row || row.length < 7) continue;
-                const line = String(row[0] || '').trim().toUpperCase();
-                const model = String(row[1] || '').trim().toUpperCase();
-                const maxCap = parseFloat(String(row[5] || '0').replace(/,/g, '')) || 0;
-                const planningCap = parseFloat(String(row[6] || '0').replace(/,/g, '')) || 0;
+                if (!row) continue;
+                
+                const model = String(row[modelColIdx] || '').trim().toUpperCase();
+                const line = String(row[lineColIdx] || '').trim().toUpperCase();
+                const maxCap = parseFloat(String(row[maxCapColIdx] || '0').replace(/,/g, '')) || 0;
+                const planningCap = parseFloat(String(row[planningCapColIdx] || '0').replace(/,/g, '')) || 0;
                 
                 if (model) {
                     const val = {
                         planning: planningCap,
                         max: maxCap
                     };
-                    if (line) {
-                        capacityDataMap[`${line}_${model}`] = val;
+                    
+                    const normLine = line.replace(/[^0-9]/g, ''); // Extract only digits, e.g., "Line 5" -> "5"
+                    if (normLine) {
+                        capacityDataMap[`${normLine}_${model}`] = val;
                     }
                     if (!capacityDataMap[model]) {
                         capacityDataMap[model] = val;
@@ -1612,7 +1637,7 @@
             }
             if (!logModel) return null;
             
-            const cleanLine = logLine ? String(logLine).trim().toUpperCase() : '';
+            const cleanLine = logLine ? String(logLine).trim().toUpperCase().replace(/[^0-9]/g, '') : '';
             const cleanModel = logModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
             
             // 1. Try Line + Model exact match
