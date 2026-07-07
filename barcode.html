@@ -127,12 +127,19 @@
             </div>
 
             <!-- Filters Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-                <!-- Date Filter -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4">
+                <!-- Date Filter (Start) -->
                 <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1.5">เลือกวันผลิต (Production Date)</label>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">วันที่เริ่มต้น (Start Date)</label>
                     <div class="relative">
-                        <input type="date" id="filter-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <input type="date" id="filter-start-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                    </div>
+                </div>
+                <!-- Date Filter (End) -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1.5">วันที่สิ้นสุด (End Date)</label>
+                    <div class="relative">
+                        <input type="date" id="filter-end-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
                     </div>
                 </div>
 
@@ -400,7 +407,8 @@
 
         // Element Lookups
         const els = {
-            filterDate: document.getElementById('filter-date'),
+            filterStartDate: document.getElementById('filter-start-date'),
+            filterEndDate: document.getElementById('filter-end-date'),
             filterLine: document.getElementById('filter-line'),
             filterShift: document.getElementById('filter-shift'),
             filterJob: document.getElementById('filter-job'),
@@ -448,7 +456,8 @@
             }
 
             // Event Listeners for Filters
-            els.filterDate.addEventListener('change', () => { applyFilters(); });
+            els.filterStartDate.addEventListener('change', () => { applyFilters(); });
+            els.filterEndDate.addEventListener('change', () => { applyFilters(); });
             els.filterLine.addEventListener('change', () => { applyFilters(); });
             els.filterShift.addEventListener('change', () => { applyFilters(); });
             els.filterJob.addEventListener('change', () => { applyFilters(); });
@@ -573,7 +582,7 @@
         // ==========================================
         // FILTERS & POPULATORS
         // ==========================================
-        function populateFilters(selectedDate = null) {
+        function populateFilters() {
             // Find all unique dates
             const dates = new Set();
             processedScans.forEach(s => dates.add(s.prodDate));
@@ -584,19 +593,23 @@
             // Set Date Picker default to latest available production date
             const latestDate = sortedDates[0];
             
-            if (!els.filterDate.value) {
-                els.filterDate.value = latestDate;
+            if (!els.filterStartDate.value || !dates.has(els.filterStartDate.value)) {
+                els.filterStartDate.value = latestDate;
+            }
+            if (!els.filterEndDate.value || !dates.has(els.filterEndDate.value)) {
+                els.filterEndDate.value = latestDate;
             }
 
-            const activeDate = els.filterDate.value;
+            const activeStartDate = els.filterStartDate.value;
+            const activeEndDate = els.filterEndDate.value;
 
-            // Extract unique lines, jobs and models for the selected date
+            // Extract unique lines, jobs and models for the selected date range
             const lines = new Set();
             const jobs = new Set();
             const models = new Set();
 
             processedScans.forEach(s => {
-                if (s.prodDate === activeDate) {
+                if (s.prodDate >= activeStartDate && s.prodDate <= activeEndDate) {
                     lines.add(s.line);
                     const activeLine = els.filterLine ? els.filterLine.value : 'All';
                     if (activeLine === 'All' || s.line === activeLine) {
@@ -648,7 +661,8 @@
         }
 
         function applyFilters() {
-            const activeDate = els.filterDate.value;
+            const activeStartDate = els.filterStartDate.value;
+            const activeEndDate = els.filterEndDate.value;
             const activeShift = els.filterShift.value;
             const activeLine = els.filterLine ? els.filterLine.value : 'All';
             const activeJob = els.filterJob.value;
@@ -656,7 +670,7 @@
 
             // Filter
             filteredScans = processedScans.filter(s => {
-                if (s.prodDate !== activeDate) return false;
+                if (s.prodDate < activeStartDate || s.prodDate > activeEndDate) return false;
                 if (activeShift !== 'All' && s.shift !== activeShift) return false;
                 if (activeLine !== 'All' && s.line !== activeLine) return false;
                 if (activeJob !== 'All' && s.jobOrder !== activeJob) return false;
@@ -664,8 +678,8 @@
                 return true;
             });
 
-            // Repopulate dynamic drop-downs if date changed
-            populateFilters(activeDate);
+            // Repopulate dynamic drop-downs based on date range
+            populateFilters();
 
             // Compute KPIs
             calculateKPIs();
@@ -1353,6 +1367,14 @@
         // DATA FETCHERS
         // ==========================================
         function loadBarcodeData(isSilent = false) {
+            // Save current filter values before refresh
+            const savedStartDate = els.filterStartDate ? els.filterStartDate.value : '';
+            const savedEndDate = els.filterEndDate ? els.filterEndDate.value : '';
+            const savedShift = els.filterShift ? els.filterShift.value : 'All';
+            const savedLine = els.filterLine ? els.filterLine.value : 'All';
+            const savedJob = els.filterJob ? els.filterJob.value : 'All';
+            const savedModel = els.filterModel ? els.filterModel.value : 'All';
+
             if (!isSilent) {
                 els.scanTableBody.innerHTML = `
                     <tr>
@@ -1398,7 +1420,32 @@
                                 els.lastUpdated.classList.remove('hidden');
 
                                 parseRawLogs();
+                                
+                                // Validate and restore saved filter states
+                                const dates = new Set(processedScans.map(s => s.prodDate));
+                                const sortedDates = Array.from(dates).sort((a, b) => new Date(b) - new Date(a));
+                                const latestDate = sortedDates[0] || '';
+                                
+                                if (savedStartDate && dates.has(savedStartDate)) {
+                                    els.filterStartDate.value = savedStartDate;
+                                } else {
+                                    els.filterStartDate.value = latestDate;
+                                }
+                                
+                                if (savedEndDate && dates.has(savedEndDate)) {
+                                    els.filterEndDate.value = savedEndDate;
+                                } else {
+                                    els.filterEndDate.value = latestDate;
+                                }
+
                                 populateFilters();
+
+                                // Restore other filter values safely
+                                if (savedShift) els.filterShift.value = savedShift;
+                                if (els.filterLine && savedLine) els.filterLine.value = savedLine;
+                                if (savedJob) els.filterJob.value = savedJob;
+                                if (savedModel) els.filterModel.value = savedModel;
+
                                 applyFilters();
                             }
                         });
