@@ -366,7 +366,7 @@
         const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3FKz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
         const CAPACITY_GID = '1140596720';
         
-        let barcodeSheetUrl = FIXED_BARCODE_SHEET_URL || localStorage.getItem('job_tracker_barcode_sheet_url') || '';
+        let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_SHEET_URL || '';
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
         let capacityMode = 'max'; // Default capacity mode: max cap
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
@@ -1366,9 +1366,14 @@
             const csvUrl = buildGoogleSheetCsvUrl(barcodeSheetUrl, '0');
             const capacityCsvUrl = buildGoogleSheetCsvUrl(FIXED_OEE_SHEET_URL, CAPACITY_GID);
 
+            const fetchText = (url) => fetch(url).then(res => {
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                return res.text();
+            });
+
             Promise.all([
-                fetch(csvUrl + (csvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()).then(res => res.text()),
-                fetch(capacityCsvUrl + (capacityCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()).then(res => res.text())
+                fetchText(csvUrl + (csvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()),
+                fetchText(capacityCsvUrl + (capacityCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now())
             ])
             .then(([barcodeText, capacityText]) => {
                 // Parse capacity data
@@ -1577,7 +1582,7 @@
             // Map models
             for (let i = headerIdx + 1; i < rows.length; i++) {
                 const row = rows[i];
-                if (!row || row.length < 12) continue;
+                if (!row || row.length < 7) continue;
                 const line = String(row[0] || '').trim().toUpperCase();
                 const model = String(row[1] || '').trim().toUpperCase();
                 const maxCap = parseFloat(String(row[5] || '0').replace(/,/g, '')) || 0;
