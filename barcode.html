@@ -547,7 +547,7 @@
                 opt.textContent = j;
                 jobSelect.appendChild(opt);
             });
-            if (Array.from(jobs).has(currentJobVal)) jobSelect.value = currentJobVal;
+            if (jobs.has(currentJobVal)) jobSelect.value = currentJobVal;
 
             // Populate Model Dropdown
             const modelSelect = els.filterModel;
@@ -559,7 +559,7 @@
                 opt.textContent = m;
                 modelSelect.appendChild(opt);
             });
-            if (Array.from(models).has(currentModelVal)) modelSelect.value = currentModelVal;
+            if (models.has(currentModelVal)) modelSelect.value = currentModelVal;
         }
 
         function applyFilters() {
