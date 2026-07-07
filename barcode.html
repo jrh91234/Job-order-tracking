@@ -356,6 +356,9 @@
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
         let modelColorMap = {};   // Stable model name -> hex color mapping
         let prevModelCounts = []; // To track production increases for energy surge animation
+        let prevModelLabels = []; // To track if model list or order changed
+        let prevHourlyLabels = []; // To track if hourly labels changed
+        let prevHourlyDataJson = ''; // To track if hourly dataset values changed
         let isDemoMode = false;
 
         // Data Pools
@@ -849,36 +852,54 @@
                 calcContentEl.innerHTML = calcListHtml || '<p class="text-slate-400 text-center py-2">ไม่มีข้อมูลการผลิต</p>';
             }
 
-            if (hourlyChartObj) {
-                hourlyChartObj.data.labels = hourLabels;
-                
-                // Update hourly datasets in place to prevent full rebuild animation
-                const existingDatasets = hourlyChartObj.data.datasets;
-                const newDatasetsMap = {};
-                hourlyDatasets.forEach(d => {
-                    newDatasetsMap[d.label] = d;
-                });
-                
-                // Remove or update existing
-                for (let i = existingDatasets.length - 1; i >= 0; i--) {
-                    const ds = existingDatasets[i];
-                    if (newDatasetsMap[ds.label]) {
-                        ds.data = newDatasetsMap[ds.label].data;
-                        if (ds.type === 'line') {
-                            ds.data = hourlyTargets; // Update line dynamic target
-                        }
-                        delete newDatasetsMap[ds.label];
-                    } else {
-                        existingDatasets.splice(i, 1);
+            // Check if hourly dataset values or labels changed to avoid calling update() on static data
+            const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
+            let hasHourlyChanged = false;
+            if (prevHourlyLabels.length !== hourLabels.length || prevHourlyDataJson !== hourlyDataJson) {
+                hasHourlyChanged = true;
+            } else {
+                for (let i = 0; i < hourLabels.length; i++) {
+                    if (prevHourlyLabels[i] !== hourLabels[i]) {
+                        hasHourlyChanged = true;
+                        break;
                     }
                 }
-                
-                // Add new
-                Object.values(newDatasetsMap).forEach(d => {
-                    existingDatasets.push(d);
-                });
-                
-                hourlyChartObj.update();
+            }
+            prevHourlyLabels = [...hourLabels];
+            prevHourlyDataJson = hourlyDataJson;
+
+            if (hourlyChartObj) {
+                if (hasHourlyChanged) {
+                    hourlyChartObj.data.labels = hourLabels;
+                    
+                    // Update hourly datasets in place to prevent full rebuild animation
+                    const existingDatasets = hourlyChartObj.data.datasets;
+                    const newDatasetsMap = {};
+                    hourlyDatasets.forEach(d => {
+                        newDatasetsMap[d.label] = d;
+                    });
+                    
+                    // Remove or update existing
+                    for (let i = existingDatasets.length - 1; i >= 0; i--) {
+                        const ds = existingDatasets[i];
+                        if (newDatasetsMap[ds.label]) {
+                            ds.data = newDatasetsMap[ds.label].data;
+                            if (ds.type === 'line') {
+                                ds.data = hourlyTargets; // Update line dynamic target
+                            }
+                            delete newDatasetsMap[ds.label];
+                        } else {
+                            existingDatasets.splice(i, 1);
+                        }
+                    }
+                    
+                    // Add new
+                    Object.values(newDatasetsMap).forEach(d => {
+                        existingDatasets.push(d);
+                    });
+                    
+                    hourlyChartObj.update();
+                }
             } else {
                 const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
                 hourlyChartObj = new Chart(ctxHourly, {
@@ -935,6 +956,19 @@
             // Use synced solid colors matching Chart 1 colors to prevent CanvasGradient recreation from flashing
             const modelBarColors = modelLabels.map(modelName => getModelColor(modelName));
 
+            // Check if model counts or labels changed to avoid calling update() on static data
+            let hasModelChanged = false;
+            if (prevModelLabels.length !== modelLabels.length || prevModelCounts.length !== modelCounts.length) {
+                hasModelChanged = true;
+            } else {
+                for (let i = 0; i < modelCounts.length; i++) {
+                    if (modelCounts[i] !== prevModelCounts[i] || prevModelLabels[i] !== modelLabels[i]) {
+                        hasModelChanged = true;
+                        break;
+                    }
+                }
+            }
+
             // Check if production increased to trigger dynamic slide-out animation
             let shouldTriggerSurge = false;
             if (prevModelCounts.length === modelCounts.length) {
@@ -947,26 +981,27 @@
             } else {
                 shouldTriggerSurge = true; // Trigger full entry on change of model list / initial load
             }
-            prevModelCounts = [...modelCounts];
 
             if (modelChartObj) {
-                modelChartObj.data.labels = modelLabels;
-                modelChartObj.data.datasets[0].backgroundColor = modelBarColors;
-                
-                if (shouldTriggerSurge) {
-                    // Reset to 0 first to force the full energy surge animation from base to tip
-                    modelChartObj.data.datasets[0].data = Array(modelCounts.length).fill(0);
-                    modelChartObj.update('none'); // Update instantly
+                if (hasModelChanged) {
+                    modelChartObj.data.labels = modelLabels;
+                    modelChartObj.data.datasets[0].backgroundColor = modelBarColors;
                     
-                    requestAnimationFrame(() => {
-                        if (modelChartObj) {
-                            modelChartObj.data.datasets[0].data = modelCounts;
-                            modelChartObj.update(); // Animate back up
-                        }
-                    });
-                } else {
-                    modelChartObj.data.datasets[0].data = modelCounts;
-                    modelChartObj.update();
+                    if (shouldTriggerSurge) {
+                        // Reset to 0 first to force the full energy surge animation from base to tip
+                        modelChartObj.data.datasets[0].data = Array(modelCounts.length).fill(0);
+                        modelChartObj.update('none'); // Update instantly
+                        
+                        requestAnimationFrame(() => {
+                            if (modelChartObj) {
+                                modelChartObj.data.datasets[0].data = modelCounts;
+                                modelChartObj.update(); // Animate back up
+                            }
+                        });
+                    } else {
+                        modelChartObj.data.datasets[0].data = modelCounts;
+                        modelChartObj.update();
+                    }
                 }
             } else {
                 modelChartObj = new Chart(ctxModel, {
@@ -1006,6 +1041,10 @@
                     }
                 });
             }
+
+            // Update trackers
+            prevModelLabels = [...modelLabels];
+            prevModelCounts = [...modelCounts];
         }
 
         // ==========================================
