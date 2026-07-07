@@ -243,9 +243,17 @@
 
             <!-- Chart 2: Production by Model -->
             <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
-                <div>
-                    <h3 class="text-base font-bold text-slate-800">สัดส่วนและยอดผลิตรายรุ่นวันนี้</h3>
-                    <p class="text-xs text-slate-400">เปรียบเทียบยอดสแกนบาร์โค้ดสะสมแยกตามรุ่น (PCS)</p>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">สัดส่วนและยอดผลิตรายรุ่นวันนี้</h3>
+                        <p class="text-xs text-slate-400">เปรียบเทียบยอดสแกนบาร์โค้ดสะสมแยกตามรุ่น (PCS)</p>
+                    </div>
+                    <!-- Toggle Switch for Chart Values -->
+                    <label class="relative inline-flex items-center cursor-pointer select-none">
+                        <input type="checkbox" id="toggle-chart-values" class="sr-only peer" checked>
+                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span class="ml-2 text-xs font-semibold text-slate-600">แสดงตัวเลข</span>
+                    </label>
                 </div>
                 <div class="relative h-72 w-full">
                     <canvas id="modelChart"></canvas>
@@ -359,6 +367,7 @@
         let prevModelLabels = []; // To track if model list or order changed
         let prevHourlyLabels = []; // To track if hourly labels changed
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
+        let showChartValues = true;  // Toggle state to show/hide value labels on horizontal chart
         let isDemoMode = false;
 
         // Data Pools
@@ -439,6 +448,19 @@
             els.refreshToggle.addEventListener('change', () => {
                 toggleAutoRefresh();
             });
+
+            // Toggle chart values
+            const toggleValuesEl = document.getElementById('toggle-chart-values');
+            if (toggleValuesEl) {
+                showChartValues = toggleValuesEl.checked;
+                toggleValuesEl.addEventListener('change', (e) => {
+                    showChartValues = e.target.checked;
+                    if (modelChartObj) {
+                        modelChartObj.options.plugins.chartValuePlugin.enabled = showChartValues;
+                        modelChartObj.update();
+                    }
+                });
+            }
 
             // Start Refresh Timer
             startAutoRefreshTimer();
@@ -963,6 +985,28 @@
             // Use synced solid colors matching Chart 1 colors to prevent CanvasGradient recreation from flashing
             const modelBarColors = modelLabels.map(modelName => getModelColor(modelName));
 
+            // Custom inline Chart.js plugin to draw values on the right side of horizontal bars
+            const chartValuePlugin = {
+                id: 'chartValuePlugin',
+                afterDatasetsDraw(chart, args, options) {
+                    if (!options.enabled) return;
+                    const { ctx, data } = chart;
+                    ctx.save();
+                    ctx.font = 'bold 10px Prompt';
+                    ctx.fillStyle = '#475569'; // Slate-600 color
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    
+                    chart.getDatasetMeta(0).data.forEach((bar, index) => {
+                        const value = data.datasets[0].data[index];
+                        if (value > 0) {
+                            ctx.fillText(value.toLocaleString() + ' PCS', bar.x + 8, bar.y);
+                        }
+                    });
+                    ctx.restore();
+                }
+            };
+
             if (modelChartObj) {
                 const prevCounts = modelChartObj.prevCounts || [];
                 const prevLabels = modelChartObj.prevLabels || [];
@@ -996,16 +1040,30 @@
                 if (hasModelChanged) {
                     modelChartObj.data.labels = modelLabels;
                     modelChartObj.data.datasets[0].backgroundColor = modelBarColors;
+                    modelChartObj.options.plugins.chartValuePlugin.enabled = showChartValues;
                     
                     if (shouldTriggerSurge) {
-                        // Reset to 0 first to force the full energy surge animation from base to tip
-                        modelChartObj.data.datasets[0].data = Array(modelCounts.length).fill(0);
-                        modelChartObj.update('none'); // Update instantly
+                        const targetData = [...modelCounts];
+                        const tempResetData = [...prevCounts];
+                        
+                        // Reset ONLY the bars that increased to 0, so they play the energy surge animation
+                        const maxLen = Math.max(tempResetData.length, targetData.length);
+                        for (let i = 0; i < maxLen; i++) {
+                            const prevVal = tempResetData[i] || 0;
+                            const newVal = targetData[i] || 0;
+                            if (newVal > prevVal) {
+                                tempResetData[i] = 0;
+                            }
+                        }
+                        
+                        // Set intermediate data with only increased items reset to 0
+                        modelChartObj.data.datasets[0].data = tempResetData.slice(0, targetData.length);
+                        modelChartObj.update('none'); // Update instantly without animating unchanged ones
                         
                         requestAnimationFrame(() => {
                             if (modelChartObj) {
-                                modelChartObj.data.datasets[0].data = modelCounts;
-                                modelChartObj.update(); // Animate back up
+                                modelChartObj.data.datasets[0].data = targetData;
+                                modelChartObj.update(); // Animate back up (only the reset bars will transition)
                             }
                         });
                     } else {
@@ -1020,6 +1078,7 @@
             } else {
                 modelChartObj = new Chart(ctxModel, {
                     type: 'bar',
+                    plugins: [chartValuePlugin],
                     data: {
                         labels: modelLabels,
                         datasets: [{
@@ -1034,12 +1093,20 @@
                         indexAxis: 'y',
                         responsive: true,
                         maintainAspectRatio: false,
+                        layout: {
+                            padding: {
+                                right: 55 // Buffer space for text value labels (e.g. "330 PCS")
+                            }
+                        },
                         animation: {
                             duration: 1400,
                             easing: 'easeOutBack' // Springy momentum transition
                         },
                         plugins: {
-                            legend: { display: false }
+                            legend: { display: false },
+                            chartValuePlugin: {
+                                enabled: showChartValues
+                            }
                         },
                         scales: {
                             x: {
