@@ -985,7 +985,7 @@
             // Use synced solid colors matching Chart 1 colors to prevent CanvasGradient recreation from flashing
             const modelBarColors = modelLabels.map(modelName => getModelColor(modelName));
 
-            // Custom inline Chart.js plugin to draw values on the right side of horizontal bars
+            // Custom inline Chart.js plugin to draw values and fading floating "+X" numbers on the right side of bars
             const chartValuePlugin = {
                 id: 'chartValuePlugin',
                 afterDatasetsDraw(chart, args, options) {
@@ -993,14 +993,38 @@
                     const { ctx, data } = chart;
                     ctx.save();
                     ctx.font = 'bold 10px Prompt';
-                    ctx.fillStyle = '#475569'; // Slate-600 color
-                    ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
                     
                     chart.getDatasetMeta(0).data.forEach((bar, index) => {
                         const value = data.datasets[0].data[index];
                         if (value > 0) {
-                            ctx.fillText(value.toLocaleString() + ' PCS', bar.x + 8, bar.y);
+                            // 1. Draw main count label
+                            ctx.fillStyle = '#475569'; // Slate-600 color
+                            ctx.textAlign = 'left';
+                            const labelText = value.toLocaleString() + ' PCS';
+                            ctx.fillText(labelText, bar.x + 8, bar.y);
+                            
+                            // Measure text to place "+X" floating label exactly next to it
+                            const labelWidth = ctx.measureText(labelText).width;
+                            
+                            // 2. Draw active floating "+X" labels
+                            const effects = chart.floatingEffects || [];
+                            const now = Date.now();
+                            effects.forEach(effect => {
+                                if (effect.index === index) {
+                                    const elapsed = now - effect.createdAt;
+                                    const progress = elapsed / effect.duration; // 0 to 1
+                                    if (progress < 1) {
+                                        const opacity = 1 - progress;
+                                        const yOffset = -12 * progress; // float upwards slightly
+                                        ctx.save();
+                                        ctx.font = 'bold 10px Prompt';
+                                        ctx.fillStyle = `rgba(34, 197, 94, ${opacity})`; // Emerald green
+                                        ctx.fillText(effect.text, bar.x + 8 + labelWidth + 6, bar.y + yOffset);
+                                        ctx.restore();
+                                    }
+                                }
+                            });
                         }
                     });
                     ctx.restore();
@@ -1030,59 +1054,40 @@
                     }
                 }
 
-                // Check if production increased for any of the models to trigger dynamic animation
-                let shouldTriggerSurge = false;
-                if (prevCounts.length === modelCounts.length) {
-                    for (let i = 0; i < modelCounts.length; i++) {
-                        const label = modelLabels[i];
-                        const prevVal = prevCountsMap[label] || 0;
-                        const newVal = modelCounts[i];
-                        if (newVal > prevVal) {
-                            shouldTriggerSurge = true;
-                            break;
-                        }
-                    }
-                }
-
                 if (hasModelChanged) {
                     modelChartObj.data.labels = modelLabels;
                     modelChartObj.data.datasets[0].backgroundColor = modelBarColors;
                     modelChartObj.options.plugins.chartValuePlugin.enabled = showChartValues;
                     
-                    if (shouldTriggerSurge) {
-                        const targetData = [...modelCounts];
-                        const tempResetData = [];
-                        const increasedIndices = [];
-                        
+                    // Create floating "+X" effects on real-time count increases (where length is stable)
+                    modelChartObj.floatingEffects = modelChartObj.floatingEffects || [];
+                    let hasNewFloatingEffects = false;
+                    const isFilterChange = (prevCounts.length !== modelCounts.length);
+                    
+                    if (!isFilterChange) {
                         for (let i = 0; i < modelLabels.length; i++) {
                             const label = modelLabels[i];
                             const prevVal = prevCountsMap[label] || 0;
                             const newVal = modelCounts[i];
-                            if (newVal > prevVal) {
-                                tempResetData.push(0);
-                                increasedIndices.push(i);
-                            } else {
-                                tempResetData.push(newVal);
+                            
+                            if (prevVal > 0 && newVal > prevVal) {
+                                modelChartObj.floatingEffects.push({
+                                    index: i,
+                                    text: `+${newVal - prevVal}`,
+                                    createdAt: Date.now(),
+                                    duration: 1500
+                                });
+                                hasNewFloatingEffects = true;
                             }
                         }
-                        
-                        // Set animated indices for scriptable animation duration (only animate increased ones)
-                        modelChartObj.animatedIndices = increasedIndices;
-                        
-                        modelChartObj.data.datasets[0].data = tempResetData;
-                        modelChartObj.update('none'); // Update instantly without transition
-                        
-                        requestAnimationFrame(() => {
-                            if (modelChartObj) {
-                                modelChartObj.data.datasets[0].data = targetData;
-                                modelChartObj.update(); // Animates only the reset bars
-                            }
-                        });
-                    } else {
-                        // If no surge animation is needed (e.g. filter change or decrease), animate all elements normally
-                        modelChartObj.animatedIndices = null;
-                        modelChartObj.data.datasets[0].data = modelCounts;
-                        modelChartObj.update();
+                    }
+
+                    // Update values (will transition/grow smoothly from their previous sizes)
+                    modelChartObj.data.datasets[0].data = modelCounts;
+                    modelChartObj.update();
+                    
+                    if (hasNewFloatingEffects) {
+                        tickFloatingEffects(modelChartObj);
                     }
                 }
 
@@ -1109,21 +1114,11 @@
                         maintainAspectRatio: false,
                         layout: {
                             padding: {
-                                right: 55 // Buffer space for text value labels (e.g. "330 PCS")
+                                right: 65 // Buffer space for text value labels and floating effects
                             }
                         },
                         animation: {
-                            duration: (context) => {
-                                const chart = context.chart;
-                                if (chart && chart.animatedIndices !== undefined && chart.animatedIndices !== null) {
-                                    const index = context.dataIndex;
-                                    if (chart.animatedIndices.includes(index)) {
-                                        return 1400;
-                                    }
-                                    return 0; // Disable animation for unchanged elements
-                                }
-                                return 1400; // Default duration
-                            },
+                            duration: 800, // Faster, punchier transition for incremental changes
                             easing: 'easeOutBack' // Springy momentum transition
                         },
                         plugins: {
