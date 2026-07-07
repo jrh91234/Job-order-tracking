@@ -311,6 +311,12 @@
                         class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
                     <p class="text-[10px] text-slate-400 mt-1">คัดลอกลิ้งก์แชร์จากเบราว์เซอร์มาวางได้โดยตรง ระบบจะสลับไปดึงแผ่นงานแท็บแรก GID 0 ให้เองครับ</p>
                 </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">เป้าหมายยอดสแกน (ชิ้น/ชั่วโมง)</label>
+                    <input type="number" id="config-barcode-target-speed" placeholder="100" 
+                        class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
+                    <p class="text-[10px] text-slate-400 mt-1">ใช้แสดงเส้นเป้าหมาย (Target Line) บนกราฟแนวโน้มรายชั่วโมง</p>
+                </div>
             </div>
 
             <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
@@ -330,6 +336,7 @@
         const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
         
         let barcodeSheetUrl = FIXED_BARCODE_SHEET_URL || localStorage.getItem('job_tracker_barcode_sheet_url') || '';
+        let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
         let isDemoMode = false;
 
         // Data Pools
@@ -372,6 +379,7 @@
             refreshPing: document.getElementById('refresh-ping'),
             configModal: document.getElementById('config-modal'),
             configBarcodeSheetUrl: document.getElementById('config-barcode-sheet-url'),
+            configBarcodeTargetSpeed: document.getElementById('config-barcode-target-speed'),
             lastUpdated: document.getElementById('last-updated')
         };
 
@@ -644,49 +652,98 @@
         // CHARTS RENDERING
         // ==========================================
         function renderCharts() {
-            // --- 1. Hourly Bar Chart ---
-            // Sum scans per hour sequence
-            const hourlyCounts = hourSequence.map(hr => {
-                return filteredScans.filter(s => s.hour === hr).length;
-            });
-
+            // --- 1. Hourly Stacked Bar Chart with Target Line ---
             const hourLabels = hourSequence.map(hr => {
                 return `${String(hr).padStart(2, '0')}:00`;
             });
 
-            const hourlyBgColors = hourSequence.map(hr => hr >= 20 || hr < 8 ? '#1e293b' : '#f97316');
+            // Get all unique models in filteredScans
+            const uniqueModels = Array.from(new Set(filteredScans.map(s => s.model))).sort();
+
+            // Nice color palette for model stacking
+            const modelColors = [
+                '#6366f1', // Indigo
+                '#f59e0b', // Amber
+                '#10b981', // Emerald
+                '#ec4899', // Pink
+                '#06b6d4', // Cyan
+                '#8b5cf6', // Violet
+                '#ef4444', // Red
+                '#14b8a6', // Teal
+                '#f97316', // Orange
+                '#3b82f6'  // Blue
+            ];
+
+            // Build datasets array:
+            // First dataset is the target line
+            const hourlyDatasets = [
+                {
+                    type: 'line',
+                    label: 'เป้าหมาย (Target)',
+                    data: Array(hourLabels.length).fill(barcodeTargetSpeed),
+                    borderColor: '#ef4444',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0,
+                    order: 0 // Render line on top
+                }
+            ];
+
+            // Add stacked bar dataset for each model
+            uniqueModels.forEach((modelName, index) => {
+                const color = modelColors[index % modelColors.length];
+                const modelCounts = hourSequence.map(hr => {
+                    return filteredScans.filter(s => s.hour === hr && s.model === modelName).length;
+                });
+
+                hourlyDatasets.push({
+                    type: 'bar',
+                    label: modelName,
+                    data: modelCounts,
+                    backgroundColor: color,
+                    stack: 'scans',
+                    borderRadius: 4,
+                    borderWidth: 0,
+                    order: 1
+                });
+            });
+
             if (hourlyChartObj) {
                 hourlyChartObj.data.labels = hourLabels;
-                hourlyChartObj.data.datasets[0].data = hourlyCounts;
-                hourlyChartObj.data.datasets[0].backgroundColor = hourlyBgColors;
+                hourlyChartObj.data.datasets = hourlyDatasets;
                 hourlyChartObj.update();
             } else {
                 const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
                 hourlyChartObj = new Chart(ctxHourly, {
-                    type: 'bar',
                     data: {
                         labels: hourLabels,
-                        datasets: [{
-                            label: 'ยอดสแกน (PCS)',
-                            data: hourlyCounts,
-                            backgroundColor: hourlyBgColors,
-                            borderRadius: 6,
-                            borderWidth: 0
-                        }]
+                        datasets: hourlyDatasets
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
-                            legend: { display: false }
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    font: { family: 'Prompt', size: 10 },
+                                    usePointStyle: true,
+                                    boxWidth: 8
+                                }
+                            }
                         },
                         scales: {
                             y: {
+                                stacked: true,
                                 beginAtZero: true,
                                 grid: { color: '#f1f5f9' },
                                 ticks: { font: { family: 'Prompt', size: 10 } }
                             },
                             x: {
+                                stacked: true,
                                 grid: { display: false },
                                 ticks: { font: { family: 'Prompt', size: 10 } }
                             }
@@ -695,7 +752,7 @@
                 });
             }
 
-            // --- 2. Model Breakdown Horizontal Bar Chart ---
+            // --- 2. Model Breakdown Horizontal Bar Chart with Energy Animation ---
             const modelGroups = {};
             filteredScans.forEach(s => {
                 modelGroups[s.model] = (modelGroups[s.model] || 0) + 1;
@@ -708,19 +765,28 @@
             const modelLabels = topModels.map(m => m[0]);
             const modelCounts = topModels.map(m => m[1]);
 
+            const ctxModel = document.getElementById('modelChart').getContext('2d');
+            
+            // Create a gorgeous horizontal energy gradient from base to tip
+            const modelGradient = ctxModel.createLinearGradient(0, 0, 450, 0);
+            modelGradient.addColorStop(0, 'rgba(99, 102, 241, 0.15)'); // Translucent indigo base
+            modelGradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.85)'); // Rich indigo body
+            modelGradient.addColorStop(0.9, '#a5b4fc');                 // Glowing light energy tip
+            modelGradient.addColorStop(1, '#ffffff');                   // White-hot spark at the very edge
+
             if (modelChartObj) {
                 modelChartObj.data.labels = modelLabels;
                 modelChartObj.data.datasets[0].data = modelCounts;
+                modelChartObj.data.datasets[0].backgroundColor = modelGradient;
                 modelChartObj.update();
             } else {
-                const ctxModel = document.getElementById('modelChart').getContext('2d');
                 modelChartObj = new Chart(ctxModel, {
                     type: 'bar',
                     data: {
                         labels: modelLabels,
                         datasets: [{
                             data: modelCounts,
-                            backgroundColor: '#6366f1',
+                            backgroundColor: modelGradient,
                             borderRadius: 6,
                             borderWidth: 0,
                             barThickness: 16
@@ -730,6 +796,10 @@
                         indexAxis: 'y',
                         responsive: true,
                         maintainAspectRatio: false,
+                        animation: {
+                            duration: 1400,
+                            easing: 'easeOutBack' // Springy extension animation representing energy surge
+                        },
                         plugins: {
                             legend: { display: false }
                         },
@@ -987,6 +1057,7 @@
         // ==========================================
         function openConfigModal() {
             els.configBarcodeSheetUrl.value = barcodeSheetUrl;
+            els.configBarcodeTargetSpeed.value = barcodeTargetSpeed;
             els.configModal.classList.remove('hidden');
         }
 
@@ -996,12 +1067,15 @@
 
         function saveConfig() {
             const url = els.configBarcodeSheetUrl.value.trim();
+            const targetVal = parseInt(els.configBarcodeTargetSpeed.value) || 100;
             if (!url) {
                 return Swal.fire({ icon: 'warning', title: 'กรุณากรอก URL' });
             }
 
             localStorage.setItem('job_tracker_barcode_sheet_url', url);
+            localStorage.setItem('job_tracker_barcode_target_speed', targetVal);
             barcodeSheetUrl = url;
+            barcodeTargetSpeed = targetVal;
             
             closeConfigModal();
             loadBarcodeData();
@@ -1009,7 +1083,9 @@
 
         function useDemoData() {
             localStorage.removeItem('job_tracker_barcode_sheet_url');
+            localStorage.removeItem('job_tracker_barcode_target_speed');
             barcodeSheetUrl = '';
+            barcodeTargetSpeed = 100;
             
             closeConfigModal();
             loadMockData();
