@@ -1011,6 +1011,12 @@
                 const prevCounts = modelChartObj.prevCounts || [];
                 const prevLabels = modelChartObj.prevLabels || [];
 
+                // Create a map of prev counts by label to prevent index shifting mismatch
+                const prevCountsMap = {};
+                prevLabels.forEach((label, idx) => {
+                    prevCountsMap[label] = prevCounts[idx];
+                });
+
                 // Check if model counts or labels changed to avoid calling update() on static data
                 let hasModelChanged = false;
                 if (prevLabels.length !== modelLabels.length || prevCounts.length !== modelCounts.length) {
@@ -1024,17 +1030,18 @@
                     }
                 }
 
-                // Check if production increased to trigger dynamic slide-out animation
+                // Check if production increased for any of the models to trigger dynamic animation
                 let shouldTriggerSurge = false;
                 if (prevCounts.length === modelCounts.length) {
                     for (let i = 0; i < modelCounts.length; i++) {
-                        if (modelCounts[i] > prevCounts[i]) {
+                        const label = modelLabels[i];
+                        const prevVal = prevCountsMap[label] || 0;
+                        const newVal = modelCounts[i];
+                        if (newVal > prevVal) {
                             shouldTriggerSurge = true;
                             break;
                         }
                     }
-                } else {
-                    shouldTriggerSurge = true; // Trigger full entry on change of model list / initial load
                 }
 
                 if (hasModelChanged) {
@@ -1044,29 +1051,36 @@
                     
                     if (shouldTriggerSurge) {
                         const targetData = [...modelCounts];
-                        const tempResetData = [...prevCounts];
+                        const tempResetData = [];
+                        const increasedIndices = [];
                         
-                        // Reset ONLY the bars that increased to 0, so they play the energy surge animation
-                        const maxLen = Math.max(tempResetData.length, targetData.length);
-                        for (let i = 0; i < maxLen; i++) {
-                            const prevVal = tempResetData[i] || 0;
-                            const newVal = targetData[i] || 0;
+                        for (let i = 0; i < modelLabels.length; i++) {
+                            const label = modelLabels[i];
+                            const prevVal = prevCountsMap[label] || 0;
+                            const newVal = modelCounts[i];
                             if (newVal > prevVal) {
-                                tempResetData[i] = 0;
+                                tempResetData.push(0);
+                                increasedIndices.push(i);
+                            } else {
+                                tempResetData.push(newVal);
                             }
                         }
                         
-                        // Set intermediate data with only increased items reset to 0
-                        modelChartObj.data.datasets[0].data = tempResetData.slice(0, targetData.length);
-                        modelChartObj.update('none'); // Update instantly without animating unchanged ones
+                        // Set animated indices for scriptable animation duration (only animate increased ones)
+                        modelChartObj.animatedIndices = increasedIndices;
+                        
+                        modelChartObj.data.datasets[0].data = tempResetData;
+                        modelChartObj.update('none'); // Update instantly without transition
                         
                         requestAnimationFrame(() => {
                             if (modelChartObj) {
                                 modelChartObj.data.datasets[0].data = targetData;
-                                modelChartObj.update(); // Animate back up (only the reset bars will transition)
+                                modelChartObj.update(); // Animates only the reset bars
                             }
                         });
                     } else {
+                        // If no surge animation is needed (e.g. filter change or decrease), animate all elements normally
+                        modelChartObj.animatedIndices = null;
                         modelChartObj.data.datasets[0].data = modelCounts;
                         modelChartObj.update();
                     }
@@ -1099,7 +1113,17 @@
                             }
                         },
                         animation: {
-                            duration: 1400,
+                            duration: (context) => {
+                                const chart = context.chart;
+                                if (chart && chart.animatedIndices !== undefined && chart.animatedIndices !== null) {
+                                    const index = context.dataIndex;
+                                    if (chart.animatedIndices.includes(index)) {
+                                        return 1400;
+                                    }
+                                    return 0; // Disable animation for unchanged elements
+                                }
+                                return 1400; // Default duration
+                            },
                             easing: 'easeOutBack' // Springy momentum transition
                         },
                         plugins: {
