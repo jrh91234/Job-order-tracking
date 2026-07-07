@@ -932,16 +932,8 @@
 
             const ctxModel = document.getElementById('modelChart').getContext('2d');
             
-            // Build synced individual gradients for each bar matching Chart 1 colors
-            const modelBarGradients = modelLabels.map(modelName => {
-                const baseColor = getModelColor(modelName);
-                const glowColor = baseToGlowMap[baseColor] || '#ffffff';
-                
-                const grad = ctxModel.createLinearGradient(0, 0, 500, 0);
-                grad.addColorStop(0, baseColor);
-                grad.addColorStop(1, glowColor);
-                return grad;
-            });
+            // Use synced solid colors matching Chart 1 colors to prevent CanvasGradient recreation from flashing
+            const modelBarColors = modelLabels.map(modelName => getModelColor(modelName));
 
             // Check if production increased to trigger dynamic slide-out animation
             let shouldTriggerSurge = false;
@@ -959,7 +951,7 @@
 
             if (modelChartObj) {
                 modelChartObj.data.labels = modelLabels;
-                modelChartObj.data.datasets[0].backgroundColor = modelBarGradients;
+                modelChartObj.data.datasets[0].backgroundColor = modelBarColors;
                 
                 if (shouldTriggerSurge) {
                     // Reset to 0 first to force the full energy surge animation from base to tip
@@ -983,7 +975,7 @@
                         labels: modelLabels,
                         datasets: [{
                             data: modelCounts,
-                            backgroundColor: modelBarGradients,
+                            backgroundColor: modelBarColors,
                             borderRadius: 6,
                             borderWidth: 0,
                             barThickness: 16
