@@ -550,7 +550,7 @@
             // Set Date Picker default to latest available production date
             const latestDate = sortedDates[0];
             
-            if (!els.filterDate.value || selectedDate === null) {
+            if (!els.filterDate.value) {
                 els.filterDate.value = latestDate;
             }
 
@@ -852,23 +852,24 @@
                 calcContentEl.innerHTML = calcListHtml || '<p class="text-slate-400 text-center py-2">ไม่มีข้อมูลการผลิต</p>';
             }
 
-            // Check if hourly dataset values or labels changed to avoid calling update() on static data
-            const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
-            let hasHourlyChanged = false;
-            if (prevHourlyLabels.length !== hourLabels.length || prevHourlyDataJson !== hourlyDataJson) {
-                hasHourlyChanged = true;
-            } else {
-                for (let i = 0; i < hourLabels.length; i++) {
-                    if (prevHourlyLabels[i] !== hourLabels[i]) {
-                        hasHourlyChanged = true;
-                        break;
+            if (hourlyChartObj) {
+                const prevLabels = hourlyChartObj.prevLabels || [];
+                const prevDataJson = hourlyChartObj.prevDataJson || '';
+
+                const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
+                
+                let hasHourlyChanged = false;
+                if (prevLabels.length !== hourLabels.length || prevDataJson !== hourlyDataJson) {
+                    hasHourlyChanged = true;
+                } else {
+                    for (let i = 0; i < hourLabels.length; i++) {
+                        if (prevLabels[i] !== hourLabels[i]) {
+                            hasHourlyChanged = true;
+                            break;
+                        }
                     }
                 }
-            }
-            prevHourlyLabels = [...hourLabels];
-            prevHourlyDataJson = hourlyDataJson;
 
-            if (hourlyChartObj) {
                 if (hasHourlyChanged) {
                     hourlyChartObj.data.labels = hourLabels;
                     
@@ -900,6 +901,10 @@
                     
                     hourlyChartObj.update();
                 }
+
+                // Update trackers on the instance
+                hourlyChartObj.prevLabels = [...hourLabels];
+                hourlyChartObj.prevDataJson = hourlyDataJson;
             } else {
                 const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
                 hourlyChartObj = new Chart(ctxHourly, {
@@ -936,6 +941,8 @@
                         }
                     }
                 });
+                hourlyChartObj.prevLabels = [...hourLabels];
+                hourlyChartObj.prevDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
             }
 
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
@@ -956,33 +963,36 @@
             // Use synced solid colors matching Chart 1 colors to prevent CanvasGradient recreation from flashing
             const modelBarColors = modelLabels.map(modelName => getModelColor(modelName));
 
-            // Check if model counts or labels changed to avoid calling update() on static data
-            let hasModelChanged = false;
-            if (prevModelLabels.length !== modelLabels.length || prevModelCounts.length !== modelCounts.length) {
-                hasModelChanged = true;
-            } else {
-                for (let i = 0; i < modelCounts.length; i++) {
-                    if (modelCounts[i] !== prevModelCounts[i] || prevModelLabels[i] !== modelLabels[i]) {
-                        hasModelChanged = true;
-                        break;
-                    }
-                }
-            }
-
-            // Check if production increased to trigger dynamic slide-out animation
-            let shouldTriggerSurge = false;
-            if (prevModelCounts.length === modelCounts.length) {
-                for (let i = 0; i < modelCounts.length; i++) {
-                    if (modelCounts[i] > prevModelCounts[i]) {
-                        shouldTriggerSurge = true;
-                        break;
-                    }
-                }
-            } else {
-                shouldTriggerSurge = true; // Trigger full entry on change of model list / initial load
-            }
-
             if (modelChartObj) {
+                const prevCounts = modelChartObj.prevCounts || [];
+                const prevLabels = modelChartObj.prevLabels || [];
+
+                // Check if model counts or labels changed to avoid calling update() on static data
+                let hasModelChanged = false;
+                if (prevLabels.length !== modelLabels.length || prevCounts.length !== modelCounts.length) {
+                    hasModelChanged = true;
+                } else {
+                    for (let i = 0; i < modelCounts.length; i++) {
+                        if (modelCounts[i] !== prevCounts[i] || prevLabels[i] !== modelLabels[i]) {
+                            hasModelChanged = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Check if production increased to trigger dynamic slide-out animation
+                let shouldTriggerSurge = false;
+                if (prevCounts.length === modelCounts.length) {
+                    for (let i = 0; i < modelCounts.length; i++) {
+                        if (modelCounts[i] > prevCounts[i]) {
+                            shouldTriggerSurge = true;
+                            break;
+                        }
+                    }
+                } else {
+                    shouldTriggerSurge = true; // Trigger full entry on change of model list / initial load
+                }
+
                 if (hasModelChanged) {
                     modelChartObj.data.labels = modelLabels;
                     modelChartObj.data.datasets[0].backgroundColor = modelBarColors;
@@ -1003,6 +1013,10 @@
                         modelChartObj.update();
                     }
                 }
+
+                // Update trackers on the instance
+                modelChartObj.prevCounts = [...modelCounts];
+                modelChartObj.prevLabels = [...modelLabels];
             } else {
                 modelChartObj = new Chart(ctxModel, {
                     type: 'bar',
@@ -1040,11 +1054,9 @@
                         }
                     }
                 });
+                modelChartObj.prevCounts = [...modelCounts];
+                modelChartObj.prevLabels = [...modelLabels];
             }
-
-            // Update trackers
-            prevModelLabels = [...modelLabels];
-            prevModelCounts = [...modelCounts];
         }
 
         // ==========================================
