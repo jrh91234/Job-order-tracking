@@ -683,6 +683,34 @@
             applyFilters();
         }
 
+        function findCapacityInfo(logModel) {
+            if (!logModel) return null;
+            
+            // 1. Exact match
+            if (capacityDataMap[logModel]) {
+                return capacityDataMap[logModel];
+            }
+            
+            // Normalize and clean suffix (e.g. -S, -SNE, /SN, /SNE, /S)
+            const cleanModel = logModel.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+            if (capacityDataMap[cleanModel]) {
+                return capacityDataMap[cleanModel];
+            }
+            
+            // 2. Fuzzy prefix / substring matching
+            const keys = Object.keys(capacityDataMap);
+            for (const key of keys) {
+                const cleanKey = key.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+                if (cleanModel === cleanKey) {
+                    return capacityDataMap[key];
+                }
+                if (cleanModel.startsWith(cleanKey) || cleanKey.startsWith(cleanModel)) {
+                    return capacityDataMap[key];
+                }
+            }
+            return null;
+        }
+
         function computeEfficiency() {
             computedEfficiencyData = [];
             
@@ -717,7 +745,7 @@
                 const activeHours = g.hoursSet.size;
                 
                 // Lookup capacity
-                const capInfo = capacityDataMap[g.model];
+                const capInfo = findCapacityInfo(g.model);
                 let capPerHour = 0;
                 
                 if (capInfo) {
