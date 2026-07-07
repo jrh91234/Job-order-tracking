@@ -329,7 +329,7 @@
         // Default barcode sheet URL
         const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
         
-        let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_SHEET_URL;
+        let barcodeSheetUrl = FIXED_BARCODE_SHEET_URL || localStorage.getItem('job_tracker_barcode_sheet_url') || '';
         let isDemoMode = false;
 
         // Data Pools
