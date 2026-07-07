@@ -791,23 +791,10 @@
                 shiftABSelect.appendChild(opt);
             });
 
-            // Setup default dates: last 7 days from the latest data date
-            if (rawActualLogs.length > 0) {
-                // Find latest date in logs
-                let latestDate = new Date(0);
-                rawActualLogs.forEach(log => {
-                    const d = parseDate(log.date);
-                    if (d > latestDate) latestDate = d;
-                });
-
-                if (latestDate.getTime() !== 0) {
-                    const sevenDaysAgo = new Date(latestDate);
-                    sevenDaysAgo.setDate(latestDate.getDate() - 7);
-                    
-                    els.filterStartDate.value = formatDateYYYYMMDD(sevenDaysAgo);
-                    els.filterEndDate.value = formatDateYYYYMMDD(latestDate);
-                }
-            }
+            // Setup default dates: Today (วันนี้)
+            const today = new Date();
+            els.filterStartDate.value = formatDateYYYYMMDD(today);
+            els.filterEndDate.value = formatDateYYYYMMDD(today);
         }
 
         function applyFilters() {
