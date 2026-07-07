@@ -1543,6 +1543,14 @@
         function buildGoogleSheetCsvUrl(url, gid) {
             if (!url) return url;
             try {
+                // If it is already a published URL (/d/e/)
+                if (url.includes('/spreadsheets/d/e/')) {
+                    const parsed = new URL(url);
+                    parsed.searchParams.set('gid', gid);
+                    parsed.searchParams.set('single', 'true');
+                    parsed.searchParams.set('output', 'csv');
+                    return parsed.toString();
+                }
                 const parsed = new URL(url.replace('/edit', '/').replace('/#', '/'));
                 const path = parsed.pathname || '';
                 const isDocsHost = parsed.hostname.includes('docs.google.com');
