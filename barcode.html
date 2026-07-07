@@ -712,7 +712,33 @@
 
             if (hourlyChartObj) {
                 hourlyChartObj.data.labels = hourLabels;
-                hourlyChartObj.data.datasets = hourlyDatasets;
+                
+                // Update hourly datasets in place to prevent full rebuild animation
+                const existingDatasets = hourlyChartObj.data.datasets;
+                const newDatasetsMap = {};
+                hourlyDatasets.forEach(d => {
+                    newDatasetsMap[d.label] = d;
+                });
+                
+                // Remove or update existing
+                for (let i = existingDatasets.length - 1; i >= 0; i--) {
+                    const ds = existingDatasets[i];
+                    if (newDatasetsMap[ds.label]) {
+                        ds.data = newDatasetsMap[ds.label].data;
+                        if (ds.type === 'line') {
+                            ds.data = Array(hourLabels.length).fill(barcodeTargetSpeed);
+                        }
+                        delete newDatasetsMap[ds.label];
+                    } else {
+                        existingDatasets.splice(i, 1);
+                    }
+                }
+                
+                // Add new
+                Object.values(newDatasetsMap).forEach(d => {
+                    existingDatasets.push(d);
+                });
+                
                 hourlyChartObj.update();
             } else {
                 const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
@@ -767,12 +793,11 @@
 
             const ctxModel = document.getElementById('modelChart').getContext('2d');
             
-            // Create a gorgeous horizontal energy gradient from base to tip
-            const modelGradient = ctxModel.createLinearGradient(0, 0, 450, 0);
-            modelGradient.addColorStop(0, 'rgba(99, 102, 241, 0.15)'); // Translucent indigo base
-            modelGradient.addColorStop(0.5, 'rgba(99, 102, 241, 0.85)'); // Rich indigo body
-            modelGradient.addColorStop(0.9, '#a5b4fc');                 // Glowing light energy tip
-            modelGradient.addColorStop(1, '#ffffff');                   // White-hot spark at the very edge
+            // Create a solid horizontal energy gradient from base to tip (ensuring high visibility on white bg)
+            const modelGradient = ctxModel.createLinearGradient(0, 0, 500, 0);
+            modelGradient.addColorStop(0, '#4f46e5');   // Solid Indigo base
+            modelGradient.addColorStop(0.5, '#8b5cf6'); // Solid Purple body
+            modelGradient.addColorStop(1, '#ec4899');   // Solid neon pink tip
 
             if (modelChartObj) {
                 modelChartObj.data.labels = modelLabels;
