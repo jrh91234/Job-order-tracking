@@ -936,43 +936,52 @@
             });
             dailyAvgCapacity = sumOfLineAverages || barcodeTargetSpeed;
 
-            // นับจำนวนวันผลิตที่แตกต่างกันที่มีการแสกน เพื่อนำมาคูณเพิ่มเป้าหมายสะสมสะท้อนตามจริง
-            const uniqueDays = Array.from(new Set(okScans.map(s => s.prodDate)));
-            const numDays = uniqueDays.length || 1;
-
-            // Calculate weighted target for each hour in sequence (grouped by line, then summed across active lines)
+            // คำนวณเป้าหมายรายชั่วโมงสะสมตามจริง (โดยนับวันผลิตเฉพาะชั่วโมงที่มีการสแกนจริงเพื่อไม่ให้เป้าหมายเพี้ยน)
             const hourlyTargets = hourSequence.map(hr => {
                 const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
-                    return Math.round(dailyAvgCapacity * numDays);
+                    return 0; // ไม่มีสแกนเลยในชั่วโมงนี้ เป้าหมายสะสมเป็น 0
                 }
                 
-                const scansByLine = {};
+                // แยกกลุ่มข้อมูลสแกนในชั่วโมงนี้ตามวันผลิตจริง
+                const scansByDate = {};
                 hourScans.forEach(s => {
-                    const lineKey = s.line || 'DEFAULT';
-                    if (!scansByLine[lineKey]) scansByLine[lineKey] = [];
-                    scansByLine[lineKey].push(s);
+                    if (!scansByDate[s.prodDate]) scansByDate[s.prodDate] = [];
+                    scansByDate[s.prodDate].push(s);
                 });
                 
-                let sumOfLineTargets = 0;
-                Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
-                    let totalLineScans = lineScans.length;
-                    let weightedCapSum = 0;
-                    const modelCountsInHour = {};
-                    
-                    lineScans.forEach(s => {
-                        modelCountsInHour[s.model] = (modelCountsInHour[s.model] || 0) + 1;
+                let totalTargetForHour = 0;
+                
+                // คำนวณเป้าหมายถ่วงน้ำหนักของแต่ละวันที่มีการแสกนจริง แล้วนำมารวมกัน
+                Object.values(scansByDate).forEach(dateScans => {
+                    const scansByLine = {};
+                    dateScans.forEach(s => {
+                        const lineKey = s.line || 'DEFAULT';
+                        if (!scansByLine[lineKey]) scansByLine[lineKey] = [];
+                        scansByLine[lineKey].push(s);
                     });
                     
-                    Object.entries(modelCountsInHour).forEach(([modelName, count]) => {
-                        const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
-                        const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
-                        weightedCapSum += (count / totalLineScans) * capVal;
+                    let sumOfLineTargets = 0;
+                    Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
+                        const totalLineScans = lineScans.length;
+                        let weightedCapSum = 0;
+                        const modelCounts = {};
+                        
+                        lineScans.forEach(s => {
+                            modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                        });
+                        
+                        Object.entries(modelCounts).forEach(([modelName, count]) => {
+                            const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
+                            const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                            weightedCapSum += (count / totalLineScans) * capVal;
+                        });
+                        sumOfLineTargets += weightedCapSum;
                     });
-                    sumOfLineTargets += weightedCapSum;
+                    totalTargetForHour += sumOfLineTargets;
                 });
                 
-                return Math.round(sumOfLineTargets * numDays);
+                return Math.round(totalTargetForHour);
             });
 
             // Build datasets array:
@@ -1026,11 +1035,19 @@
                                 <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(0 สแกน)</span></span>
                                 <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target: ${targetVal} PCS</span>
                             </div>
-                            <div class="text-slate-400 text-[9px] italic pl-3">ไม่มีการผลิตในชั่วโมงนี้ (เฉลี่ย ${numDays} วัน: ${Math.round(dailyAvgCapacity)} × ${numDays})</div>
+                            <div class="text-slate-400 text-[9px] italic pl-3">ไม่มีการผลิตในชั่วโมงนี้</div>
                         </div>
                     `;
                     return;
                 }
+                
+                // นับจำนวนวันที่แสกนจริงในชั่วโมงนี้
+                const scansByDate = {};
+                hourScans.forEach(s => {
+                    if (!scansByDate[s.prodDate]) scansByDate[s.prodDate] = [];
+                    scansByDate[s.prodDate].push(s);
+                });
+                const numActiveDays = Object.keys(scansByDate).length;
                 
                 const scansByLine = {};
                 hourScans.forEach(s => {
@@ -1065,12 +1082,12 @@
                     const formulaStr = formulaParts.join(' + ');
                     const detailsStr = capDetails.join(', ');
                     const lineTargetSingleDay = Math.round(lineWeightedSum);
-                    const lineTargetTotal = Math.round(lineWeightedSum * numDays);
+                    const lineTargetTotal = Math.round(lineWeightedSum * numActiveDays);
                     
                     lineCalculationsHtml += `
                         <div class="pl-3 mt-1.5 space-y-0.5 border-l-2 border-indigo-200">
-                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numDays} วัน, ${totalLineScans} สแกน)</span></div>
-                            <div class="text-[9px] font-mono text-slate-500">(${formulaStr}) × ${numDays} วัน = ${Math.round(lineWeightedSum * numDays * 10) / 10}</div>
+                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numActiveDays} วันที่มีแสกน, ${totalLineScans} สแกน)</span></div>
+                            <div class="text-[9px] font-mono text-slate-500">(${formulaStr}) × ${numActiveDays} วัน = ${Math.round(lineWeightedSum * numActiveDays * 10) / 10}</div>
                             <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
                         </div>
                     `;
@@ -1080,7 +1097,7 @@
                     <div class="py-2 border-b border-slate-100 text-[10px] space-y-1.5">
                         <div class="flex justify-between items-center font-semibold text-slate-700">
                             <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกนรวม)</span></span>
-                            <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS (${numDays} วัน)</span>
+                            <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS (${numActiveDays} วันที่มีแสกน)</span>
                         </div>
                         ${lineCalculationsHtml}
                     </div>
