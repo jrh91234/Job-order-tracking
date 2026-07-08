@@ -290,6 +290,10 @@
                 <button id="clear-filter-btn" onclick="clearAllFilters()" class="hidden flex items-center gap-1 text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg text-xs">แสดงทั้งหมด <i data-lucide="rotate-ccw" class="w-3 h-3"></i></button>
                 <button id="date-filter-btn" onclick="toggleDateFilter()" class="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 rounded-lg transition-colors shadow-sm"><i data-lucide="calendar-range" class="w-4 h-4"></i></button>
                 <button id="sort-btn" onclick="toggleSort()" class="flex items-center gap-1 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm"><span id="sort-label">ปกติ</span><i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i></button>
+                <button id="archive-btn" onclick="toggleArchiveView()" class="flex items-center gap-1 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs transition-colors shadow-sm" title="สลับระหว่างจ๊อบที่เปิดอยู่และที่ปิดแล้ว">
+                    <i data-lucide="archive" class="w-3.5 h-3.5"></i>
+                    <span id="archive-label">จ๊อบเปิดอยู่</span>
+                </button>
                 <button onclick="reloadData()" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
             </div>
         </div>
@@ -425,8 +429,10 @@
 
         function renderStats() {
             if(!rawData) return;
-            const total = rawData.length;
-            const completed = rawData.filter(i => i.progress >= 100).length; // แก้ไขให้ >= 100
+            // Count stats based on open/active jobs only
+            const openJobs = rawData.filter(i => !i.isClosed);
+            const total = openJobs.length;
+            const completed = openJobs.filter(i => i.progress >= 100).length;
             const pending = total - completed;
 
             els.statTotal.textContent = total;
@@ -435,21 +441,34 @@
         }
 
         function createJobCard(data) {
-            const isComplete = data.progress >= 100; // แก้ไขให้ >= 100
-            const statusBorder = isComplete ? 'border-green-500' : 'border-orange-400';
-            const progressBarColor = isComplete ? 'bg-green-500' : 'bg-orange-400';
-            const statusTextClass = isComplete ? 'text-green-600' : 'text-orange-600';
+            const isClosed = data.isClosed === true;
+            const isComplete = data.progress >= 100;
+            
+            // Card visual styling based on closed/active states
+            let statusBorder, progressBarColor, statusTextClass, icon, footerText, cardBgClass;
+            
+            if (isClosed) {
+                statusBorder = 'border-slate-300';
+                progressBarColor = 'bg-slate-300';
+                statusTextClass = 'text-slate-400';
+                cardBgClass = 'bg-slate-50/70 border-l-4 opacity-75';
+                icon = `<span class="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-200">ปิดจ๊อบแล้ว</span>`;
+                footerText = `<span class="text-slate-400 flex items-center justify-end gap-1"><i data-lucide="archive" class="w-3 h-3"></i> สถานะ: ปิดจ๊อบถาวร</span>`;
+            } else {
+                statusBorder = isComplete ? 'border-green-500' : 'border-orange-400';
+                progressBarColor = isComplete ? 'bg-green-500' : 'bg-orange-400';
+                statusTextClass = isComplete ? 'text-green-600' : 'text-orange-600';
+                cardBgClass = 'bg-white border-l-4';
+                icon = isComplete 
+                    ? `<i data-lucide="check-circle" class="text-green-500 w-6 h-6 flex-shrink-0"></i>` 
+                    : `<i data-lucide="clock" class="text-orange-400 w-6 h-6 flex-shrink-0"></i>`;
+                footerText = isComplete
+                    ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
+                    : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
+            }
             
             const diff = data.actual - data.plan;
-            const diffClass = diff > 0 ? 'text-red-500' : 'text-slate-400';
-
-            const icon = isComplete 
-                ? `<i data-lucide="check-circle" class="text-green-500 w-6 h-6 flex-shrink-0"></i>` 
-                : `<i data-lucide="clock" class="text-orange-400 w-6 h-6 flex-shrink-0"></i>`;
-
-            const footerText = isComplete
-                ? `<span class="text-green-600 flex items-center justify-end gap-1">เสร็จสิ้นเมื่อ: ${data.finishDate}</span>`
-                : `<span class="text-orange-500 flex items-center justify-end gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> สถานะ: ยังไม่สมบูรณ์</span>`;
+            const diffClass = isClosed ? 'text-slate-400' : (diff > 0 ? 'text-red-500' : 'text-slate-400');
 
             const breakdownHtml = (data.hourlyBreakdown && data.hourlyBreakdown.length > 0)
                 ? `
@@ -471,9 +490,27 @@
                     </div>
                 `;
 
-            // เพิ่ม Math.min(data.progress, 100) เพื่อไม่ให้สีหลุดกรอบกรณี % เกิน
+            // Action buttons configuration based on closed/active states
+            let buttonsHtml = '';
+            if (isClosed) {
+                buttonsHtml = `
+                    <button onclick="submitCloseJob('${data.jobNo}', false)" class="absolute bottom-3 right-3 bg-slate-200 text-slate-700 p-2 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm border border-slate-300 flex items-center gap-1 text-xs font-bold">
+                        <i data-lucide="folder-open" class="w-3 h-3"></i> เปิดจ๊อบใหม่
+                    </button>
+                `;
+            } else {
+                buttonsHtml = `
+                    <button onclick="confirmCloseJob('${data.jobNo}')" class="absolute bottom-3 left-3 bg-slate-50 text-slate-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-all shadow-sm border border-slate-200 hover:border-red-100 flex items-center gap-1 text-xs font-bold" title="ปิดจ๊อบเพื่อย้ายไปประวัติ">
+                        <i data-lucide="archive" class="w-3 h-3"></i> ปิดจ๊อบ
+                    </button>
+                    <button onclick="openUpdateModal(${data.id})" class="absolute bottom-3 right-3 bg-indigo-50 text-indigo-600 p-2 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm border border-indigo-100 flex items-center gap-1 text-xs font-bold">
+                        <i data-lucide="clipboard-edit" class="w-3 h-3"></i> ลงยอด
+                    </button>
+                `;
+            }
+
             return `
-                <div class="bg-white rounded-xl p-4 shadow-sm border-l-4 relative overflow-hidden ${statusBorder}">
+                <div class="${cardBgClass} rounded-xl p-4 shadow-sm relative overflow-hidden ${statusBorder}">
                     <div class="flex justify-between items-start mb-2">
                         <div>
                             <span class="text-xs text-slate-400 font-mono block mb-1">${data.date}</span>
@@ -500,7 +537,7 @@
                     </div>
                     ${breakdownHtml}
                     <div class="mt-3 flex justify-between items-end border-t border-slate-100 pt-2"><div class="text-xs text-right flex-1">${footerText}</div></div>
-                    <button onclick="openUpdateModal(${data.id})" class="absolute bottom-3 right-3 bg-indigo-50 text-indigo-600 p-2 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm border border-indigo-100 flex items-center gap-1 text-xs font-bold"><i data-lucide="clipboard-edit" class="w-3 h-3"></i> ลงยอด</button>
+                    ${buttonsHtml}
                 </div>
             `;
         }
@@ -515,11 +552,16 @@
 
             let filteredData = [...searchResults];
             
-            // Status Filter
+            // Status Filter (Active vs Closed)
             filteredData = filteredData.filter(item => {
+                // If showClosed is false, show only active/open jobs
+                if (!showClosed && item.isClosed) return false;
+                // If showClosed is true, show only closed/archived jobs
+                if (showClosed && !item.isClosed) return false;
+
                 const matchesFilter = 
                     currentFilter === 'all' ? true :
-                    currentFilter === 'complete' ? item.progress >= 100 : // แก้ไขให้ >= 100
+                    currentFilter === 'complete' ? item.progress >= 100 :
                     item.progress < 100;
                 return matchesFilter;
             });
@@ -1112,6 +1154,13 @@
                     }
                 }
                 
+                let statusKey = keys.find(k => {
+                    const kLower = k.trim().toLowerCase();
+                    return kLower === 'status' || kLower === 'isclosed' || kLower === 'state' || kLower === 'job status' || kLower === 'สถานะ';
+                });
+                const rowStatus = statusKey && row[statusKey] ? String(row[statusKey]).trim().toLowerCase() : '';
+                const isClosed = rowStatus === 'closed' || rowStatus === 'close' || rowStatus === 'archive' || rowStatus === 'archived';
+
                 return {
                     id: index,
                     date: formattedDate,
@@ -1122,6 +1171,7 @@
                     progress: progress,
                     status: isComplete ? 'complete' : 'incomplete',
                     finishDate: row[finishKey] || '-',
+                    isClosed: isClosed,
                     hourlyBreakdown: []
                 };
             });
@@ -1293,6 +1343,96 @@
             else if (currentSort === 'newest') currentSort = 'oldest';
             else currentSort = 'default';
             updateSortUI(); renderList();
+        }
+
+        let showClosed = false;
+        function toggleArchiveView() {
+            showClosed = !showClosed;
+            const btn = document.getElementById('archive-btn');
+            const label = document.getElementById('archive-label');
+            if (showClosed) {
+                btn.classList.add('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+                btn.classList.remove('text-slate-400');
+                label.textContent = 'จ๊อบที่ปิดแล้ว';
+            } else {
+                btn.classList.remove('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+                btn.classList.add('text-slate-400');
+                label.textContent = 'จ๊อบเปิดอยู่';
+            }
+            renderList();
+        }
+
+        function confirmCloseJob(jobNo) {
+            Swal.fire({
+                title: 'ยืนยันการปิดจ๊อบ?',
+                text: `คุณต้องการปิดจ๊อบ ${jobNo} ใช่หรือไม่? จ๊อบที่ปิดแล้วจะถูกย้ายเข้าสู่คลังประวัติ`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#64748b',
+                confirmButtonText: 'ใช่, ปิดจ๊อบ',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    submitCloseJob(jobNo, true);
+                }
+            });
+        }
+
+        function submitCloseJob(jobNo, isClosedValue) {
+            if (!scriptUrl) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'กรุณาตั้งค่า Script',
+                    text: 'กรุณาระบุ URL ของ Google Apps Script ในหน้าต่างตั้งค่าก่อนครับ',
+                    confirmButtonText: 'ตกลง'
+                });
+                return;
+            }
+
+            Swal.fire({
+                title: isClosedValue ? 'กำลังบันทึกการปิดจ๊อบ...' : 'กำลังเปิดจ๊อบใหม่...',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            const payload = {
+                action: 'close_job',
+                jobNo: jobNo,
+                isClosed: isClosedValue ? 'true' : 'false'
+            };
+
+            fetch(scriptUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+            })
+            .then(() => {
+                // Optimistically update local data
+                const job = rawData.find(j => j.jobNo === jobNo);
+                if (job) {
+                    job.isClosed = isClosedValue;
+                }
+                Swal.fire({
+                    icon: 'success',
+                    title: isClosedValue ? 'ปิดจ๊อบสำเร็จ' : 'เปิดจ๊อบใหม่สำเร็จ',
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+                renderStats();
+                renderList();
+            })
+            .catch(err => {
+                console.error('Error closing/opening job:', err);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'เกิดข้อผิดพลาด',
+                    text: 'ไม่สามารถส่งบันทึกสถานะได้ กรุณาลองใหม่อีกครั้งครับ'
+                });
+            });
         }
 
         function updateSortUI() {

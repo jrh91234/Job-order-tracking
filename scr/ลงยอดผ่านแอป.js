@@ -12,6 +12,59 @@ function doPost(e) {
     var lastCol = sheet.getLastColumn();
     var lastRow = sheet.getLastRow();
 
+    // ==========================================
+    // ส่วนฟังก์ชัน ปิดจ๊อบ/เปิดจ๊อบ (Close/Re-open Job)
+    // ==========================================
+    if (data.action === 'close_job') {
+      var planSheet = doc.getSheetByName("Plan");
+      if (!planSheet) {
+        return ContentService.createTextOutput(JSON.stringify({result: "error", error: "ไม่พบชีต Plan"})).setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var planHeaders = planSheet.getRange(1, 1, 1, planSheet.getLastColumn()).getValues()[0];
+      var jobColIdx = -1;
+      var statusColIdx = -1;
+      
+      // ค้นหาคอลัมน์ Job Order และ Status ในชีต Plan
+      for (var i = 0; i < planHeaders.length; i++) {
+        var h = String(planHeaders[i]).toLowerCase().replace(/\s/g, '');
+        if (h.includes("joborder") || h.includes("หมายเลขกำกับงาน") || h.includes("jobno")) {
+          jobColIdx = i;
+        }
+        if (h === "status" || h === "jobstatus" || h === "isclosed" || h === "สถานะ") {
+          statusColIdx = i;
+        }
+      }
+      
+      // ถ้าไม่พบคอลัมน์ Job Order ให้ใช้คอลัมน์ D (index 3) เป็นค่าเริ่มต้น
+      if (jobColIdx === -1) jobColIdx = 3; 
+      
+      // ถ้าไม่พบคอลัมน์ Status ให้สร้างคอลัมน์ใหม่ที่ท้ายตาราง
+      if (statusColIdx === -1) {
+        statusColIdx = planHeaders.length;
+        planSheet.getRange(1, statusColIdx + 1).setValue("Status");
+      }
+      
+      var planRows = planSheet.getLastRow();
+      var planValues = planSheet.getRange(2, jobColIdx + 1, planRows - 1, 1).getValues();
+      var foundRow = -1;
+      
+      for (var r = 0; r < planValues.length; r++) {
+        if (String(planValues[r][0]).trim() === String(data.jobNo).trim()) {
+          foundRow = r + 2; // +2 เพราะ 1-indexed และข้ามหัวตาราง
+          break;
+        }
+      }
+      
+      if (foundRow > -1) {
+        var newStatusValue = data.isClosed === 'true' ? 'Closed' : 'Active';
+        planSheet.getRange(foundRow, statusColIdx + 1).setValue(newStatusValue);
+        return ContentService.createTextOutput(JSON.stringify({result: "success", row: foundRow, status: newStatusValue})).setMimeType(ContentService.MimeType.JSON);
+      } else {
+        return ContentService.createTextOutput(JSON.stringify({result: "error", error: "ไม่พบ Job No. ในชีต Plan"})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     // 1. อ่านหัวตาราง (บรรทัดที่ 1)
     var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
 
