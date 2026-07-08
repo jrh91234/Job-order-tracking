@@ -806,6 +806,74 @@
                 return modelColorMap[modelName];
             };
 
+            // Custom inline Chart.js plugin to draw individual segment values and stacked totals
+            const hourlyChartValuePlugin = {
+                id: 'hourlyChartValuePlugin',
+                afterDatasetsDraw(chart, args, options) {
+                    const { ctx, data } = chart;
+                    ctx.save();
+                    ctx.font = 'bold 10px Prompt';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    
+                    const totals = Array(chart.scales.x.ticks.length).fill(0);
+                    const barPositions = {};
+                    
+                    chart.data.datasets.forEach((dataset, datasetIndex) => {
+                        // Skip the target line dataset
+                        if (dataset.type === 'line') return;
+                        
+                        const meta = chart.getDatasetMeta(datasetIndex);
+                        meta.data.forEach((bar, index) => {
+                            const value = dataset.data[index];
+                            if (value > 0) {
+                                totals[index] += value;
+                                if (!barPositions[index]) barPositions[index] = [];
+                                barPositions[index].push({
+                                    x: bar.x,
+                                    y: bar.y,
+                                    height: bar.base - bar.y,
+                                    value: value,
+                                    base: bar.base
+                                });
+                            }
+                        });
+                    });
+                    
+                    // Draw individual values inside segments (only if stack has > 1 segment)
+                    Object.keys(barPositions).forEach(indexKey => {
+                        const idx = parseInt(indexKey);
+                        const segments = barPositions[idx];
+                        if (segments && segments.length > 1) {
+                            segments.forEach(seg => {
+                                if (seg.height > 14) {
+                                    ctx.fillStyle = '#ffffff'; // White text inside colored bars
+                                    const centerY = (seg.y + seg.base) / 2;
+                                    ctx.fillText(seg.value.toLocaleString(), seg.x, centerY);
+                                }
+                            });
+                        }
+                    });
+                    
+                    // Draw stack totals on top of the bars
+                    totals.forEach((total, index) => {
+                        if (total > 0) {
+                            ctx.fillStyle = '#475569'; // Slate-600 color
+                            ctx.font = 'bold 10px Prompt';
+                            
+                            const segments = barPositions[index];
+                            if (segments && segments.length > 0) {
+                                const topY = Math.min(...segments.map(s => s.y));
+                                const x = segments[0].x;
+                                ctx.fillText(total.toLocaleString(), x, topY - 8);
+                            }
+                        }
+                    });
+                    
+                    ctx.restore();
+                }
+            };
+
             // --- 1. Hourly Stacked Bar Chart with Dynamic Target Line ---
             const hourLabels = hourSequence.map(hr => {
                 return `${String(hr).padStart(2, '0')}:00`;
@@ -1053,6 +1121,8 @@
             } else {
                 const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
                 hourlyChartObj = new Chart(ctxHourly, {
+                    type: 'bar',
+                    plugins: [hourlyChartValuePlugin],
                     data: {
                         labels: hourLabels,
                         datasets: hourlyDatasets
