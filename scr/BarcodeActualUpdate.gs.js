@@ -82,8 +82,8 @@ function updateActualScanH9() {
     const actualScan = countByJobOrderAndModel[key] || 0;
     actualScanValues.push([actualScan]);
 
-    // ถ้าผลรวม Actual (Manual) + Actual Scan ครบเป้าแล้ว ให้ปิดจ๊อบอัตโนมัติ
-    const totalActual = actualManual + actualScan;
+    // ใช้ยอดที่สูงที่สุดระหว่าง ยอดแสกน และ ยอดแมนนวล เพื่อป้องกันการนับยอดซ้ำซ้อน
+    const totalActual = Math.max(actualManual, actualScan);
     let newStatus = currentStatus;
     if (planQty > 0 && totalActual >= planQty && currentStatus !== 'Closed') {
       newStatus = 'Closed';

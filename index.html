@@ -1142,7 +1142,8 @@
                 const plan = parseInt(row[planKey]?.replace(/,/g, '') || 0);
                 const manualActual = parseInt(row[actualKey]?.replace(/,/g, '') || 0);
                 const barcodeActual = actualScanKey ? parseInt(row[actualScanKey]?.replace(/,/g, '') || 0) : 0;
-                const actual = manualActual + barcodeActual; // ผลรวมของทั้งสองช่องทาง
+                // ใช้ยอดที่สูงที่สุดระหว่าง ยอดแสกน และ ยอดแมนนวล เพื่อป้องกันการนับยอดซ้ำซ้อน
+                const actual = Math.max(manualActual, barcodeActual);
                 
                 const progress = plan > 0 ? Math.round((actual / plan) * 100) : 0;
                 const isComplete = progress >= 100;
