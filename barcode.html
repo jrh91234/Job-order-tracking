@@ -479,6 +479,10 @@
                         modelChartObj.options.plugins.chartValuePlugin.enabled = showChartValues;
                         modelChartObj.update();
                     }
+                    if (hourlyChartObj) {
+                        hourlyChartObj.options.plugins.hourlyChartValuePlugin.enabled = showChartValues;
+                        hourlyChartObj.update();
+                    }
                 });
             }
 
@@ -810,6 +814,7 @@
             const hourlyChartValuePlugin = {
                 id: 'hourlyChartValuePlugin',
                 afterDatasetsDraw(chart, args, options) {
+                    if (!options.enabled) return;
                     const { ctx, data } = chart;
                     ctx.save();
                     ctx.font = 'bold 10px Prompt';
@@ -1112,6 +1117,7 @@
                         existingDatasets.push(d);
                     });
                     
+                    hourlyChartObj.options.plugins.hourlyChartValuePlugin.enabled = showChartValues;
                     hourlyChartObj.update();
                 }
 
@@ -1139,6 +1145,9 @@
                                     usePointStyle: true,
                                     boxWidth: 8
                                 }
+                            },
+                            hourlyChartValuePlugin: {
+                                enabled: showChartValues
                             }
                         },
                         scales: {
