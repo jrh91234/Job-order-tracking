@@ -1341,6 +1341,64 @@
                 }
             };
 
+            // Custom inline Chart.js plugin to draw a pulsing green indicator dot in front of active running models
+            const modelChartPulsePlugin = {
+                id: 'modelChartPulsePlugin',
+                afterDraw(chart, args, options) {
+                    const { ctx } = chart;
+                    const yScale = chart.scales.y;
+                    if (!yScale) return;
+                    
+                    ctx.save();
+                    
+                    const now = Date.now();
+                    // Smooth breathing pulse (Emerald green)
+                    const pulseScale = 0.6 + 0.4 * Math.sin((now / 150) * Math.PI);
+                    
+                    chart.data.labels.forEach((modelName, index) => {
+                        const isRunning = activeRunningModels && activeRunningModels[modelName];
+                        if (isRunning) {
+                            const y = yScale.getPixelForTick(index);
+                            ctx.font = '10px Prompt';
+                            const textWidth = ctx.measureText(modelName).width;
+                            
+                            // Center coordinates for the pulsing dot in front of the label
+                            const dotX = chart.chartArea.left - 10 - textWidth - 12;
+                            
+                            // Outer glowing pulse ring
+                            ctx.beginPath();
+                            ctx.arc(dotX, y, 5 * pulseScale, 0, 2 * Math.PI);
+                            ctx.fillStyle = `rgba(16, 185, 129, ${0.4 * pulseScale})`;
+                            ctx.fill();
+                            
+                            // Inner solid core
+                            ctx.beginPath();
+                            ctx.arc(dotX, y, 3, 0, 2 * Math.PI);
+                            ctx.fillStyle = '#10b981';
+                            ctx.fill();
+                        }
+                    });
+                    
+                    ctx.restore();
+                    
+                    // Request next frame to keep animating the pulsing dot
+                    let hasRunning = false;
+                    chart.data.labels.forEach((modelName) => {
+                        if (activeRunningModels && activeRunningModels[modelName]) {
+                            hasRunning = true;
+                        }
+                    });
+                    
+                    if (hasRunning) {
+                        requestAnimationFrame(() => {
+                            if (chart.ctx) {
+                                chart.draw();
+                            }
+                        });
+                    }
+                }
+            };
+
             if (modelChartObj) {
                 const prevCounts = modelChartObj.prevCounts || [];
                 const prevLabels = modelChartObj.prevLabels || [];
@@ -1407,7 +1465,7 @@
             } else {
                 modelChartObj = new Chart(ctxModel, {
                     type: 'bar',
-                    plugins: [chartValuePlugin],
+                    plugins: [chartValuePlugin, modelChartPulsePlugin],
                     data: {
                         labels: modelLabels,
                         datasets: [{
