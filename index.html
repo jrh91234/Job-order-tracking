@@ -1126,6 +1126,11 @@
             let actualKey = keys.find(k => k.trim() === 'Actual');
             if (!actualKey) actualKey = keys.find(k => k.toLowerCase().includes('actual') && !k.toLowerCase().includes('date'));
 
+            let actualScanKey = keys.find(k => {
+                const kLower = k.toLowerCase().replace(/\s/g, '');
+                return kLower.includes('actualscan') || kLower.includes('barcodeactual') || kLower.includes('ยอดแสกน') || kLower.includes('แสกนจริง');
+            });
+
             let progressKey = keys.find(k => k.includes('# Progress %'));
             if (!progressKey) progressKey = findKey(['Progress', '%']);
 
@@ -1135,10 +1140,12 @@
 
             rawData = data.filter(row => row[jobKey] && row[modelKey]).map((row, index) => {
                 const plan = parseInt(row[planKey]?.replace(/,/g, '') || 0);
-                const actual = parseInt(row[actualKey]?.replace(/,/g, '') || 0);
-                const progressRaw = row[progressKey]?.replace(/%/g, '') || '0';
-                const progress = parseFloat(progressRaw);
-                const isComplete = progress >= 100; // แก้ไขให้ >= 100
+                const manualActual = parseInt(row[actualKey]?.replace(/,/g, '') || 0);
+                const barcodeActual = actualScanKey ? parseInt(row[actualScanKey]?.replace(/,/g, '') || 0) : 0;
+                const actual = manualActual + barcodeActual; // ผลรวมของทั้งสองช่องทาง
+                
+                const progress = plan > 0 ? Math.round((actual / plan) * 100) : 0;
+                const isComplete = progress >= 100;
                 
                 // จัดการรูปแบบวันที่ให้เป็น DD/MM/YYYY เสมอก่อนนำไปใช้แสดงผลและประมวลผลต่อ
                 let rawDateStr = row[dateKey] || '-';
@@ -1255,6 +1262,7 @@
                 download: true, header: true, skipEmptyLines: true,
                 complete: function(results) {
                     processData(results.data);
+                    autoCloseCompletedJobs();
                     els.loadingIndicator.classList.add('hidden');
                     isDemoMode = false;
                     els.demoBanner.classList.add('hidden');
@@ -1376,6 +1384,44 @@
                 if (result.isConfirmed) {
                     submitCloseJob(jobNo, true);
                 }
+            });
+        }
+
+        function autoCloseCompletedJobs() {
+            if (isDemoMode) return;
+            rawData.forEach(job => {
+                if (job.progress >= 100 && !job.isClosed) {
+                    console.log(`Auto-closing completed job: ${job.jobNo}`);
+                    silentCloseJob(job.jobNo, true);
+                }
+            });
+        }
+
+        function silentCloseJob(jobNo, isClosedValue) {
+            if (!scriptUrl) return;
+            
+            const payload = {
+                action: 'close_job',
+                jobNo: jobNo,
+                isClosed: isClosedValue ? 'true' : 'false'
+            };
+
+            fetch(scriptUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+            })
+            .then(() => {
+                const job = rawData.find(j => j.jobNo === jobNo);
+                if (job) {
+                    job.isClosed = isClosedValue;
+                }
+                renderStats();
+                renderList();
+            })
+            .catch(err => {
+                console.error('Silent auto-close error:', err);
             });
         }
 

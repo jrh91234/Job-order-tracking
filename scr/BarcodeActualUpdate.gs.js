@@ -43,28 +43,57 @@ function updateActualScanH9() {
   }
 
   const actualScanValues = [];
+  const statusValues = [];
+
+  var planHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0];
+  var statusColIdx = -1;
+  for (var i = 0; i < planHeaders.length; i++) {
+    var h = String(planHeaders[i]).toLowerCase().replace(/\s/g, '');
+    if (h === "status" || h === "jobstatus" || h === "isclosed" || h === "สถานะ") {
+      statusColIdx = i;
+    }
+  }
+  // ถ้ายังไม่พบคอลัมน์ Status ให้สร้างต่อท้าย
+  if (statusColIdx === -1) {
+    statusColIdx = planHeaders.length;
+    targetSheet.getRange(1, statusColIdx + 1).setValue("Status");
+  }
 
   // Plan:
-  // D = Job Order
-  // G = Order model
-  // J = Actual Scan
+  // D = Job Order (index 3)
+  // G = Order model (index 6)
+  // H = Plan Qty (index 7)
+  // I = Actual Manual (index 8)
+  // J = Actual Scan (index 9)
   for (let i = 1; i < targetData.length; i++) {
     const jobOrder = String(targetData[i][3]).trim(); // Column D
     const model = String(targetData[i][6]).trim();    // Column G
+    const planQty = parseInt(targetData[i][7]) || 0;   // Column H
+    const actualManual = parseInt(targetData[i][8]) || 0; // Column I
+    const currentStatus = statusColIdx < targetData[i].length ? String(targetData[i][statusColIdx]).trim() : '';
 
     if (!jobOrder || !model) {
       actualScanValues.push(['']);
+      statusValues.push([currentStatus]);
       continue;
     }
 
     const key = makeKey(jobOrder, model);
     const actualScan = countByJobOrderAndModel[key] || 0;
-
     actualScanValues.push([actualScan]);
+
+    // ถ้าผลรวม Actual (Manual) + Actual Scan ครบเป้าแล้ว ให้ปิดจ๊อบอัตโนมัติ
+    const totalActual = actualManual + actualScan;
+    let newStatus = currentStatus;
+    if (planQty > 0 && totalActual >= planQty && currentStatus !== 'Closed') {
+      newStatus = 'Closed';
+    }
+    statusValues.push([newStatus]);
   }
 
   if (actualScanValues.length === 0) return;
 
-  // เขียนเฉพาะคอลัมน์ J เท่านั้น
+  // เขียนทั้งคอลัมน์ J (Actual Scan) และ Status
   targetSheet.getRange(2, 10, actualScanValues.length, 1).setValues(actualScanValues);
+  targetSheet.getRange(2, statusColIdx + 1, statusValues.length, 1).setValues(statusValues);
 }
