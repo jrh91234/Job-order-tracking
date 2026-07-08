@@ -554,6 +554,9 @@
             
             // Status Filter (Active vs Closed)
             filteredData = filteredData.filter(item => {
+                // หากกำลังใช้ช่องค้นหา (Search) ให้แสดงข้อมูลของจ๊อบนั้นขึ้นมาทันทีโดยไม่ติดฟิลเตอร์
+                if (searchTerm.trim() !== '') return true;
+
                 // If showClosed is false, show only active/open jobs
                 if (!showClosed && item.isClosed) return false;
                 // If showClosed is true, show only closed/archived jobs
