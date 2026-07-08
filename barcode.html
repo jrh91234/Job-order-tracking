@@ -695,24 +695,25 @@
         // KPIs CALCULATIONS
         // ==========================================
         function calculateKPIs() {
-            const total = filteredScans.length;
+            const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
+            const total = okScans.length;
             els.kpiTotalScans.textContent = total.toLocaleString();
 
             // Average Speed (PCS/Hour)
             // Calculate distinct active hours in the filtered data
-            const activeHoursSet = new Set(filteredScans.map(s => s.hour));
+            const activeHoursSet = new Set(okScans.map(s => s.hour));
             const activeHoursCount = activeHoursSet.size || 1;
             const avgSpeed = Math.round(total / activeHoursCount);
             els.kpiAvgSpeed.textContent = avgSpeed.toLocaleString();
 
             // Active Models
-            const modelsSet = new Set(filteredScans.map(s => s.model));
+            const modelsSet = new Set(okScans.map(s => s.model));
             els.kpiActiveModels.textContent = modelsSet.size.toString();
 
             // Last Scan and Elapsed Time
-            if (filteredScans.length > 0) {
+            if (okScans.length > 0) {
                 // Raw sorted scans has the latest first
-                const latest = filteredScans[0];
+                const latest = okScans[0];
                 els.kpiLastScan.textContent = `${latest.time} (${latest.shift})`;
 
                 // Calculate elapsed time from current clock
@@ -810,13 +811,16 @@
                 return `${String(hr).padStart(2, '0')}:00`;
             });
 
-            // Get all unique models in filteredScans
-            const uniqueModels = Array.from(new Set(filteredScans.map(s => s.model))).sort();
+            // Filter for OK status only for KPIs and charts calculations
+            const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
+
+            // Get all unique models in filteredScans (OK only)
+            const uniqueModels = Array.from(new Set(okScans.map(s => s.model))).sort();
 
             // Calculate daily average capacity fallback (grouped by line to sum them if all lines active)
             let dailyAvgCapacity = 0;
             const activeLinesAndModels = {};
-            filteredScans.forEach(s => {
+            okScans.forEach(s => {
                 const lineKey = s.line || 'DEFAULT';
                 if (!activeLinesAndModels[lineKey]) activeLinesAndModels[lineKey] = new Set();
                 activeLinesAndModels[lineKey].add(s.model);
@@ -844,7 +848,7 @@
 
             // Calculate weighted target for each hour in sequence (grouped by line, then summed across active lines)
             const hourlyTargets = hourSequence.map(hr => {
-                const hourScans = filteredScans.filter(s => s.hour === hr);
+                const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
                     return dailyAvgCapacity;
                 }
@@ -898,7 +902,7 @@
             uniqueModels.forEach((modelName) => {
                 const color = getModelColor(modelName);
                 const modelCounts = hourSequence.map(hr => {
-                    return filteredScans.filter(s => s.hour === hr && s.model === modelName).length;
+                    return okScans.filter(s => s.hour === hr && s.model === modelName).length;
                 });
 
                 hourlyDatasets.push({
@@ -917,7 +921,7 @@
             let calcListHtml = '';
             hourSequence.forEach((hr, idx) => {
                 const hrStr = `${String(hr).padStart(2, '0')}:00`;
-                const hourScans = filteredScans.filter(s => s.hour === hr);
+                const hourScans = okScans.filter(s => s.hour === hr);
                 const totalScans = hourScans.length;
                 const targetVal = hourlyTargets[idx];
                 
@@ -1088,7 +1092,7 @@
 
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
-            filteredScans.forEach(s => {
+            okScans.forEach(s => {
                 modelGroups[s.model] = (modelGroups[s.model] || 0) + 1;
             });
 
@@ -1299,12 +1303,17 @@
             const tableBody = els.scanTableBody;
 
             const rowsHtml = nextBatch.map(row => {
+                const isVoid = row.status.toUpperCase() === 'VOID';
                 const statusBadge = row.status === 'OK' 
                     ? 'bg-green-100 text-green-700 border-green-200' 
                     : 'bg-red-100 text-red-700 border-red-200';
+                
+                const rowClass = isVoid 
+                    ? 'hover:bg-slate-50 transition-colors opacity-40 line-through text-slate-400 font-style-italic'
+                    : 'hover:bg-slate-50 transition-colors';
 
                 return `
-                    <tr class="hover:bg-slate-50 transition-colors">
+                    <tr class="${rowClass}">
                         <td class="p-3 font-semibold text-slate-700 font-mono">${row.time}</td>
                         <td class="p-3 font-medium text-slate-500">${row.displayDate}</td>
                         <td class="p-3 text-center">
