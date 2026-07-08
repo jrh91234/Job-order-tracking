@@ -530,6 +530,23 @@
         // DATA PROCESSING & DATE SPLITTING
         // ==========================================
 
+        // คืนค่าตัวคูณเป้าหมายตามช่วงเวลาพักเบรคมาตรฐาน (Downtime Multiplier)
+        function getDowntimeMultiplier(hour) {
+            // กะกลางวัน (Day Shift)
+            if (hour === 10) return 50 / 60; // 10:00 - 10:10 (รัน 50 นาที)
+            if (hour === 12) return 0;       // 12:00 - 13:00 (รัน 0 นาที)
+            if (hour === 15) return 50 / 60; // 15:00 - 15:10 (รัน 50 นาที)
+            if (hour === 17) return 30 / 60; // 17:00 - 17:30 (รัน 30 นาที)
+            
+            // กะดึก (Night Shift) - เทียบเคียงเวลาเดียวกันของชั่วโมงกะ
+            if (hour === 22) return 50 / 60; // 22:00 - 22:10 (รัน 50 นาที)
+            if (hour === 0)  return 0;       // 00:00 - 01:00 (รัน 0 นาที)
+            if (hour === 3)  return 50 / 60; // 03:00 - 03:10 (รัน 50 นาที)
+            if (hour === 5)  return 30 / 60; // 05:00 - 05:30 (รัน 30 นาที)
+            
+            return 1.0; // ชั่วโมงปกติ รันเต็ม 60 นาที
+        }
+
         /**
          * Mappings day logic:
          * Day Shift: 08:00 - 20:00 (Today)
@@ -990,7 +1007,7 @@
                         });
                         sumOfLineTargets += weightedCapSum;
                     });
-                    totalTargetForHour += sumOfLineTargets;
+                    totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
                 });
                 
                 return Math.round(totalTargetForHour);
@@ -1109,22 +1126,40 @@
                     const lineName = lineKey !== 'DEFAULT' ? `Line ${lineKey}` : 'General';
                     const formulaStr = formulaParts.join(' + ');
                     const detailsStr = capDetails.join(', ');
-                    const lineTargetSingleDay = Math.round(lineWeightedSum);
-                    const lineTargetTotal = Math.round(lineWeightedSum * numActiveDays);
+                    
+                    const multiplier = getDowntimeMultiplier(hr);
+                    const lineTargetSingleDay = Math.round(lineWeightedSum * multiplier);
+                    const lineTargetTotal = Math.round(lineWeightedSum * numActiveDays * multiplier);
+                    
+                    let breakText = '';
+                    if (multiplier === 0) {
+                        breakText = ` (พักเที่ยง/พักเที่ยงคืน)`;
+                    } else if (multiplier < 1) {
+                        const runMins = Math.round(multiplier * 60);
+                        breakText = ` (หักพักเบรค, รัน ${runMins} นาที)`;
+                    }
                     
                     lineCalculationsHtml += `
                         <div class="pl-3 mt-1.5 space-y-0.5 border-l-2 border-indigo-200">
-                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numActiveDays} วันที่มีแสกน, ${totalLineScans} สแกน)</span></div>
-                            <div class="text-[9px] font-mono text-slate-500">(${formulaStr}) × ${numActiveDays} วัน = ${Math.round(lineWeightedSum * numActiveDays * 10) / 10}</div>
+                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numActiveDays} วันที่มีแสกน${breakText}, ${totalLineScans} สแกน)</span></div>
+                            <div class="text-[9px] font-mono text-slate-500">(${formulaStr}) × ${numActiveDays} วัน × ${Math.round(multiplier * 100) / 100} = ${Math.round(lineWeightedSum * numActiveDays * multiplier * 10) / 10}</div>
                             <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
                         </div>
                     `;
                 });
                 
+                const multiplier = getDowntimeMultiplier(hr);
+                let hourBreakText = '';
+                if (multiplier === 0) {
+                    hourBreakText = ' (พักกลางวัน/กะดึก)';
+                } else if (multiplier < 1) {
+                    hourBreakText = ' (มีช่วงพักเบรค)';
+                }
+                
                 calcListHtml += `
                     <div class="py-2 border-b border-slate-100 text-[10px] space-y-1.5">
                         <div class="flex justify-between items-center font-semibold text-slate-700">
-                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกนรวม)</span></span>
+                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกนรวม)${hourBreakText}</span></span>
                             <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS (${numActiveDays} วันที่มีแสกน)</span>
                         </div>
                         ${lineCalculationsHtml}
