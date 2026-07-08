@@ -429,10 +429,8 @@
 
         function renderStats() {
             if(!rawData) return;
-            // Count stats based on open/active jobs only
-            const openJobs = rawData.filter(i => !i.isClosed);
-            const total = openJobs.length;
-            const completed = openJobs.filter(i => i.progress >= 100).length;
+            const total = rawData.length;
+            const completed = rawData.filter(i => i.isClosed || i.progress >= 100).length;
             const pending = total - completed;
 
             els.statTotal.textContent = total;
@@ -1327,6 +1325,29 @@
 
         function setFilter(type) {
             currentFilter = type;
+            
+            // ปรับโหมดปิด/เปิดจ๊อบอัตโนมัติเมื่อกดการ์ดสถิติ
+            if (type === 'complete') {
+                showClosed = true;
+            } else {
+                showClosed = false;
+            }
+
+            // อัปเดต UI ของปุ่มตัวเลือกปิด/เปิดจ๊อบในแถบเครื่องมือ
+            const btn = document.getElementById('archive-btn');
+            const label = document.getElementById('archive-label');
+            if (btn && label) {
+                if (showClosed) {
+                    btn.classList.add('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+                    btn.classList.remove('text-slate-400');
+                    label.textContent = 'จ๊อบที่ปิดแล้ว';
+                } else {
+                    btn.classList.remove('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
+                    btn.classList.add('text-slate-400');
+                    label.textContent = 'จ๊อบเปิดอยู่';
+                }
+            }
+
             ['all', 'incomplete', 'complete'].forEach(f => {
                 const el = document.getElementById(`filter-${f}`);
                 el.className = `p-3 rounded-xl shadow-sm text-center border-2 cursor-pointer transition-all transform active:scale-95 bg-white border-transparent relative overflow-hidden group`;
@@ -1359,19 +1380,11 @@
 
         let showClosed = false;
         function toggleArchiveView() {
-            showClosed = !showClosed;
-            const btn = document.getElementById('archive-btn');
-            const label = document.getElementById('archive-label');
             if (showClosed) {
-                btn.classList.add('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
-                btn.classList.remove('text-slate-400');
-                label.textContent = 'จ๊อบที่ปิดแล้ว';
+                setFilter('all');
             } else {
-                btn.classList.remove('bg-indigo-50', 'text-indigo-600', 'border-indigo-200');
-                btn.classList.add('text-slate-400');
-                label.textContent = 'จ๊อบเปิดอยู่';
+                setFilter('complete');
             }
-            renderList();
         }
 
         function confirmCloseJob(jobNo) {
