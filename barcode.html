@@ -395,6 +395,8 @@
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
         let modelColorMap = {};   // Stable model name -> hex color mapping
         let prevModelCounts = []; // To track production increases for energy surge animation
+        let activeRunningModels = {};
+        let activeModelLabels = [];
         let prevModelLabels = []; // To track if model list or order changed
         let prevHourlyLabels = []; // To track if hourly labels changed
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
@@ -1262,6 +1264,10 @@
             const modelLabels = topModels.map(m => m[0]);
             const modelCounts = topModels.map(m => m[1]);
 
+            // บันทึกตัวแปรขอบเขตระดับบนสุด
+            activeRunningModels = runningModels;
+            activeModelLabels = modelLabels;
+
             const ctxModel = document.getElementById('modelChart').getContext('2d');
             
             // Use synced solid colors matching Chart 1 colors to prevent CanvasGradient recreation from flashing
@@ -1366,8 +1372,6 @@
 
                     // Update values (will transition/grow smoothly from their previous sizes)
                     modelChartObj.data.datasets[0].data = modelCounts;
-                    modelChartObj.runningModels = runningModels;
-                    modelChartObj.modelLabels = modelLabels;
                     modelChartObj.update();
                     
                     if (hasNewFloatingEffects) {
@@ -1376,8 +1380,6 @@
                 }
 
                 // Update trackers on the instance
-                modelChartObj.runningModels = runningModels;
-                modelChartObj.modelLabels = modelLabels;
                 modelChartObj.prevCounts = [...modelCounts];
                 modelChartObj.prevLabels = [...modelLabels];
             } else {
@@ -1423,11 +1425,9 @@
                                 grid: { display: false },
                                 ticks: {
                                     font: (context) => {
-                                        const chart = context.chart;
                                         const index = context.index;
-                                        const labels = chart.modelLabels || [];
-                                        const modelName = labels[index];
-                                        const isRunning = chart.runningModels && chart.runningModels[modelName];
+                                        const modelName = activeModelLabels[index];
+                                        const isRunning = activeRunningModels && activeRunningModels[modelName];
                                         return {
                                             family: 'Prompt',
                                             size: 10,
@@ -1435,19 +1435,15 @@
                                         };
                                     },
                                     color: (context) => {
-                                        const chart = context.chart;
                                         const index = context.index;
-                                        const labels = chart.modelLabels || [];
-                                        const modelName = labels[index];
-                                        const isRunning = chart.runningModels && chart.runningModels[modelName];
+                                        const modelName = activeModelLabels[index];
+                                        const isRunning = activeRunningModels && activeRunningModels[modelName];
                                         return isRunning ? '#059669' : '#64748b';
                                     },
                                     callback: function(value, index, values) {
-                                        const chart = this.chart;
-                                        const labels = chart.modelLabels || [];
-                                        const modelName = labels[index];
-                                        if (chart.runningModels && chart.runningModels[modelName]) {
-                                            const linesStr = chart.runningModels[modelName].map(rm => `L${rm.line}`).join(',');
+                                        const modelName = activeModelLabels[index];
+                                        if (activeRunningModels && activeRunningModels[modelName]) {
+                                            const linesStr = activeRunningModels[modelName].map(rm => `L${rm.line}`).join(',');
                                             return `🟢 (${linesStr}) ${modelName}`;
                                         }
                                         return modelName;
