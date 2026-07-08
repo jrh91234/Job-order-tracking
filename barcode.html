@@ -1423,32 +1423,7 @@
                             },
                             y: {
                                 grid: { display: false },
-                                ticks: {
-                                    font: (context) => {
-                                        const index = context.index;
-                                        const modelName = activeModelLabels[index];
-                                        const isRunning = activeRunningModels && activeRunningModels[modelName];
-                                        return {
-                                            family: 'Prompt',
-                                            size: 10,
-                                            weight: isRunning ? 'bold' : 'normal'
-                                        };
-                                    },
-                                    color: (context) => {
-                                        const index = context.index;
-                                        const modelName = activeModelLabels[index];
-                                        const isRunning = activeRunningModels && activeRunningModels[modelName];
-                                        return isRunning ? '#059669' : '#64748b';
-                                    },
-                                    callback: function(value, index, values) {
-                                        const modelName = activeModelLabels[index];
-                                        if (activeRunningModels && activeRunningModels[modelName]) {
-                                            const linesStr = activeRunningModels[modelName].map(rm => `L${rm.line}`).join(',');
-                                            return `🟢 (${linesStr}) ${modelName}`;
-                                        }
-                                        return modelName;
-                                    }
-                                }
+                                ticks: { font: { family: 'Prompt', size: 10 } }
                             }
                         }
                     }
