@@ -194,7 +194,7 @@
         </div>
 
         <!-- KPI Dashboard Row -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <!-- Card 1: Today Scans -->
             <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between">
                 <div>
@@ -232,7 +232,7 @@
             </div>
 
             <!-- Card 4: Last Scan Time -->
-            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between col-span-2 md:col-span-1">
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between col-span-1">
                 <div>
                     <span class="text-xs font-bold text-slate-400 block mb-1">เวลาสแกนชิ้นล่าสุด</span>
                     <span id="kpi-last-scan" class="text-base font-bold text-slate-700 block font-mono">-</span>
@@ -240,6 +240,18 @@
                 </div>
                 <div class="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-500">
                     <i data-lucide="clock" class="w-6 h-6"></i>
+                </div>
+            </div>
+
+            <!-- Card 5: Efficiency (Eff %) -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between col-span-2 lg:col-span-1">
+                <div>
+                    <span class="text-xs font-bold text-slate-400 block mb-1">ประสิทธิภาพผลิต (Eff%)</span>
+                    <span id="kpi-eff-percent" class="text-2xl font-black text-violet-600 font-mono">0%</span>
+                    <span class="text-[10px] text-slate-400 block mt-1">เทียบกับเป้าสะสม</span>
+                </div>
+                <div class="w-12 h-12 bg-violet-50 rounded-2xl flex items-center justify-center text-violet-600">
+                    <i data-lucide="percent" class="w-6 h-6"></i>
                 </div>
             </div>
         </div>
@@ -983,6 +995,22 @@
                 
                 return Math.round(totalTargetForHour);
             });
+
+            // คำนวณประสิทธิภาพการผลิตสะสม (Eff%) เทียบกับเป้าหมายสะสม
+            const totalTargetVal = hourlyTargets.reduce((sum, val) => sum + val, 0);
+            const totalActualVal = okScans.length;
+            const effPercentEl = document.getElementById('kpi-eff-percent');
+            if (effPercentEl) {
+                if (totalTargetVal > 0) {
+                    const eff = Math.round((totalActualVal / totalTargetVal) * 100);
+                    effPercentEl.textContent = `${eff}%`;
+                    effPercentEl.className = "text-2xl font-black font-mono " + 
+                        (eff < 80 ? "text-rose-600" : eff < 95 ? "text-amber-500" : "text-emerald-600");
+                } else {
+                    effPercentEl.textContent = "-";
+                    effPercentEl.className = "text-2xl font-black font-mono text-slate-400";
+                }
+            }
 
             // Build datasets array:
             // First dataset is the dynamic target line
