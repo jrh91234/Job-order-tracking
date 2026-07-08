@@ -877,10 +877,14 @@
                 ['Time (เวลา)', 'Time'],
                 ['time', 'เวลา']
             );
+            
+            const barcodeKey = findHeaderByPriority(keys, ['Barcode', 'บาร์โค้ด'], ['barcode', 'บาร์โค้ด']);
+            const statusKey = findHeaderByPriority(keys, ['Status', 'สถานะ'], ['status', 'สถานะ']);
 
             if (!jobLogKey || !qtyKey || !dateKey || !timeKey) return {};
 
             const logsByJob = {};
+            const seen = new Set();
 
             rows.forEach(row => {
                 const jobNo = String(row[jobLogKey] || '').trim();
@@ -896,6 +900,20 @@
                 if (hour === null) return;
                 const time24 = normalizeTime24(row[timeKey]);
                 if (!time24) return;
+                
+                // คัดกรองสถานะ VOID
+                if (statusKey) {
+                    const statusVal = String(row[statusKey] || 'OK').trim().toUpperCase();
+                    if (statusVal === 'VOID') return;
+                }
+                
+                // คัดกรองข้อมูลสแกนซ้ำซ้อนในวินาทีเดียวกัน
+                const rawDate = String(row[dateKey] || '').trim();
+                const rawTime = String(row[timeKey] || '').trim();
+                const barcode = barcodeKey ? String(row[barcodeKey] || '').trim() : '';
+                const duplicateKey = barcode ? `${barcode}_${rawDate}_${rawTime}` : `${jobNo}_${rawDate}_${rawTime}`;
+                if (seen.has(duplicateKey)) return;
+                seen.add(duplicateKey);
 
                 const dateLabel = formatDateDMY(dateObj);
                 const startHour = String(hour).padStart(2, '0');
@@ -1176,6 +1194,8 @@
                     jobNo: row[jobKey] || '-',
                     model: row[modelKey] || '-',
                     plan: plan,
+                    manualActual: manualActual,
+                    barcodeActual: barcodeActual,
                     actual: actual,
                     progress: progress,
                     status: isComplete ? 'complete' : 'incomplete',
@@ -1229,10 +1249,23 @@
                     }
 
                     hourlyBreakdownByJob = buildHourlyBreakdownMap(rows, keys, findKey);
-                    rawData = rawData.map(item => ({
-                        ...item,
-                        hourlyBreakdown: hourlyBreakdownByJob[item.jobNo] || []
-                    }));
+                    rawData = rawData.map(item => {
+                        const breakdown = hourlyBreakdownByJob[item.jobNo] || [];
+                        const filteredBarcodeActual = breakdown.reduce((sum, b) => sum + b.qty, 0);
+                        
+                        const actual = Math.max(item.manualActual || 0, filteredBarcodeActual);
+                        const progress = item.plan > 0 ? Math.round((actual / item.plan) * 100) : 0;
+                        const isComplete = progress >= 100;
+                        
+                        return {
+                            ...item,
+                            barcodeActual: filteredBarcodeActual,
+                            actual: actual,
+                            progress: progress,
+                            status: isComplete ? 'complete' : 'incomplete',
+                            hourlyBreakdown: breakdown
+                        };
+                    });
                     applyPendingSubmissionsToRawData();
                     renderStats();
                     renderList();

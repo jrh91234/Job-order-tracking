@@ -663,6 +663,7 @@
         function parseActualLogsSheet(data, fields) {
             rawActualLogs = [];
             if (!data || data.length === 0) return;
+            const seen = new Set();
 
             // Find header mappings
             const findKey = (keywords) => fields.find(k => 
@@ -677,6 +678,9 @@
             const shiftABKey = findHeaderByPriority(fields, ['Shift A/B', 'ShiftA/B'], ['shift a/b', 'shiftab', 'กะย่อย']);
             const lineKey = findHeaderByPriority(fields, ['Line'], ['line']);
             const modelKey = fields.find(k => k.trim() === 'Model') || findKey(['Model']);
+            
+            const barcodeKey = findHeaderByPriority(fields, ['Barcode', 'บาร์โค้ด'], ['barcode', 'บาร์โค้ด']);
+            const statusKey = findHeaderByPriority(fields, ['Status', 'สถานะ'], ['status', 'สถานะ']);
 
             if (!jobKey || !dateKey || !timeKey || !qtyKey || !modelKey) {
                 console.error('Missing critical headers in actual logs sheet', { fields });
@@ -694,6 +698,18 @@
                 const line = String(row[lineKey] || 'Line 1').trim();
 
                 if (!jobNo || !model || !dateRaw || isNaN(qty) || qty <= 0) return;
+                
+                // คัดกรองสถานะ VOID
+                if (statusKey) {
+                    const statusVal = String(row[statusKey] || 'OK').trim().toUpperCase();
+                    if (statusVal === 'VOID') return;
+                }
+
+                // คัดกรองข้อมูลสแกนซ้ำซ้อนในวินาทีเดียวกัน
+                const barcode = barcodeKey ? String(row[barcodeKey] || '').trim() : '';
+                const duplicateKey = barcode ? `${barcode}_${dateRaw}_${timeRaw}` : `${jobNo}_${dateRaw}_${timeRaw}`;
+                if (seen.has(duplicateKey)) return;
+                seen.add(duplicateKey);
 
                 // Format Date standard: DD/MM/YYYY
                 let dateObj = parseDate(dateRaw);
