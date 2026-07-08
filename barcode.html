@@ -1286,6 +1286,8 @@
 
                     // Update values (will transition/grow smoothly from their previous sizes)
                     modelChartObj.data.datasets[0].data = modelCounts;
+                    modelChartObj.runningModels = runningModels;
+                    modelChartObj.modelLabels = modelLabels;
                     modelChartObj.update();
                     
                     if (hasNewFloatingEffects) {
@@ -1294,6 +1296,8 @@
                 }
 
                 // Update trackers on the instance
+                modelChartObj.runningModels = runningModels;
+                modelChartObj.modelLabels = modelLabels;
                 modelChartObj.prevCounts = [...modelCounts];
                 modelChartObj.prevLabels = [...modelLabels];
             } else {
