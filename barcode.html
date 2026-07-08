@@ -474,6 +474,14 @@
         function initApp() {
             lucide.createIcons();
             
+            // Auto detect current shift based on local hour on page load
+            const currentHour = new Date().getHours();
+            if (currentHour >= 8 && currentHour < 20) {
+                els.filterShift.value = 'Day';
+            } else {
+                els.filterShift.value = 'Night';
+            }
+            
             // Set scroll listener
             const scrollContainer = document.getElementById('table-scroll-container');
             if (scrollContainer) {
@@ -936,6 +944,14 @@
             };
 
             // --- 1. Hourly Stacked Bar Chart with Dynamic Target Line ---
+            const activeShiftVal = els.filterShift.value;
+            let hourSequence = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7];
+            if (activeShiftVal === 'Day') {
+                hourSequence = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+            } else if (activeShiftVal === 'Night') {
+                hourSequence = [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7];
+            }
+
             const hourLabels = hourSequence.map(hr => {
                 return `${String(hr).padStart(2, '0')}:00`;
             });
