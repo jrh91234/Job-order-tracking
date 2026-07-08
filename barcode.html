@@ -589,6 +589,7 @@
 
         function parseRawLogs() {
             processedScans = [];
+            const seen = new Set();
             
             rawBarcodeLogs.forEach(row => {
                 const dateTimeRaw = String(row['Date/Time'] || '').trim();
@@ -599,6 +600,15 @@
                 
                 const beDateStr = parts[0]; // D/M/BE e.g. "7/7/2569"
                 const timeStr = parts[1];   // H:M:S e.g. "08:19:39"
+                const barcode = String(row['Barcode'] || '-').trim();
+                const status = String(row['Status'] || 'OK').trim();
+
+                // ป้องกันและคัดกรองข้อมูลสแกนซ้ำซ้อนในวินาทีเดียวกัน (Duplicate Row) จาก Google Sheet
+                const duplicateKey = `${barcode}_${dateTimeRaw}`;
+                if (seen.has(duplicateKey)) {
+                    return;
+                }
+                seen.add(duplicateKey);
 
                 // Apply day splitting rules
                 const mapping = getProductionDateAndShift(beDateStr, timeStr);
@@ -612,8 +622,8 @@
                     time: timeStr,
                     jobOrder: String(row['Job Order'] || 'MANUAL_MODE').trim(),
                     model: String(row['Model'] || '-').trim(),
-                    barcode: String(row['Barcode'] || '-').trim(),
-                    status: String(row['Status'] || 'OK').trim(),
+                    barcode: barcode,
+                    status: status,
                     line: String(row['Line'] || '-').trim()
                 });
             });
