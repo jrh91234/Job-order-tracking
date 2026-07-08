@@ -936,11 +936,15 @@
             });
             dailyAvgCapacity = sumOfLineAverages || barcodeTargetSpeed;
 
+            // นับจำนวนวันผลิตที่แตกต่างกันที่มีการแสกน เพื่อนำมาคูณเพิ่มเป้าหมายสะสมสะท้อนตามจริง
+            const uniqueDays = Array.from(new Set(okScans.map(s => s.prodDate)));
+            const numDays = uniqueDays.length || 1;
+
             // Calculate weighted target for each hour in sequence (grouped by line, then summed across active lines)
             const hourlyTargets = hourSequence.map(hr => {
                 const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
-                    return dailyAvgCapacity;
+                    return Math.round(dailyAvgCapacity * numDays);
                 }
                 
                 const scansByLine = {};
@@ -968,7 +972,7 @@
                     sumOfLineTargets += weightedCapSum;
                 });
                 
-                return Math.round(sumOfLineTargets);
+                return Math.round(sumOfLineTargets * numDays);
             });
 
             // Build datasets array:
@@ -1022,7 +1026,7 @@
                                 <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(0 สแกน)</span></span>
                                 <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target: ${targetVal} PCS</span>
                             </div>
-                            <div class="text-slate-400 text-[9px] italic pl-3">ไม่มีการผลิตในชั่วโมงนี้ (ใช้ค่าเฉลี่ยรายวัน)</div>
+                            <div class="text-slate-400 text-[9px] italic pl-3">ไม่มีการผลิตในชั่วโมงนี้ (เฉลี่ย ${numDays} วัน: ${Math.round(dailyAvgCapacity)} × ${numDays})</div>
                         </div>
                     `;
                     return;
@@ -1060,12 +1064,13 @@
                     const lineName = lineKey !== 'DEFAULT' ? `Line ${lineKey}` : 'General';
                     const formulaStr = formulaParts.join(' + ');
                     const detailsStr = capDetails.join(', ');
-                    const lineTargetRounded = Math.round(lineWeightedSum);
+                    const lineTargetSingleDay = Math.round(lineWeightedSum);
+                    const lineTargetTotal = Math.round(lineWeightedSum * numDays);
                     
                     lineCalculationsHtml += `
                         <div class="pl-3 mt-1.5 space-y-0.5 border-l-2 border-indigo-200">
-                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetRounded} PCS <span class="text-slate-400 font-normal">(${totalLineScans} สแกน)</span></div>
-                            <div class="text-[9px] font-mono text-slate-500">${formulaStr} = ${Math.round(lineWeightedSum * 10) / 10}</div>
+                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numDays} วัน, ${totalLineScans} สแกน)</span></div>
+                            <div class="text-[9px] font-mono text-slate-500">(${formulaStr}) × ${numDays} วัน = ${Math.round(lineWeightedSum * numDays * 10) / 10}</div>
                             <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
                         </div>
                     `;
@@ -1075,7 +1080,7 @@
                     <div class="py-2 border-b border-slate-100 text-[10px] space-y-1.5">
                         <div class="flex justify-between items-center font-semibold text-slate-700">
                             <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกนรวม)</span></span>
-                            <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS</span>
+                            <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS (${numDays} วัน)</span>
                         </div>
                         ${lineCalculationsHtml}
                     </div>
