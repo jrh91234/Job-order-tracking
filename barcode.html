@@ -43,6 +43,20 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #94a3b8;
         }
+        @keyframes pulse-green {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.85); }
+        }
+        .pulse-green-dot {
+            animation: pulse-green 1.4s infinite;
+        }
+        @keyframes blink-text {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .blink-running {
+            animation: blink-text 1.2s infinite;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 pb-12 min-h-screen">
@@ -270,6 +284,7 @@
                         <span class="ml-2 text-xs font-semibold text-slate-600">แสดงตัวเลข</span>
                     </label>
                 </div>
+                <div id="live-running-container" class="mt-2 flex flex-wrap gap-2 text-xs border-b border-slate-100 pb-3"></div>
                 <div class="relative h-72 w-full">
                     <canvas id="modelChart"></canvas>
                 </div>
@@ -1175,6 +1190,71 @@
                 modelGroups[s.model] = (modelGroups[s.model] || 0) + 1;
             });
 
+            // หาข้อมูลโมเดลล่าสุดของแต่ละไลน์เพื่อแสดงสถานะ Running
+            const latestScanByLine = {};
+            okScans.forEach(s => {
+                const lineName = s.line;
+                if (lineName && lineName !== '-' && !latestScanByLine[lineName]) {
+                    const parseToTime = (item) => {
+                        const pDate = item.prodDate.split('-').map(Number);
+                        const pTime = item.time.split(':').map(Number);
+                        return new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
+                    };
+                    const scanTime = parseToTime(s);
+                    // ตรวจสอบว่าแสกนล่าสุดภายใน 30 นาทีหรือไม่
+                    const isRecent = (Date.now() - scanTime) < 30 * 60 * 1000;
+                    
+                    latestScanByLine[lineName] = {
+                        model: s.model,
+                        time: s.time,
+                        isRecent: isRecent
+                    };
+                }
+            });
+
+            const runningModels = {};
+            Object.entries(latestScanByLine).forEach(([lineName, info]) => {
+                if (info.isRecent) {
+                    if (!runningModels[info.model]) runningModels[info.model] = [];
+                    runningModels[info.model].push({
+                        line: lineName
+                    });
+                }
+            });
+
+            // วาดการ์ดสถานะ Running ที่ด้านบนของชาร์ต
+            const liveRunningContainer = document.getElementById('live-running-container');
+            if (liveRunningContainer) {
+                let html = '';
+                const sortedLines = Object.keys(latestScanByLine).sort();
+                if (sortedLines.length > 0) {
+                    sortedLines.forEach(lineName => {
+                        const info = latestScanByLine[lineName];
+                        if (info.isRecent) {
+                            html += `
+                                <div class="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 font-medium shadow-sm">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-green-dot"></span>
+                                    <span class="font-bold text-[9px] uppercase tracking-wider text-emerald-600 blink-running">Running</span>
+                                    <span class="text-slate-600">Line ${lineName}:</span>
+                                    <span class="font-bold text-slate-800">${info.model}</span>
+                                </div>
+                            `;
+                        } else {
+                            html += `
+                                <div class="flex items-center gap-1.5 bg-slate-50 text-slate-500 px-2.5 py-1 rounded-full border border-slate-200 font-medium">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                    <span class="font-semibold text-slate-500">Line ${lineName}:</span>
+                                    <span class="text-slate-400 font-normal">Idle (${info.model})</span>
+                                </div>
+                            `;
+                        }
+                    });
+                } else {
+                    html = '<div class="text-slate-400 italic text-[11px]">ไม่มีไลน์ผลิตกำลังรันอยู่ขณะนี้</div>';
+                }
+                liveRunningContainer.innerHTML = html;
+            }
+
             // Sort models by quantity descending
             const sortedModels = Object.entries(modelGroups).sort((a, b) => b[1] - a[1]);
             const topModels = sortedModels.slice(0, 10); // Display top 10
@@ -1341,7 +1421,38 @@
                             },
                             y: {
                                 grid: { display: false },
-                                ticks: { font: { family: 'Prompt', size: 10 } }
+                                ticks: {
+                                    font: (context) => {
+                                        const chart = context.chart;
+                                        const index = context.index;
+                                        const labels = chart.modelLabels || [];
+                                        const modelName = labels[index];
+                                        const isRunning = chart.runningModels && chart.runningModels[modelName];
+                                        return {
+                                            family: 'Prompt',
+                                            size: 10,
+                                            weight: isRunning ? 'bold' : 'normal'
+                                        };
+                                    },
+                                    color: (context) => {
+                                        const chart = context.chart;
+                                        const index = context.index;
+                                        const labels = chart.modelLabels || [];
+                                        const modelName = labels[index];
+                                        const isRunning = chart.runningModels && chart.runningModels[modelName];
+                                        return isRunning ? '#059669' : '#64748b';
+                                    },
+                                    callback: function(value, index, values) {
+                                        const chart = this.chart;
+                                        const labels = chart.modelLabels || [];
+                                        const modelName = labels[index];
+                                        if (chart.runningModels && chart.runningModels[modelName]) {
+                                            const linesStr = chart.runningModels[modelName].map(rm => `L${rm.line}`).join(',');
+                                            return `🟢 (${linesStr}) ${modelName}`;
+                                        }
+                                        return modelName;
+                                    }
+                                }
                             }
                         }
                     }
