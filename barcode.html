@@ -1003,19 +1003,42 @@
                     let sumOfLineTargets = 0;
                     Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
                         const totalLineScans = lineScans.length;
-                        let weightedCapSum = 0;
-                        const modelCounts = {};
+                        let lineWeightedSum = 0;
                         
+                        // แยกนับจำนวนสแกนและเก็บรายการสแกนแยกตามโมเดล
+                        const modelCounts = {};
+                        const modelScansMap = {};
                         lineScans.forEach(s => {
                             modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                            if (!modelScansMap[s.model]) modelScansMap[s.model] = [];
+                            modelScansMap[s.model].push(s);
                         });
                         
                         Object.entries(modelCounts).forEach(([modelName, count]) => {
                             const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
                             const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
-                            weightedCapSum += (count / totalLineScans) * capVal;
+                            
+                            // คำนวณช่วงเวลารันจริงของโมเดลนี้ในชั่วโมง (Production Span)
+                            const mScans = modelScansMap[modelName];
+                            let spanMultiplier = 1.0;
+                            
+                            if (mScans.length <= 1) {
+                                spanMultiplier = 0; // stray scan หรือมีแสกนเดี่ยว ไม่นำมาคิดเป้าหมาย
+                            } else {
+                                const minutes = mScans.map(s => {
+                                    const tParts = s.time.split(':').map(Number);
+                                    return tParts[1] + (tParts[2] || 0) / 60;
+                                });
+                                const minMin = Math.min(...minutes);
+                                const maxMin = Math.max(...minutes);
+                                const span = maxMin - minMin;
+                                
+                                spanMultiplier = span >= 45 ? 1.0 : Math.max(5, span) / 60;
+                            }
+                            
+                            lineWeightedSum += (count / totalLineScans) * capVal * spanMultiplier;
                         });
-                        sumOfLineTargets += weightedCapSum;
+                        sumOfLineTargets += lineWeightedSum;
                     });
                     totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
                 });
@@ -1114,9 +1137,13 @@
                 let lineCalculationsHtml = '';
                 Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
                     const totalLineScans = lineScans.length;
+                    
                     const modelCounts = {};
+                    const modelScansMap = {};
                     lineScans.forEach(s => {
                         modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                        if (!modelScansMap[s.model]) modelScansMap[s.model] = [];
+                        modelScansMap[s.model].push(s);
                     });
                     
                     const formulaParts = [];
@@ -1126,11 +1153,37 @@
                     Object.entries(modelCounts).forEach(([modelName, count]) => {
                         const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
                         const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
-                        const weightedPart = (count / totalLineScans) * capVal;
+                        
+                        const mScans = modelScansMap[modelName];
+                        let spanMultiplier = 1.0;
+                        let spanText = '';
+                        
+                        if (mScans.length <= 1) {
+                            spanMultiplier = 0;
+                            spanText = ' (แสกนเดี่ยว/ไม่มีเป้า)';
+                        } else {
+                            const minutes = mScans.map(s => {
+                                const tParts = s.time.split(':').map(Number);
+                                return tParts[1] + (tParts[2] || 0) / 60;
+                            });
+                            const minMin = Math.min(...minutes);
+                            const maxMin = Math.max(...minutes);
+                            const span = maxMin - minMin;
+                            
+                            if (span >= 45) {
+                                spanMultiplier = 1.0;
+                                spanText = ' (รันเต็มชม.)';
+                            } else {
+                                spanMultiplier = Math.max(5, span) / 60;
+                                spanText = ` (รันช่วงสั้น ${Math.round(span)} นาที)`;
+                            }
+                        }
+                        
+                        const weightedPart = (count / totalLineScans) * capVal * spanMultiplier;
                         lineWeightedSum += weightedPart;
                         
-                        formulaParts.push(`(${count}/${totalLineScans} × ${capVal})`);
-                        capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal})`);
+                        formulaParts.push(`(${count}/${totalLineScans} × ${capVal} × ${Math.round(spanMultiplier * 100) / 100})`);
+                        capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal}${spanText})`);
                     });
                     
                     const lineName = lineKey !== 'DEFAULT' ? `Line ${lineKey}` : 'General';
