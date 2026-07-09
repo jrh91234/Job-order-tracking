@@ -17,18 +17,75 @@ function doPost(e) {
   lock.tryLock(10000); // 10 seconds timeout
   
   try {
-    var sheetName = "Incidents";
+    var data = JSON.parse(e.postData.contents);
+    var action = data.action || "SAVE";
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // --- INCIDENT CATEGORIES OPERATIONS ---
+    if (action === "GET_CATEGORIES" || action === "SAVE_CATEGORY" || action === "DELETE_CATEGORY") {
+      var catSheetName = "IncidentCategories";
+      var catSheet = ss.getSheetByName(catSheetName);
+      if (!catSheet) {
+        catSheet = ss.insertSheet(catSheetName);
+        catSheet.appendRow(["Code", "Text"]);
+        catSheet.appendRow(["Breakdown", "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)"]);
+        catSheet.appendRow(["Material", "📦 วัตถุดิบขาดแคลน (Material Shortage)"]);
+        catSheet.appendRow(["Changeover", "🔄 เปลี่ยนรุ่นล่าช้า (Model Changeover Delay)"]);
+        catSheet.appendRow(["Operator", "👥 ปัญหาแรงงาน/พักเกินเวลา (Operator Issue)"]);
+        catSheet.appendRow(["Other", "📝 อื่นๆ (ระบุบันทึกเพิ่มเติม)"]);
+      }
+      
+      var catRange = catSheet.getDataRange();
+      var catValues = catRange.getValues();
+      
+      if (action === "GET_CATEGORIES") {
+        var list = [];
+        for (var i = 1; i < catValues.length; i++) {
+          list.push({ code: catValues[i][0], text: catValues[i][1] });
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success", categories: list}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      if (action === "SAVE_CATEGORY") {
+        var catCode = data.code;
+        var catText = data.text;
+        var catRowIndex = -1;
+        for (var i = 1; i < catValues.length; i++) {
+          if (catValues[i][0] == catCode) { catRowIndex = i + 1; break; }
+        }
+        if (catRowIndex !== -1) {
+          catSheet.getRange(catRowIndex, 2).setValue(catText);
+        } else {
+          catSheet.appendRow([catCode, catText]);
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success"}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      if (action === "DELETE_CATEGORY") {
+        var catCode = data.code;
+        var catRowIndex = -1;
+        for (var i = 1; i < catValues.length; i++) {
+          if (catValues[i][0] == catCode) { catRowIndex = i + 1; break; }
+        }
+        if (catRowIndex !== -1) {
+          catSheet.deleteRow(catRowIndex);
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success"}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
+    // --- INCIDENT LOGS OPERATIONS ---
+    var sheetName = "Incidents";
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
       sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "Category", "CategoryText", "Notes"]);
     }
     
-    var data = JSON.parse(e.postData.contents);
-    var action = data.action || "SAVE";
     var id = data.id;
-    
     var range = sheet.getDataRange();
     var values = range.getValues();
     var rowIndex = -1;

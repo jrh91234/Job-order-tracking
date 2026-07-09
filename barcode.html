@@ -584,13 +584,14 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">ประเภทเหตุการณ์/ปัญหา</label>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-xs font-bold text-slate-600">ประเภทเหตุการณ์/ปัญหา</label>
+                        <button onclick="openCategoryManagerModal()" class="text-slate-400 hover:text-indigo-600 transition-colors p-1" title="จัดการประเภทปัญหา">
+                            <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
                     <select id="incident-category" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
-                        <option value="Breakdown">🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)</option>
-                        <option value="Material">📦 วัตถุดิบขาดแคลน (Material Shortage)</option>
-                        <option value="Changeover">🔄 เปลี่ยนรุ่นล่าช้า (Model Changeover Delay)</option>
-                        <option value="Operator">👥 ปัญหาแรงงาน/พักเกินเวลา (Operator Issue)</option>
-                        <option value="Other">📝 อื่นๆ (ระบุบันทึกเพิ่มเติม)</option>
+                        <!-- Populated dynamically -->
                     </select>
                 </div>
                 <div>
@@ -610,6 +611,47 @@
                 </button>
                 <button onclick="saveIncident()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
                     บันทึกเหตุการณ์
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Manager Modal -->
+    <div id="category-manager-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="settings-2" class="text-indigo-600 w-5 h-5"></i>
+                    จัดการประเภทเหตุการณ์/ปัญหา
+                </h3>
+                <button onclick="closeCategoryManagerModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <!-- Add New Category Form -->
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                    <p class="text-xs font-bold text-slate-700">➕ เพิ่มประเภทปัญหาใหม่</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-category-text" placeholder="เช่น 🔌 ไฟฟ้าดับ (Power Outage)" 
+                            class="flex-grow p-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                        <button onclick="addNewCategory()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors">
+                            เพิ่ม
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Category List -->
+                <p class="text-xs font-bold text-slate-600">รายการประเภทปัญหาปัจจุบัน:</p>
+                <div id="category-manager-list" class="space-y-1 max-h-48 overflow-y-auto pr-1">
+                    <!-- Loaded dynamically -->
+                </div>
+            </div>
+
+            <div class="border-t border-slate-100 pt-3 text-right">
+                <button onclick="closeCategoryManagerModal()" class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors">
+                    ปิดหน้าต่าง
                 </button>
             </div>
         </div>
@@ -641,6 +683,13 @@
         let incidentLogs = {}; // Key: "prodDate_hour_line" -> { id, date, hour, line, category, categoryText, notes }
         let appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || '';
         let incidentSheetGid = localStorage.getItem('job_tracker_incident_sheet_gid') || '';
+        let incidentCategories = [
+            { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
+            { code: "Material", text: "📦 วัตถุดิบขาดแคลน (Material Shortage)" },
+            { code: "Changeover", text: "🔄 เปลี่ยนรุ่นล่าช้า (Model Changeover Delay)" },
+            { code: "Operator", text: "👥 ปัญหาแรงงาน/พักเกินเวลา (Operator Issue)" },
+            { code: "Other", text: "📝 อื่นๆ (ระบุบันทึกเพิ่มเติม)" }
+        ];
 
         // Data Pools
         let rawBarcodeLogs = [];      // Raw rows parsed from sheet
@@ -712,6 +761,8 @@
             // Load Incidents and render
             loadIncidents();
             renderIncidentTable();
+            loadCategories();
+            loadCategoriesFromCloud();
 
             // Set scroll listener
             const scrollContainer = document.getElementById('table-scroll-container');
@@ -2111,14 +2162,17 @@
                 selectHour.appendChild(opt);
             });
 
-            // Populate model select dropdown dynamically based on all models found in processedScans
+            const activeDate = els.filterStartDate.value;
+
+            // Populate model select dropdown dynamically based on models produced on this activeDate
             selectModel.innerHTML = '';
             const optAll = document.createElement('option');
             optAll.value = 'All';
             optAll.textContent = 'ทุกรุ่น (All Models)';
             selectModel.appendChild(optAll);
             
-            const uniqueModels = Array.from(new Set(processedScans.map(s => s.model))).sort();
+            const scansOfToday = processedScans.filter(s => s.prodDate === activeDate);
+            const uniqueModels = Array.from(new Set(scansOfToday.map(s => s.model))).sort();
             uniqueModels.forEach(m => {
                 if (m && m !== '-') {
                     const opt = document.createElement('option');
@@ -2132,8 +2186,6 @@
             selectCat.value = 'Breakdown';
             textareaNotes.value = '';
             btnDelete.classList.add('hidden');
-
-            const activeDate = els.filterStartDate.value;
 
             const updateExistingFields = () => {
                 const logKey = `${activeDate}_${selectHour.value}_${selectLine.value}_${selectModel.value}`;
@@ -2301,6 +2353,145 @@
             })
             .then(() => console.log('Incident synced successfully'))
             .catch(err => console.error('Error syncing:', err));
+        }
+
+        // ==========================================
+        // DYNAMIC INCIDENT CATEGORIES MANAGEMENT (CLOUD & LOCAL)
+        // ==========================================
+        function loadCategories() {
+            try {
+                const data = localStorage.getItem('job_tracker_incident_categories');
+                if (data) incidentCategories = JSON.parse(data);
+            } catch(e) {}
+            populateCategorySelects();
+        }
+
+        function loadCategoriesFromCloud() {
+            if (!appsScriptUrl) {
+                populateCategorySelects();
+                return;
+            }
+            
+            fetch(appsScriptUrl, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'GET_CATEGORIES' })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.result === 'success' && data.categories) {
+                    incidentCategories = data.categories;
+                    localStorage.setItem('job_tracker_incident_categories', JSON.stringify(incidentCategories));
+                    populateCategorySelects();
+                }
+            })
+            .catch(err => {
+                console.warn('Failed to load categories from cloud, using local cache:', err);
+                populateCategorySelects();
+            });
+        }
+
+        function populateCategorySelects() {
+            const selectCat = document.getElementById('incident-category');
+            if (!selectCat) return;
+            
+            const savedVal = selectCat.value;
+            selectCat.innerHTML = '';
+            incidentCategories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.code;
+                opt.textContent = cat.text;
+                selectCat.appendChild(opt);
+            });
+            if (savedVal && incidentCategories.some(c => c.code === savedVal)) {
+                selectCat.value = savedVal;
+            }
+        }
+
+        function openCategoryManagerModal() {
+            const modal = document.getElementById('category-manager-modal');
+            renderCategoryManagerList();
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function closeCategoryManagerModal() {
+            document.getElementById('category-manager-modal').classList.add('hidden');
+            populateCategorySelects();
+        }
+
+        function renderCategoryManagerList() {
+            const listEl = document.getElementById('category-manager-list');
+            if (!listEl) return;
+            
+            listEl.innerHTML = '';
+            incidentCategories.forEach(cat => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center p-2 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 border border-slate-100 mb-1';
+                div.innerHTML = `
+                    <span>${cat.text}</span>
+                    <button onclick="deleteCategory('${cat.code}')" class="text-rose-500 hover:text-rose-700 p-1" title="ลบประเภทปัญหานี้">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                `;
+                listEl.appendChild(div);
+            });
+            lucide.createIcons();
+        }
+
+        function addNewCategory() {
+            const input = document.getElementById('new-category-text');
+            const text = input.value.trim();
+            if (!text) return;
+            
+            const code = 'Custom_' + Date.now();
+            const newCat = { code: code, text: text };
+            
+            incidentCategories.push(newCat);
+            localStorage.setItem('job_tracker_incident_categories', JSON.stringify(incidentCategories));
+            input.value = '';
+            
+            renderCategoryManagerList();
+            
+            if (appsScriptUrl) {
+                fetch(appsScriptUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'SAVE_CATEGORY',
+                        code: code,
+                        text: text
+                    })
+                })
+                .then(() => console.log('Category synced to cloud'))
+                .catch(err => console.error('Error syncing category:', err));
+            }
+        }
+
+        function deleteCategory(code) {
+            const standardCodes = ["Breakdown", "Material", "Changeover", "Operator", "Other"];
+            if (standardCodes.includes(code)) {
+                return Swal.fire({
+                    icon: 'warning',
+                    title: 'ไม่สามารถลบได้',
+                    text: 'ประเภทปัญหามาตรฐานไม่สามารถลบได้ครับ'
+                });
+            }
+            
+            incidentCategories = incidentCategories.filter(cat => cat.code !== code);
+            localStorage.setItem('job_tracker_incident_categories', JSON.stringify(incidentCategories));
+            
+            renderCategoryManagerList();
+            
+            if (appsScriptUrl) {
+                fetch(appsScriptUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'DELETE_CATEGORY',
+                        code: code
+                    })
+                })
+                .then(() => console.log('Category delete synced to cloud'))
+                .catch(err => console.error('Error deleting category:', err));
+            }
         }
 
         // ==========================================
