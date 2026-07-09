@@ -2757,7 +2757,8 @@
                 `;
             }
 
-            const csvUrl = buildGoogleSheetCsvUrl(barcodeSheetUrl, '0');
+            const barcodeGid = extractGidFromUrl(barcodeSheetUrl);
+            const csvUrl = buildGoogleSheetCsvUrl(barcodeSheetUrl, barcodeGid);
             const capacityCsvUrl = buildGoogleSheetCsvUrl(oeeSheetUrl, CAPACITY_GID);
 
             const fetchText = (url) => fetch(url).then(res => {
@@ -3205,6 +3206,20 @@
             } catch (err) {
                 return url;
             }
+        }
+
+        function extractGidFromUrl(url) {
+            if (!url) return '0';
+            try {
+                const parsed = new URL(url.replace('/#', '#'));
+                const hash = parsed.hash || '';
+                const hashMatch = hash.match(/gid=([0-9]+)/);
+                if (hashMatch) return hashMatch[1];
+                const searchMatch = parsed.searchParams.get('gid');
+                if (searchMatch) return searchMatch;
+            } catch (e) {}
+            const match = url.match(/[#&?]gid=([0-9]+)/);
+            return match ? match[1] : '0';
         }
     </script>
 </body>
