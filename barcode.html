@@ -468,8 +468,8 @@
             </div>
 
             <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
-                <button onclick="useDemoData()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
-                    ใช้ข้อมูล Demo
+                <button onclick="resetToDefaults()" class="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors">
+                    กู้คืนค่าเริ่มต้น (Reset)
                 </button>
                 <button onclick="saveConfig()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
                     บันทึกและโหลดใหม่
@@ -3048,14 +3048,37 @@
             loadBarcodeData();
         }
 
-        function useDemoData() {
-            localStorage.removeItem('job_tracker_barcode_sheet_url');
-            localStorage.removeItem('job_tracker_barcode_target_speed');
-            barcodeSheetUrl = '';
-            barcodeTargetSpeed = 100;
-            
-            closeConfigModal();
-            loadMockData();
+        function resetToDefaults() {
+            Swal.fire({
+                title: 'ยืนยันการกู้คืนค่าเริ่มต้น?',
+                text: "การกู้คืนจะล้างค่าการตั้งค่าทั้งหมดที่เคยบันทึกไว้ในเครื่องนี้ และดึงค่าเริ่มต้นจากระบบมาใช้งานใหม่ครับ",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#4f46e5',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'ตกลง, กู้คืนค่าเริ่มต้น',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    localStorage.removeItem('job_tracker_barcode_sheet_url');
+                    localStorage.removeItem('job_tracker_barcode_target_speed');
+                    localStorage.removeItem('job_tracker_apps_script_url');
+                    localStorage.removeItem('job_tracker_incident_sheet_gid');
+                    localStorage.removeItem('job_tracker_incident_categories');
+                    localStorage.removeItem('job_tracker_incident_logs');
+                    localStorage.removeItem('job_tracker_sheet_url');
+                    
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'รีเซ็ตสำเร็จ',
+                        text: 'ระบบกำลังโหลดหน้าใหม่ด้วยค่าเริ่มต้นครับ...',
+                        showConfirmButton: false,
+                        timer: 1500
+                    }).then(() => {
+                        window.location.reload();
+                    });
+                }
+            });
         }
 
         function toggleTargetCalcPanel() {
