@@ -334,6 +334,44 @@
             </div>
         </div>
 
+        <!-- Today's Incident Log Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="list-checks" class="w-5 h-5 text-indigo-500"></i>
+                        บันทึกเหตุการณ์และปัญหาผลิตวันนี้ (Production Incident Log)
+                    </h3>
+                    <p class="text-xs text-slate-400">รายการบันทึกปัญหาขัดข้องเพื่อใช้วิเคราะห์สาเหตุชั่วโมงการผลิตตกเป้า</p>
+                </div>
+                <button onclick="openIncidentModalForHour(null)" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                    บันทึกปัญหาผลิต
+                </button>
+            </div>
+            
+            <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
+                            <th class="p-3 text-center w-24">ช่วงเวลา</th>
+                            <th class="p-3 text-center w-20">ไลน์ (Line)</th>
+                            <th class="p-3 w-40">ประเภทปัญหา</th>
+                            <th class="p-3">รายละเอียดบันทึก</th>
+                            <th class="p-3 text-center w-24">การจัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incident-log-tbody" class="divide-y divide-slate-100 font-medium">
+                        <tr>
+                            <td colspan="5" class="text-center p-6 text-slate-400 italic">
+                                วันนี้ยังไม่มีการรายงานปัญหาขัดข้อง (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Live Scan Feed Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -411,6 +449,12 @@
                         class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
                     <p class="text-[10px] text-slate-400 mt-1">ใช้แสดงเส้นเป้าหมาย (Target Line) บนกราฟแนวโน้มรายชั่วโมง</p>
                 </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Google Apps Script URL (Sync เหตุการณ์)</label>
+                    <input type="text" id="config-apps-script-url" placeholder="https://script.google.com/macros/s/.../exec" 
+                        class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-mono">
+                    <p class="text-[10px] text-slate-400 mt-1">เผื่อสำหรับส่งประวัติเหตุการณ์ไปเขียนลงแท็บใหม่ของ Google Sheets โดยอัตโนมัติ</p>
+                </div>
             </div>
 
             <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
@@ -419,6 +463,65 @@
                 </button>
                 <button onclick="saveConfig()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
                     บันทึกและโหลดใหม่
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Incident/Event Registration Modal -->
+    <div id="incident-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5"></i>
+                    บันทึกเหตุการณ์และปัญหาหน้างาน
+                </h3>
+                <button onclick="closeIncidentModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <input type="hidden" id="incident-hour">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">ช่วงเวลา (Hour)</label>
+                    <div id="incident-hour-text" class="text-xs font-bold text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-100">10:00 - 11:00 น.</div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">ไลน์ผลิต (Line)</label>
+                    <select id="incident-line" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="All">ทุกไลน์ (All Lines)</option>
+                        <option value="4">Line 4</option>
+                        <option value="5">Line 5</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">ประเภทเหตุการณ์/ปัญหา</label>
+                    <select id="incident-category" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="Breakdown">🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)</option>
+                        <option value="Material">📦 วัตถุดิบขาดแคลน (Material Shortage)</option>
+                        <option value="Changeover">🔄 เปลี่ยนรุ่นล่าช้า (Model Changeover Delay)</option>
+                        <option value="Operator">👥 ปัญหาแรงงาน/พักเกินเวลา (Operator Issue)</option>
+                        <option value="Other">📝 อื่นๆ (ระบุบันทึกเพิ่มเติม)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">รายละเอียดบันทึกเพิ่มเติม</label>
+                    <textarea id="incident-notes" rows="3" placeholder="ระบุสาเหตุ, ผลกระทบ หรือรายละเอียดเพื่อการวิเคราะห์..." 
+                        class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-sans"></textarea>
+                </div>
+            </div>
+
+            <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
+                <button id="btn-delete-incident" onclick="deleteIncident()" class="hidden px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors">
+                    ลบประวัติ
+                </button>
+                <div class="flex-grow"></div>
+                <button onclick="closeIncidentModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
+                    ยกเลิก
+                </button>
+                <button onclick="saveIncident()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
+                    บันทึกเหตุการณ์
                 </button>
             </div>
         </div>
@@ -445,6 +548,10 @@
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
         let showChartValues = true;  // Toggle state to show/hide value labels on horizontal chart
         let isDemoMode = false;
+
+        // Incident Events Pools
+        let incidentLogs = {}; // Key: "prodDate_hour_line" -> { id, date, hour, line, category, categoryText, notes }
+        let appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || '';
 
         // Data Pools
         let rawBarcodeLogs = [];      // Raw rows parsed from sheet
@@ -513,6 +620,10 @@
                 els.filterShift.value = 'Night';
             }
             
+            // Load Incidents and render
+            loadIncidents();
+            renderIncidentTable();
+
             // Set scroll listener
             const scrollContainer = document.getElementById('table-scroll-container');
             if (scrollContainer) {
@@ -814,6 +925,9 @@
 
             // Render Table
             filterTable();
+
+            // Render Incidents Table
+            renderIncidentTable();
         }
 
         // ==========================================
@@ -1364,14 +1478,71 @@
                 hourlyChartObj.prevDataJson = hourlyDataJson;
             } else {
                 const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
+                
+                // Plugin วาดสัญลักษณ์ ⚠️ เตือนเมื่อชั่วโมงนั้นมีรายงานปัญหา (Incident Log)
+                const hourlyChartWarningPlugin = {
+                    id: 'hourlyChartWarningPlugin',
+                    afterDatasetsDraw(chart) {
+                        const { ctx } = chart;
+                        ctx.save();
+                        
+                        const activeStartDate = els.filterStartDate.value;
+                        const dayIncidents = getIncidentsForDate(activeStartDate);
+                        
+                        chart.data.labels.forEach((label, index) => {
+                            const hour = parseInt(label.split(':')[0]);
+                            const hourIncidents = dayIncidents.filter(inc => inc.hour === hour);
+                            
+                            if (hourIncidents.length > 0) {
+                                const meta = chart.getDatasetMeta(0);
+                                if (meta && meta.data[index]) {
+                                    const model = meta.data[index];
+                                    const barX = model.x;
+                                    let barY = model.y;
+                                    
+                                    for (let i = 0; i < chart.data.datasets.length; i++) {
+                                        const datasetMeta = chart.getDatasetMeta(i);
+                                        if (datasetMeta && datasetMeta.data[index] && !datasetMeta.hidden) {
+                                            if (datasetMeta.data[index].y < barY) {
+                                                barY = datasetMeta.data[index].y;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // วาดวงกลมสีส้มคำเตือน ⚠️
+                                    ctx.beginPath();
+                                    ctx.arc(barX, barY - 14, 8, 0, 2 * Math.PI);
+                                    ctx.fillStyle = '#f59e0b';
+                                    ctx.fill();
+                                    
+                                    ctx.font = 'bold 11px sans-serif';
+                                    ctx.fillStyle = '#ffffff';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'middle';
+                                    ctx.fillText('!', barX, barY - 13);
+                                }
+                            }
+                        });
+                        ctx.restore();
+                    }
+                };
+
                 hourlyChartObj = new Chart(ctxHourly, {
                     type: 'bar',
-                    plugins: [hourlyChartValuePlugin],
+                    plugins: [hourlyChartValuePlugin, hourlyChartWarningPlugin],
                     data: {
                         labels: hourLabels,
                         datasets: hourlyDatasets
                     },
                     options: {
+                        onClick: (e, elements) => {
+                            if (elements && elements.length > 0) {
+                                const index = elements[0].index;
+                                const label = hourlyChartObj.data.labels[index];
+                                const hour = parseInt(label.split(':')[0]);
+                                openIncidentModalForHour(hour);
+                            }
+                        },
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
@@ -1797,6 +1968,201 @@
             });
 
             tbody.innerHTML = html;
+        }
+
+        // ==========================================
+        // INCIDENT EVENTS LOGIC (LOCAL STORAGE & GAS SYNC)
+        // ==========================================
+        function loadIncidents() {
+            try {
+                const data = localStorage.getItem('job_tracker_incident_logs');
+                incidentLogs = data ? JSON.parse(data) : {};
+            } catch(e) {
+                incidentLogs = {};
+            }
+        }
+
+        function saveIncidentsLocal() {
+            localStorage.setItem('job_tracker_incident_logs', JSON.stringify(incidentLogs));
+        }
+
+        function getIncidentsForDate(date) {
+            const list = [];
+            Object.keys(incidentLogs).forEach(key => {
+                if (key.startsWith(date + '_')) {
+                    list.push(incidentLogs[key]);
+                }
+            });
+            return list;
+        }
+
+        function openIncidentModalForHour(hour) {
+            loadIncidents();
+            const modal = document.getElementById('incident-modal');
+            const inputHour = document.getElementById('incident-hour');
+            const hourText = document.getElementById('incident-hour-text');
+            const selectLine = document.getElementById('incident-line');
+            const selectCat = document.getElementById('incident-category');
+            const textareaNotes = document.getElementById('incident-notes');
+            const btnDelete = document.getElementById('btn-delete-incident');
+
+            if (hour === null) {
+                const currentHr = new Date().getHours();
+                inputHour.value = currentHr;
+                hourText.textContent = `${String(currentHr).padStart(2, '0')}:00 - ${String((currentHr+1)%24).padStart(2, '0')}:00 น.`;
+            } else {
+                inputHour.value = hour;
+                hourText.textContent = `${String(hour).padStart(2, '0')}:00 - ${String((hour+1)%24).padStart(2, '0')}:00 น.`;
+            }
+
+            selectLine.value = 'All';
+            selectCat.value = 'Breakdown';
+            textareaNotes.value = '';
+            btnDelete.classList.add('hidden');
+
+            const activeDate = els.filterStartDate.value;
+            const logKey = `${activeDate}_${inputHour.value}_${selectLine.value}`;
+            const existing = incidentLogs[logKey];
+            if (existing) {
+                selectLine.value = existing.line;
+                selectCat.value = existing.category;
+                textareaNotes.value = existing.notes || '';
+                btnDelete.classList.remove('hidden');
+            }
+
+            selectLine.onchange = () => {
+                const tempKey = `${activeDate}_${inputHour.value}_${selectLine.value}`;
+                const tempExisting = incidentLogs[tempKey];
+                if (tempExisting) {
+                    selectCat.value = tempExisting.category;
+                    textareaNotes.value = tempExisting.notes || '';
+                    btnDelete.classList.remove('hidden');
+                } else {
+                    selectCat.value = 'Breakdown';
+                    textareaNotes.value = '';
+                    btnDelete.classList.add('hidden');
+                }
+            };
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeIncidentModal() {
+            document.getElementById('incident-modal').classList.add('hidden');
+        }
+
+        function saveIncident() {
+            const activeDate = els.filterStartDate.value;
+            const hour = document.getElementById('incident-hour').value;
+            const line = document.getElementById('incident-line').value;
+            const category = document.getElementById('incident-category').value;
+            const categoryText = document.getElementById('incident-category').options[document.getElementById('incident-category').selectedIndex].text;
+            const notes = document.getElementById('incident-notes').value.trim();
+
+            if (!activeDate) return;
+
+            const logKey = `${activeDate}_${hour}_${line}`;
+            incidentLogs[logKey] = {
+                id: logKey,
+                date: activeDate,
+                hour: parseInt(hour),
+                line: line,
+                category: category,
+                categoryText: categoryText,
+                notes: notes
+            };
+
+            saveIncidentsLocal();
+            closeIncidentModal();
+            
+            syncIncidentToGoogleSheets(incidentLogs[logKey]);
+
+            if (hourlyChartObj) {
+                hourlyChartObj.update();
+            }
+            renderIncidentTable();
+        }
+
+        function deleteIncident() {
+            const activeDate = els.filterStartDate.value;
+            const hour = document.getElementById('incident-hour').value;
+            const line = document.getElementById('incident-line').value;
+
+            const logKey = `${activeDate}_${hour}_${line}`;
+            if (incidentLogs[logKey]) {
+                const deletedItem = {...incidentLogs[logKey], action: 'DELETE'};
+                delete incidentLogs[logKey];
+                saveIncidentsLocal();
+                syncIncidentToGoogleSheets(deletedItem);
+            }
+            closeIncidentModal();
+            if (hourlyChartObj) {
+                hourlyChartObj.update();
+            }
+            renderIncidentTable();
+        }
+
+        function renderIncidentTable() {
+            const tbody = document.getElementById('incident-log-tbody');
+            if (!tbody) return;
+
+            loadIncidents();
+            const activeDate = els.filterStartDate.value;
+            const dayIncidents = getIncidentsForDate(activeDate);
+
+            dayIncidents.sort((a, b) => a.hour - b.hour || String(a.line).localeCompare(String(b.line)));
+
+            if (dayIncidents.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center p-6 text-slate-400 italic">
+                            วันนี้ยังไม่มีการรายงานปัญหาขัดข้อง (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            dayIncidents.forEach(inc => {
+                const hourRange = `${String(inc.hour).padStart(2, '0')}:00 - ${String((inc.hour+1)%24).padStart(2, '0')}:00 น.`;
+                const lineName = inc.line === 'All' ? 'ทุกไลน์' : `Line ${inc.line}`;
+                
+                html += `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 text-center font-bold text-slate-700">${hourRange}</td>
+                        <td class="p-3 text-center text-indigo-600 font-bold">${lineName}</td>
+                        <td class="p-3 text-slate-700 font-semibold">${inc.categoryText}</td>
+                        <td class="p-3 text-slate-500 whitespace-pre-wrap">${inc.notes || '-'}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="openIncidentModalForHour(${inc.hour})" class="text-indigo-600 hover:text-indigo-900 font-bold mr-2">แก้ไข</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function syncIncidentToGoogleSheets(incident) {
+            if (!appsScriptUrl) return;
+            const payload = {
+                action: incident.action || 'SAVE',
+                id: incident.id,
+                date: incident.date,
+                hour: incident.hour,
+                line: incident.line,
+                category: incident.category,
+                categoryText: incident.categoryText,
+                notes: incident.notes
+            };
+            fetch(appsScriptUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(() => console.log('Incident synced successfully'))
+            .catch(err => console.error('Error syncing:', err));
         }
 
         // ==========================================
