@@ -322,7 +322,7 @@
                             <th class="p-3 text-center">กำลังผลิตรันปกติเฉลี่ย (Steady Avg)</th>
                             <th class="p-3 text-center">ความเร็วสูงสุดที่เคยทำได้ (Peak Cap)</th>
                             <th class="p-3 text-center">รอบเวลาประกอบเฉลี่ย (Cycle Time)</th>
-                            <th class="p-3 text-center">ผลต่างเทียบเป้า (Variance %)</th>
+                            <th class="p-3 text-center">ประสิทธิภาพ (Eff %)</th>
                         </tr>
                     </thead>
                     <tbody id="capacity-auditor-tbody" class="divide-y divide-slate-100 font-medium">
@@ -1774,15 +1774,14 @@
                     ? Math.round(steadyRates.reduce((sum, val) => sum + val, 0) / steadyRates.length)
                     : (hourlyRates.length > 0 ? Math.round(hourlyRates.reduce((sum, val) => sum + val, 0) / hourlyRates.length) : 0);
 
-                // 3. คำนวณเปอร์เซ็นต์ผลต่างเทียบกับเป้าหมาย (Variance)
-                let varianceText = '-';
-                let varianceClass = 'text-slate-400';
+                // 3. คำนวณเปอร์เซ็นต์ประสิทธิภาพการผลิต (Eff %)
+                let effText = '-';
+                let effClass = 'text-slate-400';
                 
                 if (stdCap > 0 && steadyAvg > 0) {
-                    const variance = ((steadyAvg - stdCap) / stdCap) * 100;
-                    const sign = variance >= 0 ? '+' : '';
-                    varianceText = `${sign}${variance.toFixed(1)}%`;
-                    varianceClass = variance >= 0 ? 'text-emerald-600' : 'text-rose-600';
+                    const eff = (steadyAvg / stdCap) * 100;
+                    effText = `${eff.toFixed(1)}%`;
+                    effClass = eff < 80 ? 'text-rose-600' : eff < 95 ? 'text-amber-500' : 'text-emerald-600';
                 }
 
                 html += `
@@ -1792,7 +1791,7 @@
                         <td class="p-3 text-center font-mono text-indigo-600">${steadyAvg > 0 ? steadyAvg + ' PCS/Hr' : '-'}</td>
                         <td class="p-3 text-center font-mono text-amber-600">${peakCap > 0 ? peakCap + ' PCS/Hr' : '-'}</td>
                         <td class="p-3 text-center font-mono text-slate-600">${cycleTimeText}</td>
-                        <td class="p-3 text-center font-mono font-bold ${varianceClass}">${varianceText}</td>
+                        <td class="p-3 text-center font-mono font-bold ${effClass}">${effText}</td>
                     </tr>
                 `;
             });
