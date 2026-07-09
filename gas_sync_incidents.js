@@ -22,7 +22,7 @@ function doPost(e) {
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["ID", "Date", "Hour", "Line", "Category", "CategoryText", "Notes"]);
+      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "Category", "CategoryText", "Notes"]);
     }
     
     var data = JSON.parse(e.postData.contents);
@@ -55,6 +55,7 @@ function doPost(e) {
       data.date,
       data.hour,
       data.line,
+      data.model || "All",
       data.category,
       data.categoryText,
       data.notes
@@ -62,7 +63,7 @@ function doPost(e) {
     
     if (rowIndex !== -1) {
       // Update existing row
-      sheet.getRange(rowIndex, 1, 1, 7).setValues([rowData]);
+      sheet.getRange(rowIndex, 1, 1, 8).setValues([rowData]);
     } else {
       // Append new row
       sheet.appendRow(rowData);
