@@ -506,15 +506,86 @@
   var lock = LockService.getScriptLock();
   lock.tryLock(10000);
   try {
-    var sheetName = "Incidents";
+    var data = JSON.parse(e.postData.contents);
+    var action = data.action || "SAVE";
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    if (action === "GET_INCIDENTS") {
+      var sheetName = "Incidents";
+      var sheet = ss.getSheetByName(sheetName);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: []})).setMimeType(ContentService.MimeType.JSON);
+      }
+      var range = sheet.getDataRange();
+      var values = range.getValues();
+      var list = [];
+      if (values.length > 1) {
+        var headers = values[0];
+        for (var i = 1; i < values.length; i++) {
+          var row = {};
+          for (var j = 0; j < headers.length; j++) {
+            row[headers[j]] = values[i][j];
+          }
+          list.push(row);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list})).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    if (action === "GET_CATEGORIES" || action === "SAVE_CATEGORY" || action === "DELETE_CATEGORY") {
+      var catSheetName = "IncidentCategories";
+      var catSheet = ss.getSheetByName(catSheetName);
+      if (!catSheet) {
+        catSheet = ss.insertSheet(catSheetName);
+        catSheet.appendRow(["Code", "Text"]);
+        catSheet.appendRow(["Breakdown", "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)"]);
+        catSheet.appendRow(["Material", "📦 วัตถุดิบขาดแคลน (Material Shortage)"]);
+        catSheet.appendRow(["Changeover", "🔄 เปลี่ยนรุ่นล่าช้า (Model Changeover Delay)"]);
+        catSheet.appendRow(["Operator", "👥 ปัญหาแรงงาน/พักเกินเวลา (Operator Issue)"]);
+        catSheet.appendRow(["Other", "📝 อื่นๆ (ระบุบันทึกเพิ่มเติม)"]);
+      }
+      var catRange = catSheet.getDataRange();
+      var catValues = catRange.getValues();
+      if (action === "GET_CATEGORIES") {
+        var list = [];
+        for (var i = 1; i < catValues.length; i++) {
+          list.push({ code: catValues[i][0], text: catValues[i][1] });
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success", categories: list})).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (action === "SAVE_CATEGORY") {
+        var catCode = data.code;
+        var catText = data.text;
+        var catRowIndex = -1;
+        for (var i = 1; i < catValues.length; i++) {
+          if (catValues[i][0] == catCode) { catRowIndex = i + 1; break; }
+        }
+        if (catRowIndex !== -1) {
+          catSheet.getRange(catRowIndex, 2).setValue(catText);
+        } else {
+          catSheet.appendRow([catCode, catText]);
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success"})).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (action === "DELETE_CATEGORY") {
+        var catCode = data.code;
+        var catRowIndex = -1;
+        for (var i = 1; i < catValues.length; i++) {
+          if (catValues[i][0] == catCode) { catRowIndex = i + 1; break; }
+        }
+        if (catRowIndex !== -1) {
+          catSheet.deleteRow(catRowIndex);
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success"})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
+    var sheetName = "Incidents";
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
       sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "Category", "CategoryText", "Notes"]);
     }
-    var data = JSON.parse(e.postData.contents);
-    var action = data.action || "SAVE";
     var id = data.id;
     var range = sheet.getDataRange();
     var values = range.getValues();
@@ -660,7 +731,7 @@
     <!-- Script Block -->
     <script>
         // Default barcode sheet URL
-        const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
+        const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U/edit?gid=1512630443#gid=1512630443';
         const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
         const CAPACITY_GID = '1140596720';
         
@@ -681,7 +752,7 @@
 
         // Incident Events Pools
         let incidentLogs = {}; // Key: "prodDate_hour_line" -> { id, date, hour, line, category, categoryText, notes }
-        let appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || '';
+        let appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || 'https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec';
         let incidentSheetGid = localStorage.getItem('job_tracker_incident_sheet_gid') || '';
         let incidentCategories = [
             { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
@@ -835,6 +906,7 @@
                     renderIncidentTable();
                     loadCategories();
                     loadCategoriesFromCloud();
+                    fetchIncidentsFromAppsScript();
 
                     // Load Data
                     if (barcodeSheetUrl) {
@@ -2157,6 +2229,41 @@
             }
         }
 
+        function fetchIncidentsFromAppsScript() {
+            if (!appsScriptUrl) return Promise.resolve();
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'GET_INCIDENTS' })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.result === 'success' && data.incidents) {
+                    const cloudIncidents = {};
+                    data.incidents.forEach(row => {
+                        if (row.ID) {
+                            cloudIncidents[row.ID] = {
+                                id: row.ID,
+                                date: row.Date,
+                                hour: parseInt(row.Hour) || 0,
+                                line: row.Line,
+                                model: row.Model || 'All',
+                                category: row.Category,
+                                categoryText: row.CategoryText,
+                                notes: row.Notes
+                            };
+                        }
+                    });
+                    incidentLogs = cloudIncidents;
+                    saveIncidentsLocal();
+                    if (hourlyChartObj) hourlyChartObj.update();
+                    renderIncidentTable();
+                }
+            })
+            .catch(err => {
+                console.warn('Failed to load incidents from Apps Script cloud:', err);
+            });
+        }
+
         function saveIncidentsLocal() {
             localStorage.setItem('job_tracker_incident_logs', JSON.stringify(incidentLogs));
         }
@@ -2752,6 +2859,9 @@
                                 if (savedModel) els.filterModel.value = savedModel;
 
                                 applyFilters();
+                                if (appsScriptUrl && !incidentSheetGid) {
+                                    fetchIncidentsFromAppsScript();
+                                }
                             }
                         });
                     }

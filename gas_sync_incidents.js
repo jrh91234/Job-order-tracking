@@ -21,6 +21,31 @@ function doPost(e) {
     var action = data.action || "SAVE";
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
+    // --- INCIDENT LOGS READ (GET_INCIDENTS) ---
+    if (action === "GET_INCIDENTS") {
+      var sheetName = "Incidents";
+      var sheet = ss.getSheetByName(sheetName);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: []}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      var range = sheet.getDataRange();
+      var values = range.getValues();
+      var list = [];
+      if (values.length > 1) {
+        var headers = values[0];
+        for (var i = 1; i < values.length; i++) {
+          var row = {};
+          for (var j = 0; j < headers.length; j++) {
+            row[headers[j]] = values[i][j];
+          }
+          list.push(row);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+    
     // --- INCIDENT CATEGORIES OPERATIONS ---
     if (action === "GET_CATEGORIES" || action === "SAVE_CATEGORY" || action === "DELETE_CATEGORY") {
       var catSheetName = "IncidentCategories";
@@ -77,7 +102,7 @@ function doPost(e) {
       }
     }
     
-    // --- INCIDENT LOGS OPERATIONS ---
+    // --- INCIDENT LOGS OPERATIONS (WRITE/DELETE) ---
     var sheetName = "Incidents";
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
