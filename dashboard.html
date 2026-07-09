@@ -687,6 +687,8 @@
                 return;
             }
 
+            const tempScans = [];
+
             data.forEach(row => {
                 const jobNo = String(row[jobKey] || '').trim();
                 const model = String(row[modelKey] || '').trim();
@@ -721,7 +723,10 @@
                     formattedDate = `${dd}/${mm}/${yyyy}`;
                 }
 
-                rawActualLogs.push({
+                const timeParts = timeRaw.split(':').map(Number);
+                const ts = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), timeParts[0], timeParts[1] || 0, timeParts[2] || 0).getTime();
+
+                tempScans.push({
                     date: formattedDate,
                     time: normalizeTime24(timeRaw) || timeRaw,
                     jobNo: jobNo,
@@ -729,9 +734,36 @@
                     qty: qty,
                     shift: shift,
                     shiftAB: shiftAB,
-                    line: line
+                    line: line,
+                    ts: ts,
+                    barcode: barcode
                 });
             });
+
+            // เรียงตามเวลาดิบเพื่อคำนวณสแกนเบิ้ล 5 วินาที
+            tempScans.sort((a, b) => a.ts - b.ts);
+
+            const lastScanByLineAndBarcode = {};
+            const filteredTempScans = [];
+
+            tempScans.forEach(s => {
+                const lKey = s.line || 'DEFAULT';
+                const barcode = s.barcode;
+                if (barcode && barcode !== '-') {
+                    const trackingKey = `${lKey}_${barcode}`;
+                    const prevScan = lastScanByLineAndBarcode[trackingKey];
+                    if (prevScan) {
+                        const diffSeconds = (s.ts - prevScan.ts) / 1000;
+                        if (diffSeconds >= 0 && diffSeconds <= 5) {
+                            return; // กรองออก
+                        }
+                    }
+                    lastScanByLineAndBarcode[trackingKey] = s;
+                }
+                filteredTempScans.push(s);
+            });
+
+            rawActualLogs = filteredTempScans;
         }
 
         // ==========================================

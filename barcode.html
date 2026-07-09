@@ -303,6 +303,37 @@
             </div>
         </div>
 
+        <!-- Actual Capacity Auditor Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div>
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="gauge" class="w-5 h-5 text-indigo-500"></i>
+                    สถิติวิเคราะห์กำลังผลิตจริงรายรุ่น (Actual Capacity Auditor)
+                </h3>
+                <p class="text-xs text-slate-400">คำนวณแบบคลีนจากสถิติจริง (กรองสแกนเบิ้ล 5 วินาที และเวลานอกสายผลิตออกแล้ว)</p>
+            </div>
+            
+            <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
+                            <th class="p-3">รุ่นสินค้า (Model)</th>
+                            <th class="p-3 text-center">กำลังผลิตเป้าหมาย (Standard)</th>
+                            <th class="p-3 text-center">กำลังผลิตรันปกติเฉลี่ย (Steady Avg)</th>
+                            <th class="p-3 text-center">ความเร็วสูงสุดที่เคยทำได้ (Peak Cap)</th>
+                            <th class="p-3 text-center">รอบเวลาประกอบเฉลี่ย (Cycle Time)</th>
+                            <th class="p-3 text-center">ผลต่างเทียบเป้า (Variance %)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="capacity-auditor-tbody" class="divide-y divide-slate-100 font-medium">
+                        <tr>
+                            <td colspan="6" class="text-center p-4 text-slate-400">ไม่มีข้อมูลการผลิต</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Live Scan Feed Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -598,6 +629,7 @@
         function parseRawLogs() {
             processedScans = [];
             const seen = new Set();
+            const tempScans = [];
             
             rawBarcodeLogs.forEach(row => {
                 const dateTimeRaw = String(row['Date/Time'] || '').trim();
@@ -611,7 +643,7 @@
                 const barcode = String(row['Barcode'] || '-').trim();
                 const status = String(row['Status'] || 'OK').trim();
 
-                // ป้องกันและคัดกรองข้อมูลสแกนซ้ำซ้อนในวินาทีเดียวกัน (Duplicate Row) จาก Google Sheet
+                // 1. คัดกรองข้อมูลสแกนซ้ำซ้อนในวินาทีเดียวกัน (Duplicate Row)
                 const duplicateKey = `${barcode}_${dateTimeRaw}`;
                 if (seen.has(duplicateKey)) {
                     return;
@@ -621,7 +653,12 @@
                 // Apply day splitting rules
                 const mapping = getProductionDateAndShift(beDateStr, timeStr);
                 
-                processedScans.push({
+                // คำนวณหา timestamp ดิบเพื่อใช้เรียงลำดับเวลา
+                const pDate = mapping.prodDateStr.split('-').map(Number);
+                const pTime = timeStr.split(':').map(Number);
+                const ts = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
+
+                tempScans.push({
                     rawDateTime: dateTimeRaw,
                     prodDate: mapping.prodDateStr,
                     displayDate: mapping.displayDateStr,
@@ -632,19 +669,39 @@
                     model: String(row['Model'] || '-').trim(),
                     barcode: barcode,
                     status: status,
-                    line: String(row['Line'] || '-').trim()
+                    line: String(row['Line'] || '-').trim(),
+                    ts: ts
                 });
             });
 
-            // Sort processed scans chronologically (latest first for display feed)
-            processedScans.sort((a, b) => {
-                const parseToTime = (item) => {
-                    const pDate = item.prodDate.split('-').map(Number);
-                    const pTime = item.time.split(':').map(Number);
-                    return new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
-                };
-                return parseToTime(b) - parseToTime(a);
+            // เรียงลำดับเวลาจากเก่าไปใหม่ เพื่อนำมาตรวจจับแสกนเบิ้ล (Double-Scan) ในระดับ 5 วินาที
+            tempScans.sort((a, b) => a.ts - b.ts);
+
+            const lastScanByLineAndBarcode = {};
+            const filteredScansTemp = [];
+
+            tempScans.forEach(s => {
+                const lineKey = s.line || 'DEFAULT';
+                const barcode = s.barcode;
+                
+                if (s.status.toUpperCase() === 'OK' && barcode && barcode !== '-') {
+                    const trackingKey = `${lineKey}_${barcode}`;
+                    const prevScan = lastScanByLineAndBarcode[trackingKey];
+                    if (prevScan) {
+                        const diffSeconds = (s.ts - prevScan.ts) / 1000;
+                        if (diffSeconds >= 0 && diffSeconds <= 5) {
+                            // ข้อมูลสแกนซ้ำซ้อนใน 5 วินาที -> ข้ามไม่นำมาบันทึก
+                            return;
+                        }
+                    }
+                    lastScanByLineAndBarcode[trackingKey] = s;
+                }
+                filteredScansTemp.push(s);
             });
+
+            // เรียงลำดับเวลาใหม่จากใหม่ไปเก่า (Latest first) เพื่อนำไปใช้งานด้านหน้าตาราง Feed
+            filteredScansTemp.sort((a, b) => b.ts - a.ts);
+            processedScans = filteredScansTemp;
         }
 
         // ==========================================
@@ -1654,6 +1711,93 @@
                 modelChartObj.prevCounts = [...modelCounts];
                 modelChartObj.prevLabels = [...modelLabels];
             }
+            
+            // Render actual capacity auditor table
+            renderCapacityAuditor();
+        }
+
+        // ฟังก์ชันคำนวณกำลังผลิตจริงรายรุ่น และประเมินค่า IE Benchmarks
+        function renderCapacityAuditor() {
+            const tbody = document.getElementById('capacity-auditor-tbody');
+            if (!tbody) return;
+
+            const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
+            if (okScans.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center p-4 text-slate-400">ไม่มีข้อมูลการผลิต</td></tr>`;
+                return;
+            }
+
+            // แยกกลุ่มข้อมูลแสกนตามโมเดลสินค้า
+            const scansByModel = {};
+            okScans.forEach(s => {
+                if (!scansByModel[s.model]) scansByModel[s.model] = [];
+                scansByModel[s.model].push(s);
+            });
+
+            let html = '';
+            Object.entries(scansByModel).forEach(([modelName, mScans]) => {
+                // ค้นหาเป้ามาตรฐาน
+                const capInfo = findCapacityInfo('', modelName);
+                const stdCap = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+
+                // 1. คำนวณ Cycle Time (ไม่รวมรอบประกอบที่ทิ้งช่วงเกิน 5 นาทีเพื่อคัดช่วงพักออก)
+                const sortedScans = [...mScans].sort((a, b) => a.ts - b.ts);
+                let totalIntervalSeconds = 0;
+                let intervalCount = 0;
+                
+                for (let i = 1; i < sortedScans.length; i++) {
+                    const diffMs = sortedScans[i].ts - sortedScans[i-1].ts;
+                    const diffSec = diffMs / 1000;
+                    
+                    if (diffSec > 0 && diffSec <= 300) { // กรอง Cycle time ไม่เกิน 5 นาที
+                        totalIntervalSeconds += diffSec;
+                        intervalCount++;
+                    }
+                }
+                
+                const avgCycleTime = intervalCount > 0 ? (totalIntervalSeconds / intervalCount) : 0;
+                const cycleTimeText = avgCycleTime > 0 ? `${avgCycleTime.toFixed(1)} วินาที` : '-';
+
+                // 2. คำนวณหาความเร็วสูงสุดรายชั่วโมง (Peak) และค่าเฉลี่ยรันงานปกติ (Steady Avg)
+                const hourlyCountsMap = {};
+                mScans.forEach(s => {
+                    const key = `${s.prodDate}_${s.hour}`;
+                    hourlyCountsMap[key] = (hourlyCountsMap[key] || 0) + 1;
+                });
+
+                const hourlyRates = Object.values(hourlyCountsMap);
+                const peakCap = hourlyRates.length > 0 ? Math.max(...hourlyRates) : 0;
+
+                //Steady Avg: กรองชั่วโมงเปลี่ยนรุ่นออก (ที่มีสแกนน้อยกว่า 5 ชิ้น)
+                const steadyRates = hourlyRates.filter(rate => rate >= 5);
+                const steadyAvg = steadyRates.length > 0 
+                    ? Math.round(steadyRates.reduce((sum, val) => sum + val, 0) / steadyRates.length)
+                    : (hourlyRates.length > 0 ? Math.round(hourlyRates.reduce((sum, val) => sum + val, 0) / hourlyRates.length) : 0);
+
+                // 3. คำนวณเปอร์เซ็นต์ผลต่างเทียบกับเป้าหมาย (Variance)
+                let varianceText = '-';
+                let varianceClass = 'text-slate-400';
+                
+                if (stdCap > 0 && steadyAvg > 0) {
+                    const variance = ((steadyAvg - stdCap) / stdCap) * 100;
+                    const sign = variance >= 0 ? '+' : '';
+                    varianceText = `${sign}${variance.toFixed(1)}%`;
+                    varianceClass = variance >= 0 ? 'text-emerald-600' : 'text-rose-600';
+                }
+
+                html += `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 font-semibold text-slate-700">${modelName}</td>
+                        <td class="p-3 text-center font-mono text-slate-500">${stdCap} PCS/Hr</td>
+                        <td class="p-3 text-center font-mono text-indigo-600">${steadyAvg > 0 ? steadyAvg + ' PCS/Hr' : '-'}</td>
+                        <td class="p-3 text-center font-mono text-amber-600">${peakCap > 0 ? peakCap + ' PCS/Hr' : '-'}</td>
+                        <td class="p-3 text-center font-mono text-slate-600">${cycleTimeText}</td>
+                        <td class="p-3 text-center font-mono font-bold ${varianceClass}">${varianceText}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
         }
 
         // ==========================================

@@ -885,6 +885,8 @@
 
             const logsByJob = {};
             const seen = new Set();
+            const tempScans = [];
+            const lineKey = findHeaderByPriority(keys, ['Line'], ['line']);
 
             rows.forEach(row => {
                 const jobNo = String(row[jobLogKey] || '').trim();
@@ -919,15 +921,55 @@
                 const startHour = String(hour).padStart(2, '0');
                 const endHour = String((hour + 1) % 24).padStart(2, '0');
                 const timeRange = `${startHour}:00-${endHour}:00`;
+                
+                const timeParts = rawTime.split(':').map(Number);
+                const ts = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), timeParts[0], timeParts[1] || 0, timeParts[2] || 0).getTime();
 
-                if (!logsByJob[jobNo]) logsByJob[jobNo] = [];
-                logsByJob[jobNo].push({
-                    date: dateLabel,
-                    time: time24,
+                tempScans.push({
+                    jobNo: jobNo,
+                    qty: qty,
+                    dateLabel: dateLabel,
+                    time24: time24,
                     timeRange: timeRange,
                     hour: hour,
-                    ts: new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), hour, 0, 0, 0).getTime(),
-                    qty: qty
+                    ts: ts,
+                    barcode: barcode,
+                    line: String(row[lineKey] || 'Line 1').trim()
+                });
+            });
+
+            // เรียงตามเวลาดิบเพื่อคำนวณสแกนเบิ้ล 5 วินาที
+            tempScans.sort((a, b) => a.ts - b.ts);
+
+            const lastScanByLineAndBarcode = {};
+            const filteredTempScans = [];
+
+            tempScans.forEach(s => {
+                const lKey = s.line || 'DEFAULT';
+                const barcode = s.barcode;
+                if (barcode && barcode !== '-') {
+                    const trackingKey = `${lKey}_${barcode}`;
+                    const prevScan = lastScanByLineAndBarcode[trackingKey];
+                    if (prevScan) {
+                        const diffSeconds = (s.ts - prevScan.ts) / 1000;
+                        if (diffSeconds >= 0 && diffSeconds <= 5) {
+                            return; // กรองออก
+                        }
+                    }
+                    lastScanByLineAndBarcode[trackingKey] = s;
+                }
+                filteredTempScans.push(s);
+            });
+
+            filteredTempScans.forEach(s => {
+                if (!logsByJob[s.jobNo]) logsByJob[s.jobNo] = [];
+                logsByJob[s.jobNo].push({
+                    date: s.dateLabel,
+                    time: s.time24,
+                    timeRange: s.timeRange,
+                    hour: s.hour,
+                    ts: s.ts,
+                    qty: s.qty
                 });
             });
 
