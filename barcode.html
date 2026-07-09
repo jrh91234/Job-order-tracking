@@ -731,7 +731,7 @@
     <!-- Script Block -->
     <script>
         // Default barcode sheet URL
-        const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U/edit?gid=1512630443#gid=1512630443';
+        const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
         const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
         const CAPACITY_GID = '1140596720';
         
@@ -878,23 +878,39 @@
                 .then(res => res.json())
                 .then(config => {
                     if (config) {
-                        if (config.barcodeSheetUrl) {
+                        const hasLocalUrl = localStorage.getItem('job_tracker_barcode_sheet_url');
+                        const hasLocalSpeed = localStorage.getItem('job_tracker_barcode_target_speed');
+                        const hasLocalScript = localStorage.getItem('job_tracker_apps_script_url');
+                        const hasLocalGid = localStorage.getItem('job_tracker_incident_sheet_gid');
+
+                        if (config.barcodeSheetUrl && !hasLocalUrl) {
                             barcodeSheetUrl = config.barcodeSheetUrl;
                             localStorage.setItem('job_tracker_barcode_sheet_url', config.barcodeSheetUrl);
+                        } else if (hasLocalUrl) {
+                            barcodeSheetUrl = hasLocalUrl;
                         }
-                        if (config.barcodeTargetSpeed) {
+                        
+                        if (config.barcodeTargetSpeed && !hasLocalSpeed) {
                             barcodeTargetSpeed = parseInt(config.barcodeTargetSpeed) || 100;
                             localStorage.setItem('job_tracker_barcode_target_speed', config.barcodeTargetSpeed);
+                        } else if (hasLocalSpeed) {
+                            barcodeTargetSpeed = parseInt(hasLocalSpeed) || 100;
                         }
-                        if (config.appsScriptUrl) {
+
+                        if (config.appsScriptUrl && !hasLocalScript) {
                             appsScriptUrl = config.appsScriptUrl;
                             localStorage.setItem('job_tracker_apps_script_url', config.appsScriptUrl);
+                        } else if (hasLocalScript) {
+                            appsScriptUrl = hasLocalScript;
                         }
-                        if (config.incidentSheetGid) {
+
+                        if (config.incidentSheetGid && !hasLocalGid) {
                             incidentSheetGid = config.incidentSheetGid;
                             localStorage.setItem('job_tracker_incident_sheet_gid', config.incidentSheetGid);
+                        } else if (hasLocalGid) {
+                            incidentSheetGid = hasLocalGid;
                         }
-                        console.log('Successfully loaded config.json:', config);
+                        console.log('Loaded config.json defaults:', config);
                     }
                 })
                 .catch(err => {
@@ -2764,6 +2780,11 @@
             const fetchText = (url) => fetch(url).then(res => {
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                 return res.text();
+            }).then(text => {
+                if (text.trim().toLowerCase().startsWith('<!doctype') || text.trim().toLowerCase().startsWith('<html')) {
+                    throw new Error('Received HTML instead of CSV data (possible permission/login redirect)');
+                }
+                return text;
             });
 
             const promises = [
