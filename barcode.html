@@ -878,39 +878,44 @@
                 .then(res => res.json())
                 .then(config => {
                     if (config) {
-                        const hasLocalUrl = localStorage.getItem('job_tracker_barcode_sheet_url');
-                        const hasLocalSpeed = localStorage.getItem('job_tracker_barcode_target_speed');
-                        const hasLocalScript = localStorage.getItem('job_tracker_apps_script_url');
-                        const hasLocalGid = localStorage.getItem('job_tracker_incident_sheet_gid');
+                        const isManual = localStorage.getItem('job_tracker_is_manually_configured') === 'true';
 
-                        if (config.barcodeSheetUrl && !hasLocalUrl) {
-                            barcodeSheetUrl = config.barcodeSheetUrl;
-                            localStorage.setItem('job_tracker_barcode_sheet_url', config.barcodeSheetUrl);
-                        } else if (hasLocalUrl) {
-                            barcodeSheetUrl = hasLocalUrl;
+                        if (config.barcodeSheetUrl) {
+                            if (!isManual) {
+                                barcodeSheetUrl = config.barcodeSheetUrl;
+                                localStorage.setItem('job_tracker_barcode_sheet_url', config.barcodeSheetUrl);
+                            } else {
+                                barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || config.barcodeSheetUrl;
+                            }
                         }
                         
-                        if (config.barcodeTargetSpeed && !hasLocalSpeed) {
-                            barcodeTargetSpeed = parseInt(config.barcodeTargetSpeed) || 100;
-                            localStorage.setItem('job_tracker_barcode_target_speed', config.barcodeTargetSpeed);
-                        } else if (hasLocalSpeed) {
-                            barcodeTargetSpeed = parseInt(hasLocalSpeed) || 100;
+                        if (config.barcodeTargetSpeed) {
+                            if (!isManual) {
+                                barcodeTargetSpeed = parseInt(config.barcodeTargetSpeed) || 100;
+                                localStorage.setItem('job_tracker_barcode_target_speed', config.barcodeTargetSpeed);
+                            } else {
+                                barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || parseInt(config.barcodeTargetSpeed) || 100;
+                            }
                         }
 
-                        if (config.appsScriptUrl && !hasLocalScript) {
-                            appsScriptUrl = config.appsScriptUrl;
-                            localStorage.setItem('job_tracker_apps_script_url', config.appsScriptUrl);
-                        } else if (hasLocalScript) {
-                            appsScriptUrl = hasLocalScript;
+                        if (config.appsScriptUrl) {
+                            if (!isManual) {
+                                appsScriptUrl = config.appsScriptUrl;
+                                localStorage.setItem('job_tracker_apps_script_url', config.appsScriptUrl);
+                            } else {
+                                appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || config.appsScriptUrl;
+                            }
                         }
 
-                        if (config.incidentSheetGid && !hasLocalGid) {
-                            incidentSheetGid = config.incidentSheetGid;
-                            localStorage.setItem('job_tracker_incident_sheet_gid', config.incidentSheetGid);
-                        } else if (hasLocalGid) {
-                            incidentSheetGid = hasLocalGid;
+                        if (config.incidentSheetGid) {
+                            if (!isManual) {
+                                incidentSheetGid = config.incidentSheetGid;
+                                localStorage.setItem('job_tracker_incident_sheet_gid', config.incidentSheetGid);
+                            } else {
+                                incidentSheetGid = localStorage.getItem('job_tracker_incident_sheet_gid') || config.incidentSheetGid;
+                            }
                         }
-                        console.log('Loaded config.json defaults:', config);
+                        console.log('Loaded config.json defaults. Manual mode:', isManual, config);
                     }
                 })
                 .catch(err => {
@@ -3038,6 +3043,7 @@
             localStorage.setItem('job_tracker_barcode_target_speed', targetVal);
             localStorage.setItem('job_tracker_apps_script_url', appsScriptVal);
             localStorage.setItem('job_tracker_incident_sheet_gid', incidentGidVal);
+            localStorage.setItem('job_tracker_is_manually_configured', 'true');
 
             barcodeSheetUrl = url;
             barcodeTargetSpeed = targetVal;
@@ -3067,6 +3073,7 @@
                     localStorage.removeItem('job_tracker_incident_categories');
                     localStorage.removeItem('job_tracker_incident_logs');
                     localStorage.removeItem('job_tracker_sheet_url');
+                    localStorage.removeItem('job_tracker_is_manually_configured');
                     
                     Swal.fire({
                         icon: 'success',
