@@ -873,8 +873,8 @@
             // Start Refresh Timer
             startAutoRefreshTimer();
 
-            // Fetch central config.json first, then load data
-            fetch('config.json')
+            // Fetch central config.json first with a cache-buster, then load data
+            fetch('config.json?_t=' + Date.now())
                 .then(res => res.json())
                 .then(config => {
                     if (config) {
