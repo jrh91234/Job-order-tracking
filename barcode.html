@@ -757,12 +757,6 @@
             } else {
                 els.filterShift.value = 'Night';
             }
-            
-            // Load Incidents and render
-            loadIncidents();
-            renderIncidentTable();
-            loadCategories();
-            loadCategoriesFromCloud();
 
             // Set scroll listener
             const scrollContainer = document.getElementById('table-scroll-container');
@@ -808,12 +802,47 @@
             // Start Refresh Timer
             startAutoRefreshTimer();
 
-            // Load Data
-            if (barcodeSheetUrl) {
-                loadBarcodeData();
-            } else {
-                loadMockData();
-            }
+            // Fetch central config.json first, then load data
+            fetch('config.json')
+                .then(res => res.json())
+                .then(config => {
+                    if (config) {
+                        if (config.barcodeSheetUrl) {
+                            barcodeSheetUrl = config.barcodeSheetUrl;
+                            localStorage.setItem('job_tracker_barcode_sheet_url', config.barcodeSheetUrl);
+                        }
+                        if (config.barcodeTargetSpeed) {
+                            barcodeTargetSpeed = parseInt(config.barcodeTargetSpeed) || 100;
+                            localStorage.setItem('job_tracker_barcode_target_speed', config.barcodeTargetSpeed);
+                        }
+                        if (config.appsScriptUrl) {
+                            appsScriptUrl = config.appsScriptUrl;
+                            localStorage.setItem('job_tracker_apps_script_url', config.appsScriptUrl);
+                        }
+                        if (config.incidentSheetGid) {
+                            incidentSheetGid = config.incidentSheetGid;
+                            localStorage.setItem('job_tracker_incident_sheet_gid', config.incidentSheetGid);
+                        }
+                        console.log('Successfully loaded config.json:', config);
+                    }
+                })
+                .catch(err => {
+                    console.log('No config.json found or failed to parse, using local storage defaults:', err);
+                })
+                .finally(() => {
+                    // Load Incidents and render
+                    loadIncidents();
+                    renderIncidentTable();
+                    loadCategories();
+                    loadCategoriesFromCloud();
+
+                    // Load Data
+                    if (barcodeSheetUrl) {
+                        loadBarcodeData();
+                    } else {
+                        loadMockData();
+                    }
+                });
         }
 
         // ==========================================
