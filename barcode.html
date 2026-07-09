@@ -318,7 +318,7 @@
                     <thead>
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
                             <th class="p-3">รุ่นสินค้า (Model)</th>
-                            <th class="p-3 text-center">กำลังผลิตเป้าหมาย (Standard)</th>
+                            <th class="p-3 text-center">กำลังผลิต 100% (Max)</th>
                             <th class="p-3 text-center">กำลังผลิตรันปกติเฉลี่ย (Steady Avg)</th>
                             <th class="p-3 text-center">ความเร็วสูงสุดที่เคยทำได้ (Peak Cap)</th>
                             <th class="p-3 text-center">รอบเวลาประกอบเฉลี่ย (Cycle Time)</th>
@@ -1736,9 +1736,9 @@
 
             let html = '';
             Object.entries(scansByModel).forEach(([modelName, mScans]) => {
-                // ค้นหาเป้ามาตรฐาน
+                // ค้นหาเป้ากำลังผลิต 100% (Max)
                 const capInfo = findCapacityInfo('', modelName);
-                const stdCap = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
+                const stdCap = capInfo ? capInfo.max : barcodeTargetSpeed;
 
                 // 1. คำนวณ Cycle Time (ไม่รวมรอบประกอบที่ทิ้งช่วงเกิน 5 นาทีเพื่อคัดช่วงพักออก)
                 const sortedScans = [...mScans].sort((a, b) => a.ts - b.ts);
