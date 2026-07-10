@@ -102,7 +102,7 @@
                 <span id="refresh-status">ระบบดึงข้อมูลอัตโนมัติเปิดอยู่</span>
             </div>
             <div class="flex items-center gap-3">
-                <span id="refresh-timer" class="font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-semibold">30s</span>
+                <span id="refresh-timer" class="font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-semibold">15s</span>
                 <button onclick="openConfigModal()" class="font-bold text-indigo-700 hover:text-indigo-950 underline">
                     ตั้งค่า Google Sheet
                 </button>
@@ -310,7 +310,7 @@
                     <i data-lucide="gauge" class="w-5 h-5 text-indigo-500"></i>
                     สถิติวิเคราะห์กำลังผลิตจริงรายรุ่น (Actual Capacity Auditor)
                 </h3>
-                <p class="text-xs text-slate-400">คำนวณแบบคลีนจากสถิติจริง (กรองสแกนเบิ้ล 5 วินาที และเวลานอกสายผลิตออกแล้ว)</p>
+                <p class="text-xs text-slate-400">คำนวณแบบคลีนจากสถิติจริง (กรองสแกนเบิ้ล 1 วินาที และเวลานอกสายผลิตออกแล้ว)</p>
             </div>
             
             <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm">
@@ -778,8 +778,8 @@
 
         // Auto Refresh
         let refreshIntervalId = null;
-        let refreshSecondsLeft = 30;
-        const REFRESH_RATE = 30;
+        let refreshSecondsLeft = 15;
+        const REFRESH_RATE = 15;
 
         // Element Lookups
         const els = {
@@ -1047,7 +1047,7 @@
                 });
             });
 
-            // เรียงลำดับเวลาจากเก่าไปใหม่ เพื่อนำมาตรวจจับแสกนเบิ้ล (Double-Scan) ในระดับ 5 วินาที
+            // เรียงลำดับเวลาจากเก่าไปใหม่ เพื่อนำมาตรวจจับแสกนเบิ้ล (Double-Scan) ในระดับ 1 วินาที
             tempScans.sort((a, b) => a.ts - b.ts);
 
             const lastScanByLineAndBarcode = {};
@@ -1062,8 +1062,8 @@
                     const prevScan = lastScanByLineAndBarcode[trackingKey];
                     if (prevScan) {
                         const diffSeconds = (s.ts - prevScan.ts) / 1000;
-                        if (diffSeconds >= 0 && diffSeconds <= 5) {
-                            // ข้อมูลสแกนซ้ำซ้อนใน 5 วินาที -> ข้ามไม่นำมาบันทึก
+                        if (diffSeconds >= 0 && diffSeconds <= 1) {
+                            // ข้อมูลสแกนซ้ำซ้อนใน 1 วินาที -> ข้ามไม่นำมาบันทึก
                             return;
                         }
                     }
