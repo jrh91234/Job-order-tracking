@@ -1428,7 +1428,9 @@
             const hourlyTargets = hourSequence.map(hr => {
                 const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
-                    return 0; // ไม่มีสแกนเลยในชั่วโมงนี้ เป้าหมายสะสมเป็น 0
+                    // สำหรับชั่วโมงที่ไม่มีการสแกนเลย (เช่น ชั่วโมงในอนาคต) ให้คำนวณเป้าหมายอ้างอิงจากกำลังผลิตเฉลี่ยของวันคูณตัวคูณพักเบรค
+                    const numDates = new Set(okScans.map(s => s.prodDate)).size || 1;
+                    return Math.round(dailyAvgCapacity * getDowntimeMultiplier(hr) * numDates);
                 }
                 
                 // แยกกลุ่มข้อมูลสแกนในชั่วโมงนี้ตามวันผลิตจริง
@@ -1456,36 +1458,16 @@
                         
                         // แยกนับจำนวนสแกนและเก็บรายการสแกนแยกตามโมเดล
                         const modelCounts = {};
-                        const modelScansMap = {};
                         lineScans.forEach(s => {
                             modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
-                            if (!modelScansMap[s.model]) modelScansMap[s.model] = [];
-                            modelScansMap[s.model].push(s);
                         });
                         
                         Object.entries(modelCounts).forEach(([modelName, count]) => {
                             const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
                             const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
                             
-                            // คำนวณช่วงเวลารันจริงของโมเดลนี้ในชั่วโมง (Production Span)
-                            const mScans = modelScansMap[modelName];
-                            let spanMultiplier = 1.0;
-                            
-                            if (mScans.length <= 1) {
-                                spanMultiplier = 0; // stray scan หรือมีแสกนเดี่ยว ไม่นำมาคิดเป้าหมาย
-                            } else {
-                                const minutes = mScans.map(s => {
-                                    const tParts = s.time.split(':').map(Number);
-                                    return tParts[1] + (tParts[2] || 0) / 60;
-                                });
-                                const minMin = Math.min(...minutes);
-                                const maxMin = Math.max(...minutes);
-                                const span = maxMin - minMin;
-                                
-                                spanMultiplier = span >= 45 ? 1.0 : Math.max(5, span) / 60;
-                            }
-                            
-                            lineWeightedSum += (count / totalLineScans) * capVal * spanMultiplier;
+                            // เปลี่ยนเป้าหมายเป็นแบบคงที่เต็มชั่วโมงตามกำลังผลิตจริง (ลบ spanMultiplier ออกแล้ว)
+                            lineWeightedSum += (count / totalLineScans) * capVal;
                         });
                         sumOfLineTargets += lineWeightedSum;
                     });
@@ -1495,9 +1477,36 @@
                 return Math.round(totalTargetForHour);
             });
 
-            // คำนวณประสิทธิภาพการผลิตสะสม (Eff%) เทียบกับเป้าหมายสะสม
-            const totalTargetVal = hourlyTargets.reduce((sum, val) => sum + val, 0);
-            const totalActualVal = okScans.length;
+            // คำนวณประสิทธิภาพการผลิตสะสม (Eff%) เทียบกับเป้าหมายสะสม (เฉพาะชั่วโมงที่จบสมบูรณ์ 60 นาทีแล้วเท่านั้น)
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const todayStr = `${year}-${month}-${day}`;
+            const currentHour = now.getHours();
+            
+            // ตรวจสอบว่ากำลังดูข้อมูลวันปัจจุบัน (Today) หรือไม่
+            const isViewingToday = (els.filterStartDate.value === todayStr && els.filterEndDate.value === todayStr);
+            const currentHourIdx = hourSequence.indexOf(currentHour);
+            
+            let totalTargetVal = 0;
+            let totalActualVal = 0;
+            
+            hourSequence.forEach((hr, idx) => {
+                // ชั่วโมงที่จบสมบูรณ์คือ:
+                // 1. ถ้าไม่ใช่การดูวันปัจจุบัน -> ทุกชั่วโมงในกะคือชั่วโมงที่จบแล้ว
+                // 2. ถ้าดูวันปัจจุบัน -> เฉพาะชั่วโมงที่อยู่ก่อนชั่วโมงปัจจุบันตามลำดับในกะเท่านั้น
+                const isCompleted = !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx);
+                
+                if (isCompleted) {
+                    const hourScans = okScans.filter(s => s.hour === hr);
+                    if (hourScans.length > 0) {
+                        totalTargetVal += hourlyTargets[idx];
+                        totalActualVal += hourScans.length;
+                    }
+                }
+            });
+
             const effPercentEl = document.getElementById('kpi-eff-percent');
             if (effPercentEl) {
                 if (totalTargetVal > 0) {
@@ -1588,11 +1597,8 @@
                     const totalLineScans = lineScans.length;
                     
                     const modelCounts = {};
-                    const modelScansMap = {};
                     lineScans.forEach(s => {
                         modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
-                        if (!modelScansMap[s.model]) modelScansMap[s.model] = [];
-                        modelScansMap[s.model].push(s);
                     });
                     
                     const formulaParts = [];
@@ -1603,36 +1609,11 @@
                         const capInfo = findCapacityInfo(lineKey !== 'DEFAULT' ? lineKey : '', modelName);
                         const capVal = capInfo ? (capacityMode === 'planning' ? capInfo.planning : capInfo.max) : barcodeTargetSpeed;
                         
-                        const mScans = modelScansMap[modelName];
-                        let spanMultiplier = 1.0;
-                        let spanText = '';
-                        
-                        if (mScans.length <= 1) {
-                            spanMultiplier = 0;
-                            spanText = ' (แสกนเดี่ยว/ไม่มีเป้า)';
-                        } else {
-                            const minutes = mScans.map(s => {
-                                const tParts = s.time.split(':').map(Number);
-                                return tParts[1] + (tParts[2] || 0) / 60;
-                            });
-                            const minMin = Math.min(...minutes);
-                            const maxMin = Math.max(...minutes);
-                            const span = maxMin - minMin;
-                            
-                            if (span >= 45) {
-                                spanMultiplier = 1.0;
-                                spanText = ' (รันเต็มชม.)';
-                            } else {
-                                spanMultiplier = Math.max(5, span) / 60;
-                                spanText = ` (รันช่วงสั้น ${Math.round(span)} นาที)`;
-                            }
-                        }
-                        
-                        const weightedPart = (count / totalLineScans) * capVal * spanMultiplier;
+                        const weightedPart = (count / totalLineScans) * capVal;
                         lineWeightedSum += weightedPart;
                         
-                        formulaParts.push(`(${count}/${totalLineScans} × ${capVal} × ${Math.round(spanMultiplier * 100) / 100})`);
-                        capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal}${spanText})`);
+                        formulaParts.push(`(${count}/${totalLineScans} × ${capVal})`);
+                        capDetails.push(`${modelName} (${count} ชิ้น, Cap: ${capVal})`);
                     });
                     
                     const lineName = lineKey !== 'DEFAULT' ? `Line ${lineKey}` : 'General';
