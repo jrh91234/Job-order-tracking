@@ -999,6 +999,15 @@
             };
         }
 
+        function getScanQuantity(model) {
+            if (!model) return 1;
+            const normModel = model.trim().toUpperCase();
+            if (normModel === 'R9HME106') {
+                return 5;
+            }
+            return 1;
+        }
+
         function parseRawLogs() {
             processedScans = [];
             const seen = new Set();
@@ -1031,6 +1040,7 @@
                 const pTime = timeStr.split(':').map(Number);
                 const ts = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
 
+                const modelName = String(row['Model'] || '-').trim();
                 tempScans.push({
                     rawDateTime: dateTimeRaw,
                     prodDate: mapping.prodDateStr,
@@ -1039,11 +1049,12 @@
                     hour: mapping.hour,
                     time: timeStr,
                     jobOrder: String(row['Job Order'] || 'MANUAL_MODE').trim(),
-                    model: String(row['Model'] || '-').trim(),
+                    model: modelName,
                     barcode: barcode,
                     status: status,
                     line: String(row['Line'] || '-').trim(),
-                    ts: ts
+                    ts: ts,
+                    qty: getScanQuantity(modelName)
                 });
             });
 
@@ -1197,7 +1208,7 @@
         // ==========================================
         function calculateKPIs() {
             const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
-            const total = okScans.length;
+            const total = okScans.reduce((sum, s) => sum + (s.qty || 1), 0);
             els.kpiTotalScans.textContent = total.toLocaleString();
 
             // Average Speed (PCS/Hour)
@@ -1453,13 +1464,13 @@
                     
                     let sumOfLineTargets = 0;
                     Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
-                        const totalLineScans = lineScans.length;
+                        const totalLineScans = lineScans.reduce((sum, s) => sum + (s.qty || 1), 0);
                         let lineWeightedSum = 0;
                         
                         // แยกนับจำนวนสแกนและเก็บรายการสแกนแยกตามโมเดล
                         const modelCounts = {};
                         lineScans.forEach(s => {
-                            modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                            modelCounts[s.model] = (modelCounts[s.model] || 0) + (s.qty || 1);
                         });
                         
                         Object.entries(modelCounts).forEach(([modelName, count]) => {
@@ -1502,7 +1513,7 @@
                     const hourScans = okScans.filter(s => s.hour === hr);
                     if (hourScans.length > 0) {
                         totalTargetVal += hourlyTargets[idx];
-                        totalActualVal += hourScans.length;
+                        totalActualVal += hourScans.reduce((sum, s) => sum + (s.qty || 1), 0);
                     }
                 }
             });
@@ -1541,7 +1552,7 @@
             uniqueModels.forEach((modelName) => {
                 const color = getModelColor(modelName);
                 const modelCounts = hourSequence.map(hr => {
-                    return okScans.filter(s => s.hour === hr && s.model === modelName).length;
+                    return okScans.filter(s => s.hour === hr && s.model === modelName).reduce((sum, s) => sum + (s.qty || 1), 0);
                 });
 
                 hourlyDatasets.push({
@@ -1562,6 +1573,7 @@
                 const hrStr = `${String(hr).padStart(2, '0')}:00`;
                 const hourScans = okScans.filter(s => s.hour === hr);
                 const totalScans = hourScans.length;
+                const totalPieces = hourScans.reduce((sum, s) => sum + (s.qty || 1), 0);
                 const targetVal = hourlyTargets[idx];
                 
                 if (totalScans === 0) {
@@ -1594,11 +1606,11 @@
                 
                 let lineCalculationsHtml = '';
                 Object.entries(scansByLine).forEach(([lineKey, lineScans]) => {
-                    const totalLineScans = lineScans.length;
+                    const totalLineScans = lineScans.reduce((sum, s) => sum + (s.qty || 1), 0);
                     
                     const modelCounts = {};
                     lineScans.forEach(s => {
-                        modelCounts[s.model] = (modelCounts[s.model] || 0) + 1;
+                        modelCounts[s.model] = (modelCounts[s.model] || 0) + (s.qty || 1);
                     });
                     
                     const formulaParts = [];
@@ -1634,7 +1646,7 @@
                     
                     lineCalculationsHtml += `
                         <div class="pl-3 mt-1.5 space-y-0.5 border-l-2 border-indigo-200">
-                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numActiveDays} วันที่มีแสกน${breakText}, ${totalLineScans} สแกน)</span></div>
+                            <div class="text-[9.5px] font-semibold text-slate-600">${lineName}: Target = ${lineTargetTotal} PCS <span class="text-slate-400 font-normal">(${lineTargetSingleDay} ชิ้น/วัน × ${numActiveDays} วันที่มีแสกน${breakText}, ${totalLineScans} ชิ้น)</span></div>
                             <div class="text-[9px] font-mono text-slate-500">(${formulaStr}) × ${numActiveDays} วัน × ${Math.round(multiplier * 100) / 100} = ${Math.round(lineWeightedSum * numActiveDays * multiplier * 10) / 10}</div>
                             <div class="text-[9px] text-slate-400 italic">${detailsStr}</div>
                         </div>
@@ -1652,7 +1664,7 @@
                 calcListHtml += `
                     <div class="py-2 border-b border-slate-100 text-[10px] space-y-1.5">
                         <div class="flex justify-between items-center font-semibold text-slate-700">
-                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกนรวม)${hourBreakText}</span></span>
+                            <span>🕒 ${hrStr} <span class="ml-1 text-[9px] font-normal text-slate-400">(${totalScans} สแกน / ${totalPieces} ชิ้น)${hourBreakText}</span></span>
                             <span class="text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-bold">Target รวม: ${targetVal} PCS (${numActiveDays} วันที่มีแสกน)</span>
                         </div>
                         ${lineCalculationsHtml}
@@ -1830,7 +1842,7 @@
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
             okScans.forEach(s => {
-                modelGroups[s.model] = (modelGroups[s.model] || 0) + 1;
+                modelGroups[s.model] = (modelGroups[s.model] || 0) + (s.qty || 1);
             });
 
             // หาข้อมูลโมเดลล่าสุดของแต่ละไลน์เพื่อแสดงสถานะ Running
@@ -2163,7 +2175,7 @@
                 // 1. คำนวณ Cycle Time (ไม่รวมรอบประกอบที่ทิ้งช่วงเกิน 5 นาทีเพื่อคัดช่วงพักออก)
                 const sortedScans = [...mScans].sort((a, b) => a.ts - b.ts);
                 let totalIntervalSeconds = 0;
-                let intervalCount = 0;
+                let intervalPieces = 0;
                 
                 for (let i = 1; i < sortedScans.length; i++) {
                     const diffMs = sortedScans[i].ts - sortedScans[i-1].ts;
@@ -2171,24 +2183,24 @@
                     
                     if (diffSec > 0 && diffSec <= 300) { // กรอง Cycle time ไม่เกิน 5 นาที
                         totalIntervalSeconds += diffSec;
-                        intervalCount++;
+                        intervalPieces += sortedScans[i].qty || 1; // นับเป็นจำนวนชิ้นจริง
                     }
                 }
                 
-                const avgCycleTime = intervalCount > 0 ? (totalIntervalSeconds / intervalCount) : 0;
+                const avgCycleTime = intervalPieces > 0 ? (totalIntervalSeconds / intervalPieces) : 0;
                 const cycleTimeText = avgCycleTime > 0 ? `${avgCycleTime.toFixed(1)} วินาที` : '-';
 
                 // 2. คำนวณหาความเร็วสูงสุดรายชั่วโมง (Peak) และค่าเฉลี่ยรันงานปกติ (Steady Avg)
                 const hourlyCountsMap = {};
                 mScans.forEach(s => {
                     const key = `${s.prodDate}_${s.hour}`;
-                    hourlyCountsMap[key] = (hourlyCountsMap[key] || 0) + 1;
+                    hourlyCountsMap[key] = (hourlyCountsMap[key] || 0) + (s.qty || 1);
                 });
 
                 const hourlyRates = Object.values(hourlyCountsMap);
                 const peakCap = hourlyRates.length > 0 ? Math.max(...hourlyRates) : 0;
 
-                //Steady Avg: กรองชั่วโมงเปลี่ยนรุ่นออก (ที่มีสแกนน้อยกว่า 5 ชิ้น)
+                // Steady Avg: กรองชั่วโมงเปลี่ยนรุ่นออก (ที่มีจำนวนชิ้นน้อยกว่า 5 ชิ้น)
                 const steadyRates = hourlyRates.filter(rate => rate >= 5);
                 const steadyAvg = steadyRates.length > 0 
                     ? Math.round(steadyRates.reduce((sum, val) => sum + val, 0) / steadyRates.length)
@@ -2686,7 +2698,7 @@
                             </span>
                         </td>
                         <td class="p-3 font-semibold text-indigo-600 font-mono">${row.jobOrder}</td>
-                        <td class="p-3 font-semibold text-slate-800">${row.model}</td>
+                        <td class="p-3 font-semibold text-slate-800">${row.model}${row.qty > 1 ? ` <span class="bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded text-[10px] font-bold">x${row.qty} ชิ้น</span>` : ''}</td>
                         <td class="p-3 font-mono font-medium text-slate-600">${row.barcode}</td>
                         <td class="p-3 text-center">
                             <span class="px-2.5 py-0.5 rounded text-[10px] font-bold border ${statusBadge}">
