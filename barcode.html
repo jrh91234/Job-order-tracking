@@ -1092,17 +1092,13 @@
         // FILTERS & POPULATORS
         // ==========================================
         function populateFilters() {
-            // Find all unique dates
-            const dates = new Set();
-            processedScans.forEach(s => dates.add(s.prodDate));
-            const sortedDates = Array.from(dates).sort((a, b) => new Date(b) - new Date(a)); // Descending
-
-            if (sortedDates.length === 0) return;
+            if (processedScans.length === 0) return;
 
             // Set Date Picker default to latest available production date
             // เติมค่าเริ่มต้นเฉพาะตอนที่ยังไม่ได้เลือกวันที่เท่านั้น ไม่บังคับทับวันที่ที่ผู้ใช้เลือกไว้แล้ว
             // แม้วันนั้นจะยังไม่มียอดแสกน (เช่น วันนี้ที่ยังไม่เริ่มผลิต) เพื่อไม่ให้ระบบดีดกลับไปวันก่อนหน้าเอง
-            const latestDate = sortedDates[0];
+            // processedScans เรียงจาก ts ล่าสุดไปเก่าสุดอยู่แล้ว (ดู parseRawLogs) จึงหยิบตัวแรกได้เลยแบบ O(1)
+            const latestDate = processedScans[0].prodDate;
 
             if (!els.filterStartDate.value) {
                 els.filterStartDate.value = latestDate;
@@ -2858,9 +2854,8 @@
                                 // Restore saved filter states
                                 // คงวันที่เดิมที่ผู้ใช้เลือกไว้เสมอ (แม้วันนั้นจะยังไม่มียอดแสกน)
                                 // ไม่เช่นนั้นตอน auto-refresh ระบบจะดีดกลับไปวันล่าสุดที่มีข้อมูลเอง ทำให้เลือกวันนี้ค้างไว้ไม่ได้
-                                const dates = new Set(processedScans.map(s => s.prodDate));
-                                const sortedDates = Array.from(dates).sort((a, b) => new Date(b) - new Date(a));
-                                const latestDate = sortedDates[0] || '';
+                                // processedScans เรียงจาก ts ล่าสุดไปเก่าสุดอยู่แล้ว (ดู parseRawLogs) จึงหยิบตัวแรกได้เลยแบบ O(1)
+                                const latestDate = processedScans[0]?.prodDate || '';
 
                                 els.filterStartDate.value = savedStartDate || latestDate;
                                 els.filterEndDate.value = savedEndDate || latestDate;
