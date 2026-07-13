@@ -1294,14 +1294,15 @@
                     rawData = rawData.map(item => {
                         const breakdown = hourlyBreakdownByJob[item.jobNo] || [];
                         const filteredBarcodeActual = breakdown.reduce((sum, b) => sum + b.qty, 0);
-                        
-                        const actual = Math.max(item.manualActual || 0, filteredBarcodeActual);
+                        // เทียบยอดทั้ง 3 แหล่ง (แมนนวล, Actual Scan จากชีต Plan, ยอดสแกนจากชีตยอดผลิต) เอาค่าที่สูงที่สุด
+                        const bestBarcodeActual = Math.max(item.barcodeActual || 0, filteredBarcodeActual);
+                        const actual = Math.max(item.manualActual || 0, bestBarcodeActual);
                         const progress = item.plan > 0 ? Math.round((actual / item.plan) * 100) : 0;
                         const isComplete = progress >= 100;
-                        
+
                         return {
                             ...item,
-                            barcodeActual: filteredBarcodeActual,
+                            barcodeActual: bestBarcodeActual,
                             actual: actual,
                             progress: progress,
                             status: isComplete ? 'complete' : 'incomplete',
