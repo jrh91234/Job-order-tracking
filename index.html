@@ -938,7 +938,7 @@
                 });
             });
 
-            // เรียงตามเวลาดิบเพื่อคำนวณสแกนเบิ้ล 5 วินาที
+            // เรียงตามเวลาดิบเพื่อคำนวณสแกนเบิ้ลที่เวลาตรงกันเป๊ะ
             tempScans.sort((a, b) => a.ts - b.ts);
 
             const lastScanByLineAndBarcode = {};
@@ -951,8 +951,7 @@
                     const trackingKey = `${lKey}_${barcode}`;
                     const prevScan = lastScanByLineAndBarcode[trackingKey];
                     if (prevScan) {
-                        const diffSeconds = (s.ts - prevScan.ts) / 1000;
-                        if (diffSeconds >= 0 && diffSeconds <= 5) {
+                        if (s.ts === prevScan.ts) {
                             return; // กรองออก
                         }
                     }
