@@ -1092,7 +1092,7 @@
                 });
             });
 
-            // เรียงลำดับเวลาจากเก่าไปใหม่ เพื่อนำมาตรวจจับแสกนเบิ้ล (Double-Scan) ในระดับ 1 วินาที
+            // เรียงลำดับเวลาจากเก่าไปใหม่ เพื่อนำมาตรวจจับแสกนเบิ้ล (Double-Scan) ที่เวลาตรงกันเป๊ะ
             tempScans.sort((a, b) => a.ts - b.ts);
 
             const lastScanByLineAndBarcode = {};
@@ -1101,14 +1101,13 @@
             tempScans.forEach(s => {
                 const lineKey = s.line || 'DEFAULT';
                 const barcode = s.barcode;
-                
+
                 if (s.status.toUpperCase() === 'OK' && barcode && barcode !== '-') {
                     const trackingKey = `${lineKey}_${barcode}`;
                     const prevScan = lastScanByLineAndBarcode[trackingKey];
                     if (prevScan) {
-                        const diffSeconds = (s.ts - prevScan.ts) / 1000;
-                        if (diffSeconds >= 0 && diffSeconds <= 1) {
-                            // ข้อมูลสแกนซ้ำซ้อนใน 1 วินาที -> ข้ามไม่นำมาบันทึก
+                        if (s.ts === prevScan.ts) {
+                            // สแกนบาร์โค้ดเดิมในไลน์เดิมที่เวลาตรงกันเป๊ะ -> ถือว่าซ้ำ ข้ามไม่นำมาบันทึก
                             return;
                         }
                     }
