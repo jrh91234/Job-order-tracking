@@ -687,6 +687,32 @@
         </div>
     </div>
 
+    <!-- Incident List Modal (แสดงรายการเหตุการณ์ที่บันทึกไว้เมื่อกดที่ไอคอนเครื่องหมายตกใจบนกราฟ) -->
+    <div id="incident-list-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5"></i>
+                    <span id="incident-list-title">รายการเหตุการณ์ที่บันทึกไว้</span>
+                </h3>
+                <button onclick="closeIncidentListModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div id="incident-list-content" class="space-y-2 max-h-80 overflow-y-auto pr-1">
+                <!-- Populated dynamically -->
+            </div>
+
+            <div class="border-t border-slate-100 pt-3">
+                <button id="incident-list-add-btn" class="w-full py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                    บันทึกปัญหาเพิ่มเติมของชั่วโมงนี้
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Category Manager Modal -->
     <div id="category-manager-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
@@ -1738,21 +1764,22 @@
                     afterDatasetsDraw(chart) {
                         const { ctx } = chart;
                         ctx.save();
-                        
+
                         const activeStartDate = els.filterStartDate.value;
                         const dayIncidents = getIncidentsForDate(activeStartDate);
-                        
+                        chart.warningIconPositions = [];
+
                         chart.data.labels.forEach((label, index) => {
                             const hour = parseInt(label.split(':')[0]);
                             const hourIncidents = dayIncidents.filter(inc => inc.hour === hour);
-                            
+
                             if (hourIncidents.length > 0) {
                                 const meta = chart.getDatasetMeta(0);
                                 if (meta && meta.data[index]) {
                                     const model = meta.data[index];
                                     const barX = model.x;
                                     let barY = model.y;
-                                    
+
                                     for (let i = 0; i < chart.data.datasets.length; i++) {
                                         const datasetMeta = chart.getDatasetMeta(i);
                                         if (datasetMeta && datasetMeta.data[index] && !datasetMeta.hidden) {
@@ -1761,18 +1788,21 @@
                                             }
                                         }
                                     }
-                                    
+
                                     // วาดวงกลมสีส้มคำเตือน ⚠️
                                     ctx.beginPath();
                                     ctx.arc(barX, barY - 14, 8, 0, 2 * Math.PI);
                                     ctx.fillStyle = '#f59e0b';
                                     ctx.fill();
-                                    
+
                                     ctx.font = 'bold 11px sans-serif';
                                     ctx.fillStyle = '#ffffff';
                                     ctx.textAlign = 'center';
                                     ctx.textBaseline = 'middle';
                                     ctx.fillText('!', barX, barY - 13);
+
+                                    // เก็บตำแหน่งไอคอนไว้ตรวจจับการคลิกแยกจากการคลิกแท่งกราฟ
+                                    chart.warningIconPositions.push({ x: barX, y: barY - 14, radius: 10, hour });
                                 }
                             }
                         });
@@ -1789,6 +1819,18 @@
                     },
                     options: {
                         onClick: (e, elements) => {
+                            // ถ้ากดโดนไอคอนเครื่องหมายตกใจ (⚠️) ให้เปิดรายการเหตุการณ์ที่บันทึกไว้ของชั่วโมงนั้นแทน
+                            const iconPositions = hourlyChartObj.warningIconPositions || [];
+                            const clickedIcon = iconPositions.find(pos => {
+                                const dx = e.x - pos.x;
+                                const dy = e.y - pos.y;
+                                return Math.sqrt(dx * dx + dy * dy) <= pos.radius;
+                            });
+                            if (clickedIcon) {
+                                showIncidentListModal(clickedIcon.hour);
+                                return;
+                            }
+
                             if (elements && elements.length > 0) {
                                 const index = elements[0].index;
                                 const datasetIndex = elements[0].datasetIndex;
@@ -1801,6 +1843,15 @@
                                 }
                                 openIncidentModalForHour(hour, clickedModel);
                             }
+                        },
+                        onHover: (e, elements, chart) => {
+                            const iconPositions = chart.warningIconPositions || [];
+                            const overIcon = iconPositions.some(pos => {
+                                const dx = e.x - pos.x;
+                                const dy = e.y - pos.y;
+                                return Math.sqrt(dx * dx + dy * dy) <= pos.radius;
+                            });
+                            e.native.target.style.cursor = (overIcon || (elements && elements.length > 0)) ? 'pointer' : 'default';
                         },
                         responsive: true,
                         maintainAspectRatio: false,
@@ -2288,6 +2339,56 @@
                 }
             });
             return list;
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
+        // แสดงรายการเหตุการณ์ทั้งหมดที่บันทึกไว้ในชั่วโมงนั้น (เปิดเมื่อกดที่ไอคอนเครื่องหมายตกใจบนกราฟ)
+        function showIncidentListModal(hour) {
+            loadIncidents();
+            const activeDate = els.filterStartDate.value;
+            const hourIncidents = getIncidentsForDate(activeDate)
+                .filter(inc => inc.hour === hour)
+                .sort((a, b) => String(a.line).localeCompare(String(b.line)) || String(a.model).localeCompare(String(b.model)));
+
+            const hourRange = `${String(hour).padStart(2, '0')}:00 - ${String((hour + 1) % 24).padStart(2, '0')}:00 น.`;
+            document.getElementById('incident-list-title').textContent = `รายการเหตุการณ์ที่บันทึกไว้ (${hourRange})`;
+
+            const content = document.getElementById('incident-list-content');
+            if (hourIncidents.length === 0) {
+                content.innerHTML = `<p class="text-center text-slate-400 text-xs italic py-4">ยังไม่มีรายการบันทึกในชั่วโมงนี้</p>`;
+            } else {
+                content.innerHTML = hourIncidents.map(inc => {
+                    const lineName = inc.line === 'All' ? 'ทุกไลน์' : `Line ${escapeHtml(inc.line)}`;
+                    const modelName = inc.model === 'All' ? 'ทุกรุ่น' : escapeHtml(inc.model || '-');
+                    const escapedModelAttr = (inc.model || 'All').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    return `
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                            <div class="flex justify-between items-center gap-2">
+                                <span class="text-xs font-bold text-indigo-600">${lineName} • ${modelName}</span>
+                                <button onclick="closeIncidentListModal(); openIncidentModalForHour(${hour}, '${escapedModelAttr}');" class="text-xs font-bold text-indigo-600 hover:underline shrink-0">แก้ไข</button>
+                            </div>
+                            <div class="text-xs font-semibold text-slate-700">${escapeHtml(inc.categoryText)}</div>
+                            ${inc.notes ? `<div class="text-xs text-slate-500 whitespace-pre-wrap">${escapeHtml(inc.notes)}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            document.getElementById('incident-list-add-btn').onclick = () => {
+                closeIncidentListModal();
+                openIncidentModalForHour(hour, 'All');
+            };
+
+            document.getElementById('incident-list-modal').classList.remove('hidden');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeIncidentListModal() {
+            document.getElementById('incident-list-modal').classList.add('hidden');
         }
 
         function openIncidentModalForHour(hour, model = 'All') {
