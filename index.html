@@ -627,6 +627,21 @@
             localStorage.setItem('job_tracker_pending_submissions', JSON.stringify(pendingSubmissions));
         }
 
+        // แจ้งเตือนแบบไม่บล็อกหน้าจอ ใช้กับปัญหาฝั่งอ่านข้อมูลที่เดิมเงียบสนิท
+        function showSourceWarning(title, detail) {
+            console.warn(title, detail || '');
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title: title,
+                text: detail || '',
+                showConfirmButton: false,
+                timer: 6000,
+                timerProgressBar: true
+            });
+        }
+
         function mergeBreakdownByHour(entries) {
             if (!Array.isArray(entries) || entries.length === 0) return [];
             const bucket = {};
@@ -1267,11 +1282,24 @@
             const yodUrl = yodSheetUrl ? normalizeSheetUrl(yodSheetUrl) : forceYodProductionSheetUrl(sheetUrl);
             const fetchYodUrl = yodUrl.includes('?') ? `${yodUrl}&_t=${Date.now()}` : `${yodUrl}?_t=${Date.now()}`;
 
+            // ทุกทางออกของ callback ต้องเรียกตัวนี้ ไม่งั้นยอดที่เพิ่งลง (pendingSubmissions)
+            // จะไม่ถูกนำกลับมาแสดง กลายเป็น "ลงยอดแล้วตัวเลขไม่ขึ้น" ทั้งที่ข้อมูลเข้าชีตไปแล้ว
+            const finishBreakdownLoad = () => {
+                applyPendingSubmissionsToRawData();
+                renderStats();
+                renderList();
+                restoreScrollIfNeeded();
+            };
+
             Papa.parse(fetchYodUrl, {
                 download: true, header: true, skipEmptyLines: true,
                 complete: function(results) {
                     const rows = results.data || [];
-                    if (rows.length === 0) return;
+                    if (rows.length === 0) {
+                        showSourceWarning('อ่านชีตยอดผลิตได้ 0 แถว', 'ตรวจว่า gid ' + YOD_PRODUCTION_GID + ' คือแท็บ "ยอดผลิต" และเผยแพร่ (Publish to web) แท็บนั้นไว้แล้ว');
+                        finishBreakdownLoad();
+                        return;
+                    }
 
                     const keys = Object.keys(rows[0]);
                     const findKey = (keywords) => keys.find(k =>
@@ -1287,9 +1315,19 @@
 
                     const isYodProductionSource = sourceCheck.date && sourceCheck.time && sourceCheck.job && sourceCheck.qty;
                     if (!isYodProductionSource) {
+                        // เดิม return เงียบ ๆ ทำให้กรณีอ่านผิดแท็บ (เช่น gid ชี้ไปแท็บอื่น) ดูเหมือนลงยอดไม่เข้า
+                        const missing = Object.keys(sourceCheck).filter(k => !sourceCheck[k]);
                         console.warn('YOD breakdown source missing required headers', { keys: keys, sourceCheck: sourceCheck });
+                        showSourceWarning(
+                            'ชีตที่อ่านอยู่ไม่ใช่แท็บยอดผลิต',
+                            'หาหัวตารางไม่เจอ: ' + missing.join(', ') + ' — หัวตารางที่อ่านได้คือ ' + keys.join(' | ')
+                        );
+                        finishBreakdownLoad();
                         return;
                     }
+
+                    // ตัดรายการที่ยืนยันแล้วออกจากคิว ไม่งั้น pending จะถูกบวกซ้ำกับแถวจริงในชีตตลอดไป
+                    reconcilePendingWithYodRows(rows, keys);
 
                     hourlyBreakdownByJob = buildHourlyBreakdownMap(rows, keys, findKey);
                     rawData = rawData.map(item => {
@@ -1310,17 +1348,12 @@
                             hourlyBreakdown: breakdown
                         };
                     });
-                    applyPendingSubmissionsToRawData();
-                    renderStats();
-                    renderList();
-                    restoreScrollIfNeeded();
+                    finishBreakdownLoad();
                 },
                 error: function(err) {
+                    showSourceWarning('ดึงข้อมูลชีตยอดผลิตไม่สำเร็จ', 'ยอดที่แสดงอาจไม่ใช่ค่าล่าสุด — ตรวจว่าลิงก์ Publish to web ยังใช้งานได้');
                     console.warn('Cannot load ยอดผลิต breakdown CSV', err);
-                    applyPendingSubmissionsToRawData();
-                    renderStats();
-                    renderList();
-                    restoreScrollIfNeeded();
+                    finishBreakdownLoad();
                 }
             });
         }
