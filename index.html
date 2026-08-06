@@ -373,7 +373,9 @@
         let searchTerm = '';
         let sheetUrl = FIXED_SHEET_URL || localStorage.getItem('job_tracker_sheet_url') || '';
         let yodSheetUrl = FIXED_YOD_SHEET_URL || localStorage.getItem('job_tracker_yod_sheet_url') || '';
-        let scriptUrl = FIXED_SCRIPT_URL || localStorage.getItem('job_tracker_script_url') || '';
+        // ค่าที่ผู้ใช้บันทึกเองในหน้าตั้งค่าต้องมาก่อนค่า FIXED เสมอ
+        // ไม่เช่นนั้นการแก้ URL ของ Apps Script ในหน้าตั้งค่าจะถูกทับกลับทุกครั้งที่รีเฟรช
+        let scriptUrl = localStorage.getItem('job_tracker_script_url') || FIXED_SCRIPT_URL || '';
         let isDemoMode = false;
         let currentEditingJob = null;
         let hourlyBreakdownByJob = {};
@@ -1498,12 +1500,7 @@
                 isClosed: isClosedValue ? 'true' : 'false'
             };
 
-            fetch(scriptUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(payload)
-            })
+            postToScript(payload)
             .then(() => {
                 const job = rawData.find(j => j.jobNo === jobNo);
                 if (job) {
@@ -1542,12 +1539,7 @@
                 isClosed: isClosedValue ? 'true' : 'false'
             };
 
-            fetch(scriptUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(payload)
-            })
+            postToScript(payload)
             .then(() => {
                 // Optimistically update local data
                 const job = rawData.find(j => j.jobNo === jobNo);
@@ -1567,8 +1559,8 @@
                 console.error('Error closing/opening job:', err);
                 Swal.fire({
                     icon: 'error',
-                    title: 'เกิดข้อผิดพลาด',
-                    text: 'ไม่สามารถส่งบันทึกสถานะได้ กรุณาลองใหม่อีกครั้งครับ'
+                    title: 'ไม่สามารถบันทึกสถานะได้',
+                    text: err.message
                 });
             });
         }
@@ -1728,6 +1720,46 @@
             });
         }
 
+        // --- ส่งข้อมูลเข้า Google Apps Script ---
+        // เดิมทุกจุดใช้ fetch แบบ mode:'no-cors' ซึ่ง "สำเร็จเสมอ" ไม่ว่าปลายทางจะตอบอะไรกลับมา
+        // ทำให้เคส Deploy หมดอายุ / URL ผิด / ไม่มีสิทธิ์ / สคริปต์ throw กลายเป็นความล้มเหลวแบบเงียบ
+        // แอปขึ้นว่า "บันทึกสำเร็จ" ทั้งที่ไม่มีแถวไหนเข้าชีตเลย ฟังก์ชันนี้อ่านคำตอบจริงกลับมาแทน
+        async function postToScript(payload) {
+            if (!scriptUrl) throw new Error('ยังไม่ได้ตั้งค่า URL ของ Google Apps Script');
+
+            let res;
+            try {
+                res = await fetch(scriptUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload),
+                    redirect: 'follow'
+                });
+            } catch (err) {
+                console.error('postToScript network error:', err);
+                throw new Error('ติดต่อ Apps Script ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต และตรวจว่า Deploy ตั้ง "Who has access" เป็น Anyone');
+            }
+
+            if (!res.ok) {
+                throw new Error(`Apps Script ตอบกลับ HTTP ${res.status} — URL ของ Deploy อาจถูกเปลี่ยนหรือถูกลบไปแล้ว`);
+            }
+
+            const text = await res.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (err) {
+                // ถ้าได้ HTML กลับมาแทน JSON แปลว่าโดน redirect ไปหน้า Login ของ Google
+                console.error('postToScript non-JSON response:', text.slice(0, 500));
+                throw new Error('Apps Script ไม่ได้ตอบกลับเป็น JSON — มักเกิดเมื่อ Deploy ตั้งสิทธิ์ไม่ใช่ Anyone หรือ URL ไม่ใช่ลิงก์ /exec');
+            }
+
+            if (data && data.result === 'error') {
+                throw new Error(data.error || 'Apps Script แจ้งข้อผิดพลาด');
+            }
+            return data;
+        }
+
         // --- Undo Form Response ---
         function undoSubmission(payload) {
             // Revert Optimistic Update Locally
@@ -1754,12 +1786,7 @@
             // Send undo command
             const undoPayload = { ...payload, action: 'undo' };
             
-            fetch(scriptUrl, { 
-                method: 'POST', 
-                mode: 'no-cors', 
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(undoPayload) 
-            }).then(() => {
+            postToScript(undoPayload).then(() => {
                 Swal.fire({
                     icon: 'success',
                     title: 'ยกเลิกสำเร็จ',
@@ -1768,7 +1795,8 @@
                     confirmButtonColor: '#10b981'
                 });
             }).catch(err => {
-                Swal.fire({ icon: 'error', title: 'ยกเลิกไม่สำเร็จ', text: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+                console.error('Undo error:', err);
+                Swal.fire({ icon: 'error', title: 'ยกเลิกไม่สำเร็จ', text: err.message });
             });
         }
 
@@ -1867,12 +1895,7 @@
                 allowOutsideClick: false
             });
 
-            fetch(scriptUrl, { 
-                method: 'POST', 
-                mode: 'no-cors', 
-                headers: { 'Content-Type': 'text/plain' }, 
-                body: JSON.stringify(payload) 
-            })
+            postToScript(payload)
             .then(() => {
                 // Success popup (Manual Close)
                 Swal.fire({
@@ -1904,9 +1927,9 @@
                 }
                 Swal.fire({
                     icon: 'error',
-                    title: 'เกิดข้อผิดพลาด',
-                    text: 'กรุณาตรวจสอบอินเทอร์เน็ต'
-                }); 
+                    title: 'บันทึกไม่สำเร็จ ข้อมูลไม่ได้เข้าชีต',
+                    text: err.message
+                });
             });
         }
 

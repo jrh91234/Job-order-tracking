@@ -1,12 +1,53 @@
+var TARGET_SHEET_NAME = "ยอดผลิต"; // แก้ชื่อ Sheet ให้ตรงกับของคุณ
+
+function jsonOutput(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Health check สำหรับตรวจว่า Deployment ที่แอปเรียกอยู่ยังใช้งานได้จริงหรือไม่
+ * เปิด URL /exec ในเบราว์เซอร์แล้วจะเห็นว่าสคริปต์ผูกกับไฟล์ไหน เจอชีตเป้าหมายหรือเปล่า
+ * ถ้าเปิดแล้วไม่เห็น JSON นี้ แปลว่าปัญหาอยู่ที่ URL หรือสิทธิ์ของ Deployment ไม่ใช่ที่โค้ด
+ */
+function doGet() {
+  try {
+    var doc = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = doc.getSheetByName(TARGET_SHEET_NAME);
+    return jsonOutput({
+      result: "ok",
+      spreadsheet: doc.getName(),
+      targetSheet: TARGET_SHEET_NAME,
+      targetSheetFound: !!sheet,
+      lastRow: sheet ? sheet.getLastRow() : null,
+      headers: sheet ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : null,
+      allSheets: doc.getSheets().map(function (s) { return s.getName(); })
+    });
+  } catch (err) {
+    return jsonOutput({ result: "error", error: err.toString() });
+  }
+}
+
 function doPost(e) {
   var lock = LockService.getScriptLock();
-  lock.tryLock(10000);
+  var hasLock = lock.tryLock(10000);
 
   try {
-    var sheetName = "ยอดผลิต"; // แก้ชื่อ Sheet ให้ตรงกับของคุณ
+    if (!hasLock) {
+      return jsonOutput({ result: "error", error: "ระบบกำลังบันทึกรายการอื่นอยู่ กรุณาลองใหม่อีกครั้ง" });
+    }
+
     var doc = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = doc.getSheetByName(sheetName);
-    if (!sheet) sheet = doc.getSheets()[0];
+    var sheet = doc.getSheetByName(TARGET_SHEET_NAME);
+    // เดิม fallback ไป doc.getSheets()[0] เงียบ ๆ ทำให้ข้อมูลไปลงผิดแท็บโดยไม่มีใครรู้
+    // ถ้าหาแท็บเป้าหมายไม่เจอ ให้แจ้ง error กลับไปแทนการเดา
+    if (!sheet) {
+      return jsonOutput({
+        result: "error",
+        error: 'ไม่พบชีตชื่อ "' + TARGET_SHEET_NAME + '" ในไฟล์ "' + doc.getName() +
+               '" (แท็บที่มีอยู่: ' + doc.getSheets().map(function (s) { return s.getName(); }).join(', ') + ')'
+      });
+    }
 
     var data = JSON.parse(e.postData.contents);
     var lastCol = sheet.getLastColumn();
@@ -141,7 +182,9 @@ function doPost(e) {
       else if (header.includes("recorder") || header.includes("ผู้บันทึก") || header.includes("ผู้กรอก")) { 
         value = "'" + data.recorder; isDataFilled = true;
       } 
-      else if (header.includes("date") && header.includes("วันที่")) {
+      // ต้องเป็น || ไม่ใช่ && เพราะหัวคอลัมน์อาจเป็น "Date" หรือ "วันที่" อย่างใดอย่างหนึ่ง
+      // ถ้าใช้ && แล้วหัวตารางไม่มีทั้งสองคำ ช่องวันที่จะถูกปล่อยว่าง ทำให้แถวนั้นหายจากหน้า Job Monitor
+      else if (header.includes("date") || header.includes("วันที่")) {
         // --- เปลี่ยนประเภทให้เป็น วันที่ (Date Object) ---
         if (data.date && data.date.includes('-')) {
           var parts = data.date.split('-'); // YYYY-MM-DD
@@ -204,6 +247,6 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({result: "error", error: e.toString()}))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
-    lock.releaseLock();
+    if (hasLock) lock.releaseLock();
   }
 }
