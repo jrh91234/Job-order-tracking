@@ -653,6 +653,14 @@
                 </label>
 
                 <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input type="checkbox" id="export-opt-line" checked class="mt-0.5 w-4 h-4 accent-emerald-600">
+                    <span class="text-xs">
+                        <b class="text-slate-700 block">สรุปยอดผลิตแยกรายไลน์ผลิต</b>
+                        <span class="text-slate-400">ยอดผลิต สัดส่วน เป้าหมาย และ Eff% ของแต่ละไลน์</span>
+                    </span>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
                     <input type="checkbox" id="export-opt-model" checked class="mt-0.5 w-4 h-4 accent-emerald-600">
                     <span class="text-xs">
                         <b class="text-slate-700 block">สรุปยอดผลิตแยกรายรุ่น</b>
@@ -1694,8 +1702,15 @@
             });
             dailyAvgCapacity = sumOfLineAverages || barcodeTargetSpeed;
 
+            // เป้าหมายรายไลน์ของแต่ละชั่วโมง แยกเก็บไว้ระหว่างคำนวณเป้ารวม เพื่อให้สรุปแยกไลน์ในรายงาน PDF
+            // ใช้สูตรเดียวกับเป้าบนกราฟเป๊ะ ๆ ไม่ต้องคำนวณซ้ำแล้วเสี่ยงเพี้ยนกัน
+            const lineTargetsByHour = [];
+
             // คำนวณเป้าหมายรายชั่วโมงสะสมตามจริง (โดยนับวันผลิตเฉพาะชั่วโมงที่มีการสแกนจริงเพื่อไม่ให้เป้าหมายเพี้ยน)
-            const hourlyTargets = hourSequence.map(hr => {
+            const hourlyTargets = hourSequence.map((hr, hrIdx) => {
+                const lineTargets = {};
+                lineTargetsByHour[hrIdx] = lineTargets;
+
                 const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
                     // สำหรับชั่วโมงที่ไม่มีการสแกนเลย (เช่น ชั่วโมงในอนาคต) ให้คำนวณเป้าหมายอ้างอิงจากกำลังผลิตเฉลี่ยของวันคูณตัวคูณพักเบรค
@@ -1740,6 +1755,7 @@
                             lineWeightedSum += (count / totalLineScans) * capVal;
                         });
                         sumOfLineTargets += lineWeightedSum;
+                        lineTargets[lineKey] = (lineTargets[lineKey] || 0) + lineWeightedSum * getDowntimeMultiplier(hr);
                     });
                     totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
                 });
@@ -1761,19 +1777,40 @@
             
             let totalTargetVal = 0;
             let totalActualVal = 0;
-            
+
+            // สรุปรายไลน์สำหรับรายงาน PDF: ยอดผลิตนับทุกชั่วโมง ส่วนเป้าและ Eff% นับเฉพาะชั่วโมงที่จบแล้ว
+            // (ใช้เกณฑ์เดียวกับ Eff% รวมบนการ์ด KPI)
+            const lineStats = {};
+            const touchLine = key => {
+                const name = (!key || key === 'DEFAULT') ? '-' : key;
+                if (!lineStats[name]) {
+                    lineStats[name] = { qty: 0, completedActual: 0, completedTarget: 0, hours: new Set(), models: new Set() };
+                }
+                return lineStats[name];
+            };
+
             hourSequence.forEach((hr, idx) => {
                 // ชั่วโมงที่จบสมบูรณ์คือ:
                 // 1. ถ้าไม่ใช่การดูวันปัจจุบัน -> ทุกชั่วโมงในกะคือชั่วโมงที่จบแล้ว
                 // 2. ถ้าดูวันปัจจุบัน -> เฉพาะชั่วโมงที่อยู่ก่อนชั่วโมงปัจจุบันตามลำดับในกะเท่านั้น
                 const isCompleted = !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx);
-                
-                if (isCompleted) {
-                    const hourScans = okScans.filter(s => s.hour === hr);
-                    if (hourScans.length > 0) {
-                        totalTargetVal += hourlyTargets[idx];
-                        totalActualVal += hourScans.reduce((sum, s) => sum + (s.qty || 1), 0);
-                    }
+                const hourScans = okScans.filter(s => s.hour === hr);
+
+                hourScans.forEach(s => {
+                    const stat = touchLine(s.line);
+                    stat.qty += (s.qty || 1);
+                    stat.hours.add(`${s.prodDate}_${s.hour}`);
+                    stat.models.add(s.model);
+                    if (isCompleted) stat.completedActual += (s.qty || 1);
+                });
+
+                if (isCompleted && hourScans.length > 0) {
+                    totalTargetVal += hourlyTargets[idx];
+                    totalActualVal += hourScans.reduce((sum, s) => sum + (s.qty || 1), 0);
+
+                    Object.entries(lineTargetsByHour[idx] || {}).forEach(([lineKey, target]) => {
+                        touchLine(lineKey).completedTarget += target;
+                    });
                 }
             });
 
@@ -1790,7 +1827,17 @@
                 ),
                 totalTargetVal: totalTargetVal,
                 totalActualVal: totalActualVal,
-                effPercent: totalTargetVal > 0 ? Math.round((totalActualVal / totalTargetVal) * 100) : null
+                effPercent: totalTargetVal > 0 ? Math.round((totalActualVal / totalTargetVal) * 100) : null,
+                byLine: Object.entries(lineStats)
+                    .map(([line, stat]) => ({
+                        line: line,
+                        qty: stat.qty,
+                        activeHours: stat.hours.size,
+                        modelCount: stat.models.size,
+                        target: Math.round(stat.completedTarget),
+                        eff: stat.completedTarget > 0 ? (stat.completedActual / stat.completedTarget) * 100 : null
+                    }))
+                    .sort((a, b) => b.qty - a.qty)
             };
 
             const effPercentEl = document.getElementById('kpi-eff-percent');
@@ -3672,6 +3719,76 @@
             `;
         }
 
+        function buildReportLineHtml() {
+            if (!lastHourlySummary || !lastHourlySummary.byLine || lastHourlySummary.byLine.length === 0) return '';
+
+            const lines = lastHourlySummary.byLine;
+
+            // ถ้าข้อมูลไม่ได้ระบุไลน์มาเลย ตารางนี้จะมีแถวเดียวชื่อ "ไม่ระบุไลน์" ซึ่งไม่ได้ให้ข้อมูลอะไรเพิ่ม
+            if (lines.length === 1 && lines[0].line === '-') return '';
+
+            const grandQty = lines.reduce((sum, l) => sum + l.qty, 0);
+            const grandTarget = lines.reduce((sum, l) => sum + l.target, 0);
+            const grandEff = lastHourlySummary.totalTargetVal > 0
+                ? (lastHourlySummary.totalActualVal / lastHourlySummary.totalTargetVal) * 100
+                : null;
+
+            let rows = '';
+            lines.forEach(l => {
+                const share = grandQty > 0 ? (l.qty / grandQty) * 100 : 0;
+                const activeHours = l.activeHours || 1;
+                rows += `
+                    <tr>
+                        <td>${l.line === '-' ? 'ไม่ระบุไลน์' : escapeHtml('Line ' + l.line)}</td>
+                        <td class="rpt-num">${l.qty.toLocaleString()}</td>
+                        <td class="rpt-num">${share.toFixed(1)}%</td>
+                        <td class="rpt-num">${l.activeHours.toLocaleString()}</td>
+                        <td class="rpt-num">${Math.round(l.qty / activeHours).toLocaleString()}</td>
+                        <td class="rpt-num">${l.modelCount.toLocaleString()}</td>
+                        <td class="rpt-num">${l.target > 0 ? l.target.toLocaleString() : '-'}</td>
+                        <td class="rpt-num ${rptEffClass(l.eff)}">${l.eff === null ? '-' : l.eff.toFixed(1) + '%'}</td>
+                    </tr>
+                `;
+            });
+
+            return `
+                <div class="rpt-section">
+                    <div class="rpt-h2">{{NO}}. สรุปยอดผลิตแยกรายไลน์ผลิต</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:16%;">ไลน์ผลิต (Line)</th>
+                                <th style="width:13%; text-align:right;">ยอดผลิต (PCS)</th>
+                                <th style="width:11%; text-align:right;">สัดส่วน</th>
+                                <th style="width:12%; text-align:right;">ชั่วโมงที่ผลิต</th>
+                                <th style="width:13%; text-align:right;">เฉลี่ย PCS/Hr</th>
+                                <th style="width:11%; text-align:right;">จำนวนรุ่น</th>
+                                <th style="width:13%; text-align:right;">เป้าหมาย (PCS)</th>
+                                <th style="width:11%; text-align:right;">Eff %</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                        <tfoot>
+                            <tr>
+                                <td style="background:#eef2ff; font-weight:700;">รวมทั้งสิ้น (${lines.length} ไลน์)</td>
+                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${grandQty.toLocaleString()}</td>
+                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">100.0%</td>
+                                <td style="background:#eef2ff;"></td>
+                                <td style="background:#eef2ff;"></td>
+                                <td style="background:#eef2ff;"></td>
+                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${grandTarget > 0 ? grandTarget.toLocaleString() : '-'}</td>
+                                <td class="rpt-num ${rptEffClass(grandEff)}" style="background:#eef2ff;">${grandEff === null ? '-' : grandEff.toFixed(1) + '%'}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <div class="rpt-sub" style="margin-top:3pt;">
+                        หมายเหตุ: คอลัมน์ยอดผลิตนับทุกชั่วโมงที่มีการสแกน ส่วนเป้าหมายและ Eff% นับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว
+                        จึงอาจไม่เท่ากับยอดผลิตในแถวเดียวกัน เกณฑ์ตัดสินคือ Eff% ตั้งแต่ ${REPORT_EFF_TARGET}% ขึ้นไป
+                    </div>
+                </div>
+            `;
+        }
+
         function buildReportModelHtml() {
             const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
             if (okScans.length === 0) return '';
@@ -3886,6 +4003,7 @@
             if (opt('export-opt-kpi'))       sections.push(buildReportKpiHtml());
             if (opt('export-opt-charts'))    sections.push(buildReportChartsHtml());
             if (opt('export-opt-hourly'))    sections.push(buildReportHourlyHtml());
+            if (opt('export-opt-line'))      sections.push(buildReportLineHtml());
             if (opt('export-opt-model'))     sections.push(buildReportModelHtml());
             if (opt('export-opt-capacity'))  sections.push(buildReportCapacityHtml());
             if (opt('export-opt-incidents')) sections.push(buildReportIncidentsHtml(scope));
