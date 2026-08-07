@@ -7,14 +7,18 @@ function jsonOutput(obj) {
 
 /**
  * Health check สำหรับตรวจว่า Deployment ที่แอปเรียกอยู่ยังใช้งานได้จริงหรือไม่
- * เปิด URL /exec ในเบราว์เซอร์แล้วจะเห็นว่าสคริปต์ผูกกับไฟล์ไหน เจอชีตเป้าหมายหรือเปล่า
+ * เรียกผ่าน URL /exec?mode=health แล้วจะเห็นว่าสคริปต์ผูกกับไฟล์ไหน เจอชีตเป้าหมายหรือเปล่า
  * ถ้าเปิดแล้วไม่เห็น JSON นี้ แปลว่าปัญหาอยู่ที่ URL หรือสิทธิ์ของ Deployment ไม่ใช่ที่โค้ด
+ *
+ * หมายเหตุ: ห้ามตั้งชื่อฟังก์ชันนี้ว่า doGet เพราะ Apps Script รวมทุกไฟล์ไว้ใน scope เดียวกัน
+ * ถ้ามี doGet ซ้ำ ตัวที่โหลดทีหลังจะทับตัวแรก ทำให้เปิดเว็บแอปแล้วได้ JSON แทนหน้า index.html
+ * ตัว doGet จริงอยู่ใน "บันทึก Plan.js" และจะเรียกฟังก์ชันนี้เมื่อมี ?mode=health
  */
-function doGet() {
+function healthCheckPayload_() {
   try {
     var doc = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = doc.getSheetByName(TARGET_SHEET_NAME);
-    return jsonOutput({
+    return {
       result: "ok",
       spreadsheet: doc.getName(),
       targetSheet: TARGET_SHEET_NAME,
@@ -22,9 +26,9 @@ function doGet() {
       lastRow: sheet ? sheet.getLastRow() : null,
       headers: sheet ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : null,
       allSheets: doc.getSheets().map(function (s) { return s.getName(); })
-    });
+    };
   } catch (err) {
-    return jsonOutput({ result: "error", error: err.toString() });
+    return { result: "error", error: err.toString() };
   }
 }
 
