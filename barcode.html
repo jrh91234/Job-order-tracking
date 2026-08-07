@@ -85,6 +85,15 @@
             padding: 6pt 8pt;
         }
         #pdf-report .rpt-meta b { color: #334155; }
+        #pdf-report .rpt-criteria {
+            margin-top: 5pt;
+            padding: 5pt 8pt;
+            font-size: 7.5pt;
+            color: #334155;
+            background: #eef2ff;
+            border: 0.75pt solid #c7d2fe;
+            border-radius: 4pt;
+        }
         #pdf-report .rpt-kpis {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -3446,9 +3455,16 @@
             return list;
         }
 
+        // เป้าหมายประสิทธิภาพการผลิตที่ใช้ตัดสินผ่าน/ไม่ผ่านทั้งรายงาน แก้ตัวเลขนี้ที่เดียวได้เลย
+        const REPORT_EFF_TARGET = 85;
+        // ต่ำกว่าเป้าไม่เกิน 5% ถือว่าใกล้เป้า แสดงเป็นสีเหลืองแทนสีแดง
+        const REPORT_EFF_WARN = REPORT_EFF_TARGET - 5;
+
         function rptEffClass(eff) {
             if (eff === null || eff === undefined || isNaN(eff)) return 'rpt-muted';
-            return eff < 80 ? 'rpt-bad' : eff < 95 ? 'rpt-warn' : 'rpt-good';
+            if (eff >= REPORT_EFF_TARGET) return 'rpt-good';
+            if (eff >= REPORT_EFF_WARN) return 'rpt-warn';
+            return 'rpt-bad';
         }
 
         function openExportModal() {
@@ -3503,6 +3519,13 @@
                         <div><b>รุ่นสินค้า:</b> ${escapeHtml(scope.model)}</div>
                         <div><b>คำค้นหา:</b> ${scope.search ? escapeHtml(scope.search) : '-'}</div>
                     </div>
+                    <div class="rpt-criteria">
+                        <b>เกณฑ์ตัดสินในรายงานฉบับนี้:</b>
+                        เป้าหมายประสิทธิภาพการผลิต (Eff%) = <b>${REPORT_EFF_TARGET}%</b>
+                        · <span class="rpt-good">สีเขียว = ถึงเป้า (${REPORT_EFF_TARGET}% ขึ้นไป)</span>
+                        · <span class="rpt-warn">สีเหลือง = ใกล้เป้า (${REPORT_EFF_WARN}-${REPORT_EFF_TARGET}%)</span>
+                        · <span class="rpt-bad">สีแดง = ต่ำกว่าเป้า (ต่ำกว่า ${REPORT_EFF_WARN}%)</span>
+                    </div>
                 </div>
             `;
         }
@@ -3537,7 +3560,7 @@
                         <div class="rpt-kpi">
                             <span>ประสิทธิภาพผลิต</span>
                             <strong class="${rptEffClass(eff)}">${eff === null ? '-' : eff + '%'}</strong>
-                            <span>เทียบเป้าสะสม</span>
+                            <span>เป้าหมาย ${REPORT_EFF_TARGET}%</span>
                         </div>
                     </div>
                 </div>
@@ -3590,9 +3613,12 @@
                 shownCount++;
                 const diff = actual - target;
                 const eff = target > 0 ? (actual / target) * 100 : null;
+                // ชั่วโมงที่เป้าเป็น 0 คือช่วงพัก (เช่น 12:00-13:00) ตัดสินผ่าน/ไม่ผ่านไม่ได้
                 const statusText = !s.completed[idx]
                     ? 'กำลังผลิต'
-                    : (diff >= 0 ? 'ถึงเป้า' : 'ต่ำกว่าเป้า');
+                    : eff === null
+                        ? 'นอกเวลาผลิต'
+                        : (eff >= REPORT_EFF_TARGET ? 'ถึงเป้า' : 'ต่ำกว่าเป้า');
 
                 rows += `
                     <tr>
@@ -3601,7 +3627,7 @@
                         <td class="rpt-num">${target.toLocaleString()}</td>
                         <td class="rpt-num ${diff >= 0 ? 'rpt-good' : 'rpt-bad'}">${diff >= 0 ? '+' : ''}${diff.toLocaleString()}</td>
                         <td class="rpt-num ${rptEffClass(eff)}">${eff === null ? '-' : eff.toFixed(1) + '%'}</td>
-                        <td class="rpt-mid rpt-muted">${statusText}</td>
+                        <td class="rpt-mid ${s.completed[idx] ? rptEffClass(eff) : 'rpt-muted'}">${statusText}</td>
                     </tr>
                 `;
             });
@@ -3640,6 +3666,7 @@
                     <div class="rpt-sub" style="margin-top:3pt;">
                         หมายเหตุ: แถวรวมนับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ตรงกับวิธีคำนวณ Eff% บนหน้าจอ
                         ส่วนเป้าหมายรายชั่วโมงคำนวณแบบไดนามิกตามกำลังผลิตของรุ่นและไลน์ที่รันจริงในชั่วโมงนั้น
+                        คอลัมน์สถานะตัดสินจาก Eff% เทียบเป้า ${REPORT_EFF_TARGET}% ไม่ใช่จากผลต่างจำนวนชิ้น
                     </div>
                 </div>
             `;
