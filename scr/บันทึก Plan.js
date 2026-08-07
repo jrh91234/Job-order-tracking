@@ -5,7 +5,19 @@ const SHEET_ID = '1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U';
 const MODEL_SHEET_NAME = 'โมเดล';       
 const DESTINATION_SHEET_NAME = 'Plan';  
 
-function doGet() {
+/**
+ * doGet เดียวของทั้งโปรเจกต์ — ห้ามประกาศ doGet ในไฟล์อื่นอีก
+ * Apps Script รวมทุกไฟล์ไว้ใน scope เดียวกัน ถ้ามี doGet ซ้ำ ตัวที่โหลดทีหลังจะทับตัวแรกเงียบ ๆ
+ *   /exec              -> หน้าเว็บแอป (index.html)
+ *   /exec?mode=health  -> JSON health check ของชีต "ยอดผลิต"
+ */
+function doGet(e) {
+  var mode = (e && e.parameter && e.parameter.mode) || '';
+
+  if (mode === 'health') {
+    return jsonOutput(healthCheckPayload_());
+  }
+
   return HtmlService.createTemplateFromFile('index').evaluate()
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setTitle('Drive Scanner V.25 (Ban TH- & JRTL)');
