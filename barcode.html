@@ -358,7 +358,7 @@
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
                             <th class="p-3">รุ่นสินค้า (Model)</th>
                             <th class="p-3 text-center">กำลังผลิต 100% (Max)</th>
-                            <th class="p-3 text-center">กำลังผลิตรันปกติเฉลี่ย (Steady Avg)</th>
+                            <th class="p-3 text-center">เฉลี่ยจริงรวม downtime (Actual Avg)</th>
                             <th class="p-3 text-center">ความเร็วสูงสุดที่เคยทำได้ (Peak Cap)</th>
                             <th class="p-3 text-center">รอบเวลาประกอบเฉลี่ย (Cycle Time)</th>
                             <th class="p-3 text-center">ประสิทธิภาพ (Eff %)</th>
@@ -1638,10 +1638,15 @@
             // ใช้สูตรเดียวกับเป้าบนกราฟเป๊ะ ๆ ไม่ต้องคำนวณซ้ำแล้วเสี่ยงเพี้ยนกัน
             const lineTargetsByHour = [];
 
+            // นาทีที่ "เปิดให้ผลิต" ของแต่ละชั่วโมง = 60 นาที × ตัวคูณเวลาพักเบรค × จำนวนคู่ (วัน × ไลน์) ที่เดินอยู่
+            // ใช้แปลงส่วนต่างจากเป้าให้กลายเป็นเวลาที่สูญเสียไป ตามหลักที่ว่าถ้าเดินอยู่ก็ควรได้เท่ากำลังผลิต
+            const availableMinutesByHour = [];
+
             // คำนวณเป้าหมายรายชั่วโมงสะสมตามจริง (โดยนับวันผลิตเฉพาะชั่วโมงที่มีการสแกนจริงเพื่อไม่ให้เป้าหมายเพี้ยน)
             const hourlyTargets = hourSequence.map((hr, hrIdx) => {
                 const lineTargets = {};
                 lineTargetsByHour[hrIdx] = lineTargets;
+                availableMinutesByHour[hrIdx] = 0;
 
                 const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
@@ -1688,6 +1693,7 @@
                         });
                         sumOfLineTargets += lineWeightedSum;
                         lineTargets[lineKey] = (lineTargets[lineKey] || 0) + lineWeightedSum * getDowntimeMultiplier(hr);
+                        availableMinutesByHour[hrIdx] += 60 * getDowntimeMultiplier(hr);
                     });
                     totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
                 });
@@ -1764,6 +1770,9 @@
                     });
                     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
                 }),
+                // นาทีที่เปิดให้ผลิตของแต่ละชั่วโมง เป็น 0 สำหรับชั่วโมงที่ไม่มีการสแกนเลย
+                // เพราะไม่มีทางรู้ว่าชั่วโมงนั้นตั้งใจให้เดินกี่ไลน์ (อาจเป็นนอกเวลาทำงานก็ได้)
+                availableMinutes: availableMinutesByHour.slice(),
                 completed: hourSequence.map((hr, idx) =>
                     !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx)
                 ),
@@ -2483,16 +2492,16 @@
                 const hourlyRates = Object.values(hourlyCountsMap);
                 const peakCap = hourlyRates.length > 0 ? Math.max(...hourlyRates) : 0;
 
-                // Steady Avg: กรองชั่วโมงเปลี่ยนรุ่นออก (ที่มีจำนวนชิ้นน้อยกว่า 5 ชิ้น)
-                const steadyRates = hourlyRates.filter(rate => rate >= 5);
-                const steadyAvg = steadyRates.length > 0 
-                    ? Math.round(steadyRates.reduce((sum, val) => sum + val, 0) / steadyRates.length)
-                    : (hourlyRates.length > 0 ? Math.round(hourlyRates.reduce((sum, val) => sum + val, 0) / hourlyRates.length) : 0);
+                // เฉลี่ยจริง: ยอดรวม ÷ ทุกชั่วโมงที่มีการผลิต ใช้สูตรเดียวกับตารางสรุปรายรุ่น
+                // เดิมตัดชั่วโมงที่ได้น้อยกว่า 5 ชิ้นทิ้ง แต่ชั่วโมงพวกนั้นคือชั่วโมงที่มี downtime หนัก
+                // การตัดออกจึงเป็นการซ่อน loss ที่ต้องการวัดพอดี ตอนนี้นับทุกชั่วโมงตามจริง
+                const totalQty = hourlyRates.reduce((sum, val) => sum + val, 0);
+                const avgRate = hourlyRates.length > 0 ? Math.round(totalQty / hourlyRates.length) : 0;
 
                 // 3. คำนวณเปอร์เซ็นต์ประสิทธิภาพการผลิต (Eff %)
-                const eff = (stdCap > 0 && steadyAvg > 0) ? (steadyAvg / stdCap) * 100 : null;
+                const eff = (stdCap > 0 && avgRate > 0) ? (avgRate / stdCap) * 100 : null;
 
-                return { modelName, stdCap, steadyAvg, peakCap, avgCycleTime, cycleTimeText, eff };
+                return { modelName, stdCap, avgRate, peakCap, avgCycleTime, cycleTimeText, eff };
             });
         }
 
@@ -2507,7 +2516,7 @@
             }
 
             let html = '';
-            rows.forEach(({ modelName, stdCap, steadyAvg, peakCap, cycleTimeText, eff }) => {
+            rows.forEach(({ modelName, stdCap, avgRate, peakCap, cycleTimeText, eff }) => {
                 const effText = eff === null ? '-' : `${eff.toFixed(1)}%`;
                 const effClass = eff === null
                     ? 'text-slate-400'
@@ -2517,7 +2526,7 @@
                     <tr class="hover:bg-slate-50/50 transition-colors">
                         <td class="p-3 font-semibold text-slate-700">${modelName}</td>
                         <td class="p-3 text-center font-mono text-slate-500">${stdCap} PCS/Hr</td>
-                        <td class="p-3 text-center font-mono text-indigo-600">${steadyAvg > 0 ? steadyAvg + ' PCS/Hr' : '-'}</td>
+                        <td class="p-3 text-center font-mono text-indigo-600">${avgRate > 0 ? avgRate + ' PCS/Hr' : '-'}</td>
                         <td class="p-3 text-center font-mono text-amber-600">${peakCap > 0 ? peakCap + ' PCS/Hr' : '-'}</td>
                         <td class="p-3 text-center font-mono text-slate-600">${cycleTimeText}</td>
                         <td class="p-3 text-center font-mono font-bold ${effClass}">${effText}</td>
@@ -3739,9 +3748,13 @@
                 pdfHeaderCell('เป้าหมาย (PCS)', 'right'),
                 pdfHeaderCell('ผลต่าง', 'right'),
                 pdfHeaderCell('Eff %', 'right'),
+                pdfHeaderCell('เวลาที่หายไป (นาที)', 'right'),
                 pdfHeaderCell('สถานะ', 'center'),
                 pdfHeaderCell('รุ่นที่ผลิตในชั่วโมงนี้ (PCS)')
             ]];
+
+            let totalLostMinutes = 0;
+            let totalAvailableMinutes = 0;
 
             s.hourSequence.forEach((hr, idx) => {
                 const actual = s.actuals[idx] || 0;
@@ -3750,6 +3763,20 @@
 
                 const diff = actual - target;
                 const eff = target > 0 ? (actual / target) * 100 : null;
+
+                // เวลาที่หายไป = สัดส่วนที่ผลิตได้ไม่ถึงเป้า × นาทีที่เปิดให้ผลิตในชั่วโมงนั้น
+                // อนุมานจากส่วนต่าง เพราะเก็บเวลาหยุดจริงรายนาทีไม่ได้ ตั้งอยู่บนหลักว่าถ้าเดินอยู่
+                // ก็ควรผลิตได้เท่ากำลังผลิตที่จับเวลาไว้ ผลิตได้น้อยกว่านั้นแปลว่ามีเวลาที่หายไป
+                // ชั่วโมงที่ไม่มีการสแกนเลยจะไม่คิด เพราะไม่รู้ว่าตั้งใจให้เดินกี่ไลน์หรือเป็นนอกเวลางาน
+                const availableMin = (s.availableMinutes && s.availableMinutes[idx]) || 0;
+                const lostMinutes = (availableMin > 0 && target > 0)
+                    ? Math.max(0, 1 - (actual / target)) * availableMin
+                    : null;
+
+                if (lostMinutes !== null) {
+                    totalLostMinutes += lostMinutes;
+                    totalAvailableMinutes += availableMin;
+                }
                 // ชั่วโมงที่เป้าเป็น 0 คือช่วงพัก (เช่น 12:00-13:00) ตัดสินผ่าน/ไม่ผ่านไม่ได้
                 const statusText = !s.completed[idx]
                     ? 'กำลังผลิต'
@@ -3769,6 +3796,12 @@
                     pdfCell(target.toLocaleString(), 'right'),
                     pdfCell((diff >= 0 ? '+' : '') + diff.toLocaleString(), 'right', diff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
                     pdfEffCell(eff),
+                    pdfCell(
+                        lostMinutes === null ? '-' : Math.round(lostMinutes).toLocaleString(),
+                        'right',
+                        lostMinutes === null ? PDF_COLOR.muted : (lostMinutes > 0 ? PDF_COLOR.bad : PDF_COLOR.good),
+                        lostMinutes !== null && lostMinutes > 0
+                    ),
                     pdfCell(statusText, 'center', s.completed[idx] ? rptEffColor(eff) : PDF_COLOR.muted),
                     pdfCell(modelText, 'left', models.length === 0 ? PDF_COLOR.muted : PDF_COLOR.text)
                 ]);
@@ -3785,6 +3818,7 @@
                 pdfTotalCell(s.totalTargetVal.toLocaleString(), 'right'),
                 pdfTotalCell((totalDiff >= 0 ? '+' : '') + totalDiff.toLocaleString(), 'right', totalDiff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
                 pdfTotalCell(totalEff === null ? '-' : totalEff.toFixed(1) + '%', 'right', rptEffColor(totalEff)),
+                pdfTotalCell(Math.round(totalLostMinutes).toLocaleString(), 'right', totalLostMinutes > 0 ? PDF_COLOR.bad : PDF_COLOR.good),
                 pdfTotalCell('', 'center'),
                 pdfTotalCell('')
             ]);
@@ -3792,13 +3826,18 @@
             return [
                 ...pdfHeading('ผลผลิตรายชั่วโมงเทียบเป้าหมาย (Hourly vs Target)'),
                 {
-                    table: { headerRows: 1, widths: [70, 54, 58, 44, 40, 60, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [72, 50, 54, 42, 38, 52, 56, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`หมายเหตุ: แถวรวมนับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ตรงกับวิธีคำนวณ Eff% บนหน้าจอ ` +
                     `ส่วนเป้าหมายรายชั่วโมงคำนวณแบบไดนามิกตามกำลังผลิตของรุ่นและไลน์ที่รันจริงในชั่วโมงนั้น ` +
                     `คอลัมน์สถานะตัดสินจาก Eff% เทียบเป้า ${REPORT_EFF_TARGET}% ไม่ใช่จากผลต่างจำนวนชิ้น · ` +
-                    `คอลัมน์รุ่นที่ผลิตแจกแจงยอดของแต่ละรุ่นในชั่วโมงนั้น รวมกันแล้วเท่ากับคอลัมน์ยอดจริง`)
+                    `คอลัมน์รุ่นที่ผลิตแจกแจงยอดของแต่ละรุ่นในชั่วโมงนั้น รวมกันแล้วเท่ากับคอลัมน์ยอดจริง`),
+                pdfNote(`เวลาที่หายไป: เป็นเวลาที่อนุมานจากส่วนต่าง ไม่ใช่เวลาที่จับได้จริง คิดจาก (1 − Eff%) × นาทีที่เปิดให้ผลิต ` +
+                    `ตั้งอยู่บนหลักว่าถ้าสายผลิตเดินอยู่ก็ควรได้เท่ากำลังผลิตที่จับเวลาไว้ ผลิตได้น้อยกว่านั้นแปลว่ามีเวลาที่หายไป · ` +
+                    `ตัวเลขนี้รวมทุกสาเหตุไว้ด้วยกัน ทั้งเครื่องจักรเสีย พักเบรคเกินเวลา พาร์ทขาด รอคน และสาเหตุที่ยังไม่มีใครบันทึกไว้ ` +
+                    `จึงเป็น "เวลาที่หายไปแบบมองไม่เห็น" ที่ยังรอการระบุสาเหตุ · ` +
+                    `ชั่วโมงที่ไม่มีการสแกนเลยแสดงเป็น "-" เพราะไม่รู้ว่าตั้งใจให้เดินกี่ไลน์หรือเป็นนอกเวลาทำงาน จึงไม่นำมาคิด`)
             ];
         }
 
@@ -3856,7 +3895,7 @@
             return [
                 ...pdfHeading('สรุปยอดผลิตแยกรายไลน์ผลิต'),
                 {
-                    table: { headerRows: 1, widths: ['*', 58, 44, 52, 54, 44, 58, 44], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 58, 44, 52, 54, 44, 58, 44], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('หมายเหตุ: คอลัมน์ยอดผลิตนับทุกชั่วโมงที่มีการสแกน ส่วนเป้าหมายและ Eff% นับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ' +
@@ -3909,7 +3948,7 @@
             return [
                 ...pdfHeading('สรุปยอดผลิตแยกรายรุ่นสินค้า'),
                 {
-                    table: { headerRows: 1, widths: ['*', 80, 70, 80, 80], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 80, 70, 80, 80], body: body },
                     layout: PDF_TABLE_LAYOUT
                 }
             ];
@@ -3999,7 +4038,7 @@
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, widths: ['*', 88, 46, 50, 46, 46, 50, 54], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 88, 46, 50, 46, 46, 50, 54], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน ' +
@@ -4015,17 +4054,17 @@
             const body = [[
                 pdfHeaderCell('รุ่นสินค้า (Model)'),
                 pdfHeaderCell('กำลังผลิต 100%', 'right'),
-                pdfHeaderCell('รันปกติเฉลี่ย', 'right'),
+                pdfHeaderCell('เฉลี่ยจริง', 'right'),
                 pdfHeaderCell('ความเร็วสูงสุด', 'right'),
                 pdfHeaderCell('Cycle Time', 'right'),
                 pdfHeaderCell('Eff %', 'right')
             ]];
 
-            rows.forEach(({ modelName, stdCap, steadyAvg, peakCap, cycleTimeText, eff }) => {
+            rows.forEach(({ modelName, stdCap, avgRate, peakCap, cycleTimeText, eff }) => {
                 body.push([
                     pdfCell(modelName),
                     pdfCell(stdCap.toLocaleString(), 'right'),
-                    pdfCell(steadyAvg > 0 ? steadyAvg.toLocaleString() : '-', 'right'),
+                    pdfCell(avgRate > 0 ? avgRate.toLocaleString() : '-', 'right'),
                     pdfCell(peakCap > 0 ? peakCap.toLocaleString() : '-', 'right'),
                     pdfCell(cycleTimeText, 'right'),
                     pdfEffCell(eff)
@@ -4035,11 +4074,14 @@
             return [
                 ...pdfHeading('สถิติกำลังผลิตจริงรายรุ่น (Actual Capacity Auditor)'),
                 {
-                    table: { headerRows: 1, widths: ['*', 72, 68, 72, 66, 50], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 72, 68, 72, 66, 50], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('หมายเหตุ: หน่วยความเร็วเป็น PCS/Hr คำนวณจากสถิติจริงหลังกรองการสแกนซ้ำภายใน 1 วินาที ' +
-                    'และตัดรอบที่ทิ้งช่วงเกิน 5 นาทีออก เพื่อไม่ให้เวลาพักและช่วงเปลี่ยนรุ่นทำให้ค่าเพี้ยน')
+                pdfNote('หมายเหตุ: หน่วยความเร็วเป็น PCS/Hr · คอลัมน์เฉลี่ยจริงคิดจากยอดรวม ÷ ทุกชั่วโมงที่มีการผลิต ' +
+                    'จึงรวมเวลาที่หายไปไว้แล้วและตรงกับคอลัมน์เฉลี่ย PCS/Hr ในตารางสรุปรายรุ่น · ' +
+                    'ส่วนความเร็วสูงสุดคือชั่วโมงที่ทำได้ดีที่สุด ใช้ทบทวนว่าค่ากำลังผลิต 100% ในชีตยังตรงกับความจริงไหม ' +
+                    'ถ้าความเร็วสูงสุดแซงกำลังผลิต 100% แปลว่าถึงเวลาจับเวลามาตรฐานใหม่ · ' +
+                    'Cycle Time กรองการสแกนซ้ำภายใน 1 วินาที และตัดรอบที่ทิ้งช่วงเกิน 5 นาทีออก เพื่อไม่ให้เวลาพักทำให้ค่าเพี้ยน')
             ];
         }
 
@@ -4077,7 +4119,7 @@
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, widths: [64, 74, 46, 82, 88, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [64, 74, 46, 82, 88, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
@@ -4115,7 +4157,7 @@
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, widths: [50, 66, 34, '*', 92, 96, 38], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [50, 66, 34, '*', 92, 96, 38], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${allFilteredRows.length.toLocaleString()} รายการ`)
