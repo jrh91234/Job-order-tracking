@@ -58,130 +58,6 @@
             animation: blink-text 1.2s infinite;
         }
 
-        /* ==========================================
-           รายงาน PDF (ซ่อนบนหน้าจอ แสดงเฉพาะตอนสั่งพิมพ์)
-           ========================================== */
-        #pdf-report { display: none; }
-
-        #pdf-report .rpt-h1 { font-size: 16pt; font-weight: 700; color: #1e1b4b; }
-        #pdf-report .rpt-sub { font-size: 8pt; color: #64748b; }
-        #pdf-report .rpt-h2 {
-            font-size: 11pt;
-            font-weight: 700;
-            color: #312e81;
-            border-bottom: 1.5pt solid #4f46e5;
-            padding-bottom: 3pt;
-            margin: 0 0 6pt 0;
-        }
-        #pdf-report .rpt-section { margin-bottom: 14pt; }
-        #pdf-report .rpt-meta {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 4pt 10pt;
-            font-size: 8pt;
-            border: 0.75pt solid #e2e8f0;
-            background: #f8fafc;
-            border-radius: 4pt;
-            padding: 6pt 8pt;
-        }
-        #pdf-report .rpt-meta b { color: #334155; }
-        #pdf-report .rpt-criteria {
-            margin-top: 5pt;
-            padding: 5pt 8pt;
-            font-size: 7.5pt;
-            color: #334155;
-            background: #eef2ff;
-            border: 0.75pt solid #c7d2fe;
-            border-radius: 4pt;
-        }
-        #pdf-report .rpt-kpis {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 6pt;
-        }
-        #pdf-report .rpt-kpi {
-            border: 0.75pt solid #e2e8f0;
-            border-radius: 4pt;
-            padding: 6pt;
-            text-align: center;
-        }
-        #pdf-report .rpt-kpi span { display: block; font-size: 7pt; color: #64748b; }
-        #pdf-report .rpt-kpi strong { display: block; font-size: 13pt; margin: 2pt 0; }
-        #pdf-report table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
-        #pdf-report th {
-            background: #eef2ff;
-            color: #3730a3;
-            font-weight: 600;
-            text-align: left;
-            padding: 4pt 5pt;
-            border: 0.5pt solid #c7d2fe;
-        }
-        #pdf-report td {
-            padding: 3pt 5pt;
-            border: 0.5pt solid #e2e8f0;
-            vertical-align: top;
-        }
-        #pdf-report tbody tr:nth-child(even) td { background: #f8fafc; }
-        #pdf-report .rpt-num { text-align: right; font-variant-numeric: tabular-nums; }
-        #pdf-report .rpt-mid { text-align: center; }
-        #pdf-report .rpt-good { color: #047857; font-weight: 700; }
-        #pdf-report .rpt-warn { color: #b45309; font-weight: 700; }
-        #pdf-report .rpt-bad  { color: #be123c; font-weight: 700; }
-        #pdf-report .rpt-muted { color: #94a3b8; }
-        #pdf-report .rpt-chart { width: 100%; border: 0.75pt solid #e2e8f0; border-radius: 4pt; }
-        #pdf-report .rpt-foot {
-            margin-top: 10pt;
-            padding-top: 5pt;
-            border-top: 0.5pt solid #e2e8f0;
-            font-size: 7pt;
-            color: #94a3b8;
-            text-align: center;
-        }
-
-        @media print {
-            @page { size: A4 portrait; margin: 12mm 10mm; }
-
-            html, body {
-                background: #fff !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }
-
-            /* ซ่อนหน้าจอปกติทั้งหมด เหลือเฉพาะเอกสารรายงาน */
-            body > *:not(#pdf-report) { display: none !important; }
-
-            /* ล้าง inline style ที่ใช้ดันเอกสารออกไปนอกจอตอนเตรียมรูปกราฟ ให้กลับมาไหลตามหน้ากระดาษปกติ */
-            #pdf-report {
-                display: block !important;
-                position: static !important;
-                left: auto !important;
-                top: auto !important;
-                width: auto !important;
-                font-family: 'Prompt', sans-serif;
-                color: #0f172a;
-            }
-
-            /* บังคับให้สีพื้นหลังของหัวตารางพิมพ์ออกมาด้วย */
-            #pdf-report, #pdf-report * {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
-
-            #pdf-report thead { display: table-header-group; }
-            #pdf-report tr, #pdf-report .rpt-avoid-break {
-                break-inside: avoid;
-                page-break-inside: avoid;
-            }
-            /* กันไม่ให้หัวข้อค้างอยู่ท้ายหน้าโดยที่ตารางของมันข้ามไปหน้าถัดไป */
-            #pdf-report .rpt-h2 {
-                break-after: avoid;
-                page-break-after: avoid;
-            }
-            #pdf-report .rpt-page-break {
-                break-before: page;
-                page-break-before: always;
-            }
-        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 pb-12 min-h-screen">
@@ -694,9 +570,9 @@
             </div>
 
             <div class="text-[10px] text-slate-500 bg-amber-50 border border-amber-200 rounded-xl p-2.5 leading-relaxed">
-                <b class="text-amber-700">วิธีบันทึกเป็น PDF:</b>
-                เมื่อกดปุ่มด้านล่าง ระบบจะเปิดหน้าต่างพิมพ์ของเบราว์เซอร์ขึ้นมา
-                ให้เลือกปลายทาง (Destination) เป็น <b>"บันทึกเป็น PDF / Save as PDF"</b> แล้วกดบันทึกได้เลย
+                <b class="text-amber-700">หมายเหตุ:</b>
+                กดปุ่มด้านล่างแล้วไฟล์ PDF จะถูกดาวน์โหลดลงเครื่องให้อัตโนมัติ
+                ครั้งแรกอาจใช้เวลาสักครู่เพราะระบบต้องโหลดตัวสร้างเอกสารก่อน ครั้งถัดไปจะเร็วขึ้น
             </div>
 
             <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
@@ -704,8 +580,8 @@
                     ยกเลิก
                 </button>
                 <button onclick="generatePdfReport()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-colors flex items-center justify-center gap-1.5">
-                    <i data-lucide="printer" class="w-4 h-4"></i>
-                    สร้างรายงาน PDF
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    ดาวน์โหลดรายงาน PDF
                 </button>
             </div>
         </div>
@@ -3442,9 +3318,39 @@
 
         // ==========================================
         // EXPORT PDF REPORT
-        // สร้างเอกสารรายงานจากข้อมูลชุดที่ถูกกรองอยู่บนหน้าจอ แล้วเปิดหน้าต่างพิมพ์ของเบราว์เซอร์
-        // ให้ผู้ใช้เลือกปลายทางเป็น "บันทึกเป็น PDF" (ได้ข้อความไทยคมชัดและค้นหาได้ ไม่ใช่ภาพแรสเตอร์)
+        // ประกอบเอกสารรายงานจากข้อมูลชุดที่ถูกกรองอยู่บนหน้าจอ แล้วสร้างไฟล์ PDF ให้ดาวน์โหลดทันที
+        // ใช้ pdfmake วาดเอกสารเองพร้อมฝังฟอนต์ Sarabun ที่ subset ไว้ ข้อความไทยจึงเป็นเวกเตอร์
+        // คมทุกระดับซูมและค้นหาด้วย Ctrl+F ในไฟล์ได้ ไม่ใช่ภาพแรสเตอร์
         // ==========================================
+        const PDFMAKE_CDN = 'https://cdn.jsdelivr.net/npm/pdfmake@0.2.23/build/pdfmake.min.js';
+        const PDF_FONTS_SRC = 'report-fonts.js';
+
+        // ขนาดกระดาษ A4 กว้าง 595.28pt หักขอบซ้ายขวาข้างละ 30pt เหลือพื้นที่เนื้อหา 535pt
+        const PDF_PAGE_MARGIN = 30;
+        const PDF_CONTENT_WIDTH = 535;
+
+        const PDF_COLOR = {
+            heading: '#312e81',
+            title: '#1e1b4b',
+            rule: '#4f46e5',
+            sub: '#64748b',
+            text: '#0f172a',
+            muted: '#94a3b8',
+            good: '#047857',
+            warn: '#b45309',
+            bad: '#be123c',
+            headFill: '#eef2ff',
+            headText: '#3730a3',
+            headBorder: '#c7d2fe',
+            zebra: '#f8fafc',
+            border: '#e2e8f0'
+        };
+
+        // เป้าหมายประสิทธิภาพการผลิตที่ใช้ตัดสินผ่าน/ไม่ผ่านทั้งรายงาน แก้ตัวเลขนี้ที่เดียวได้เลย
+        const REPORT_EFF_TARGET = 85;
+        // ต่ำกว่าเป้าไม่เกิน 5% ถือว่าใกล้เป้า แสดงเป็นสีเหลืองแทนสีแดง
+        const REPORT_EFF_WARN = REPORT_EFF_TARGET - 5;
+
         const THAI_SHORT_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
         function formatThaiDate(isoDate) {
@@ -3452,6 +3358,16 @@
             const [y, m, d] = String(isoDate).split('-').map(Number);
             if (!y || !m || !d) return isoDate;
             return `${d} ${THAI_SHORT_MONTHS[m - 1]} ${y + 543}`;
+        }
+
+        // ฟอนต์ที่ฝังลง PDF เป็น subset ไทย+ละติน ไม่มีอีโมจิ ถ้าปล่อยผ่านจะกลายเป็นกล่องสี่เหลี่ยม
+        // จึงตัดอีโมจิและอักขระควบคุมทิ้งก่อนเขียนลงเอกสาร (เช่น ☀️ 🌙 ในชื่อกะบน dropdown)
+        function pdfText(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, '')
+                .replace(/\s+/g, ' ')
+                .trim();
         }
 
         // ดึงข้อความที่ผู้ใช้เห็นจริงใน dropdown (ไม่ใช่ค่า value) มาแสดงในหัวรายงาน
@@ -3502,18 +3418,554 @@
             return list;
         }
 
-        // เป้าหมายประสิทธิภาพการผลิตที่ใช้ตัดสินผ่าน/ไม่ผ่านทั้งรายงาน แก้ตัวเลขนี้ที่เดียวได้เลย
-        const REPORT_EFF_TARGET = 85;
-        // ต่ำกว่าเป้าไม่เกิน 5% ถือว่าใกล้เป้า แสดงเป็นสีเหลืองแทนสีแดง
-        const REPORT_EFF_WARN = REPORT_EFF_TARGET - 5;
-
-        function rptEffClass(eff) {
-            if (eff === null || eff === undefined || isNaN(eff)) return 'rpt-muted';
-            if (eff >= REPORT_EFF_TARGET) return 'rpt-good';
-            if (eff >= REPORT_EFF_WARN) return 'rpt-warn';
-            return 'rpt-bad';
+        function rptEffColor(eff) {
+            if (eff === null || eff === undefined || isNaN(eff)) return PDF_COLOR.muted;
+            if (eff >= REPORT_EFF_TARGET) return PDF_COLOR.good;
+            if (eff >= REPORT_EFF_WARN) return PDF_COLOR.warn;
+            return PDF_COLOR.bad;
         }
 
+        // ==========================================
+        // ตัวช่วยประกอบชิ้นส่วนเอกสาร pdfmake
+        // ==========================================
+
+        // เส้นกรอบบาง ๆ กับแถบสลับสีให้ตารางอ่านง่าย เลียนแบบตารางบนหน้าจอ
+        const PDF_TABLE_LAYOUT = {
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0.5,
+            hLineColor: () => PDF_COLOR.border,
+            vLineColor: () => PDF_COLOR.border,
+            paddingTop: () => 3,
+            paddingBottom: () => 3,
+            paddingLeft: () => 5,
+            paddingRight: () => 5,
+            // แถวคู่พื้นสีอ่อน ส่วนแถวหัวตารางกำหนดสีเองที่ระดับ cell จึงคืน null ตรงนี้
+            fillColor: rowIndex => (rowIndex === 0 ? null : (rowIndex % 2 === 0 ? PDF_COLOR.zebra : null))
+        };
+
+        function pdfHeading(title) {
+            return [
+                { text: pdfText(title), fontSize: 11, bold: true, color: PDF_COLOR.heading, margin: [0, 14, 0, 3] },
+                {
+                    canvas: [{ type: 'line', x1: 0, y1: 0, x2: PDF_CONTENT_WIDTH, y2: 0, lineWidth: 1.5, lineColor: PDF_COLOR.rule }],
+                    margin: [0, 0, 0, 6]
+                }
+            ];
+        }
+
+        function pdfNote(text) {
+            return { text: pdfText(text), fontSize: 7, color: PDF_COLOR.sub, margin: [0, 3, 0, 0] };
+        }
+
+        function pdfHeaderCell(label, alignment) {
+            return {
+                text: pdfText(label),
+                bold: true,
+                fontSize: 7.5,
+                color: PDF_COLOR.headText,
+                fillColor: PDF_COLOR.headFill,
+                alignment: alignment || 'left'
+            };
+        }
+
+        function pdfCell(value, alignment, color, bold) {
+            return {
+                text: pdfText(value),
+                fontSize: 7.5,
+                alignment: alignment || 'left',
+                color: color || PDF_COLOR.text,
+                bold: !!bold
+            };
+        }
+
+        function pdfTotalCell(value, alignment, color) {
+            return {
+                text: pdfText(value),
+                fontSize: 7.5,
+                bold: true,
+                alignment: alignment || 'left',
+                color: color || PDF_COLOR.text,
+                fillColor: PDF_COLOR.headFill
+            };
+        }
+
+        function pdfEffCell(eff) {
+            return pdfCell(eff === null ? '-' : eff.toFixed(1) + '%', 'right', rptEffColor(eff), eff !== null);
+        }
+
+        // ==========================================
+        // แต่ละหัวข้อของรายงาน คืนค่าเป็น array ของ content ให้ pdfmake
+        // คืน [] เมื่อไม่มีข้อมูล ตัวเลขหัวข้อจะถูกไล่ให้ทีหลังใน buildReportDoc()
+        // ==========================================
+
+        function buildReportMetaContent(scope) {
+            const generatedAt = new Date().toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+
+            const metaRow = (a, b, c) => [pdfCell(a, 'left'), pdfCell(b, 'left'), pdfCell(c, 'left')];
+
+            return [
+                {
+                    columns: [
+                        {
+                            width: '*',
+                            stack: [
+                                { text: 'รายงานสรุปการผลิตจากระบบสแกนบาร์โค้ด', fontSize: 16, bold: true, color: PDF_COLOR.title },
+                                { text: 'Barcode Real-time Production Report', fontSize: 8, color: PDF_COLOR.sub }
+                            ]
+                        },
+                        {
+                            width: 'auto',
+                            alignment: 'right',
+                            stack: [
+                                { text: 'ออกรายงานเมื่อ', fontSize: 7, color: PDF_COLOR.sub },
+                                { text: pdfText(generatedAt) + ' น.', fontSize: 8, bold: true, color: PDF_COLOR.sub }
+                            ]
+                        }
+                    ],
+                    margin: [0, 0, 0, 8]
+                },
+                {
+                    table: {
+                        widths: ['*', '*', '*'],
+                        body: [
+                            metaRow(`ช่วงวันผลิต: ${scope.dateLabel}`, `กะการทำงาน: ${scope.shift}`, `ไลน์การผลิต: ${scope.line}`),
+                            metaRow(`Job Order: ${scope.job}`, `รุ่นสินค้า: ${scope.model}`, `คำค้นหา: ${scope.search || '-'}`)
+                        ]
+                    },
+                    layout: {
+                        hLineWidth: () => 0.75,
+                        vLineWidth: () => 0,
+                        hLineColor: () => PDF_COLOR.border,
+                        paddingTop: () => 4,
+                        paddingBottom: () => 4,
+                        paddingLeft: () => 6,
+                        paddingRight: () => 6,
+                        fillColor: () => PDF_COLOR.zebra
+                    }
+                },
+                {
+                    table: {
+                        widths: ['*'],
+                        body: [[{
+                            fillColor: PDF_COLOR.headFill,
+                            text: [
+                                { text: 'เกณฑ์ตัดสินในรายงานฉบับนี้: ', bold: true },
+                                { text: `เป้าหมายประสิทธิภาพการผลิต (Eff%) = ${REPORT_EFF_TARGET}%  ·  ` },
+                                { text: `ถึงเป้า (${REPORT_EFF_TARGET}% ขึ้นไป)`, color: PDF_COLOR.good, bold: true },
+                                { text: '  ·  ' },
+                                { text: `ใกล้เป้า (${REPORT_EFF_WARN}-${REPORT_EFF_TARGET}%)`, color: PDF_COLOR.warn, bold: true },
+                                { text: '  ·  ' },
+                                { text: `ต่ำกว่าเป้า (ต่ำกว่า ${REPORT_EFF_WARN}%)`, color: PDF_COLOR.bad, bold: true }
+                            ],
+                            fontSize: 7.5,
+                            color: PDF_COLOR.text
+                        }]]
+                    },
+                    layout: {
+                        hLineWidth: () => 0.75,
+                        vLineWidth: () => 0.75,
+                        hLineColor: () => PDF_COLOR.headBorder,
+                        vLineColor: () => PDF_COLOR.headBorder,
+                        paddingTop: () => 5,
+                        paddingBottom: () => 5,
+                        paddingLeft: () => 8,
+                        paddingRight: () => 8
+                    },
+                    margin: [0, 5, 0, 0]
+                }
+            ];
+        }
+
+        function buildReportKpiContent() {
+            const eff = lastHourlySummary ? lastHourlySummary.effPercent : null;
+
+            const card = (label, value, valueColor, sublabel) => ({
+                stack: [
+                    { text: pdfText(label), fontSize: 6.5, color: PDF_COLOR.sub, alignment: 'center' },
+                    { text: pdfText(value), fontSize: 13, bold: true, color: valueColor, alignment: 'center', margin: [0, 2, 0, 2] },
+                    { text: pdfText(sublabel), fontSize: 6.5, color: PDF_COLOR.sub, alignment: 'center' }
+                ]
+            });
+
+            return [
+                ...pdfHeading('สรุปตัวชี้วัดหลัก (KPI Summary)'),
+                {
+                    table: {
+                        widths: ['*', '*', '*', '*', '*'],
+                        body: [[
+                            card('ยอดสแกนสะสม', els.kpiTotalScans.textContent, '#4338ca', 'ชิ้น (PCS)'),
+                            card('ความเร็วเฉลี่ย', els.kpiAvgSpeed.textContent, PDF_COLOR.good, 'ชิ้น / ชั่วโมง'),
+                            card('รุ่นสินค้าที่สแกน', els.kpiActiveModels.textContent, PDF_COLOR.warn, 'โมเดล'),
+                            card('เวลาสแกนล่าสุด', els.kpiLastScan.textContent, '#334155', els.kpiLastElapsed.textContent),
+                            card('ประสิทธิภาพผลิต', eff === null ? '-' : eff + '%', rptEffColor(eff), `เป้าหมาย ${REPORT_EFF_TARGET}%`)
+                        ]]
+                    },
+                    layout: {
+                        hLineWidth: () => 0.75,
+                        vLineWidth: () => 0.75,
+                        hLineColor: () => PDF_COLOR.border,
+                        vLineColor: () => PDF_COLOR.border,
+                        paddingTop: () => 6,
+                        paddingBottom: () => 6
+                    }
+                }
+            ];
+        }
+
+        function buildReportChartsContent() {
+            const blocks = [];
+
+            if (hourlyChartObj) {
+                blocks.push(
+                    { text: 'แนวโน้มการสแกนรายชั่วโมง (PCS/Hour) เทียบเส้นเป้าหมาย', fontSize: 8, bold: true, color: PDF_COLOR.sub, margin: [0, 0, 0, 3] },
+                    { image: hourlyChartObj.toBase64Image('image/png', 1), width: PDF_CONTENT_WIDTH, margin: [0, 0, 0, 10] }
+                );
+            }
+
+            if (modelChartObj) {
+                blocks.push(
+                    { text: 'สัดส่วนและยอดผลิตแยกรายรุ่น (PCS)', fontSize: 8, bold: true, color: PDF_COLOR.sub, margin: [0, 0, 0, 3] },
+                    { image: modelChartObj.toBase64Image('image/png', 1), width: PDF_CONTENT_WIDTH }
+                );
+            }
+
+            if (blocks.length === 0) return [];
+            return [...pdfHeading('กราฟภาพรวมการผลิต'), ...blocks];
+        }
+
+        function buildReportHourlyContent() {
+            if (!lastHourlySummary) return [];
+
+            const s = lastHourlySummary;
+            const body = [[
+                pdfHeaderCell('ช่วงเวลา', 'center'),
+                pdfHeaderCell('ยอดจริง (PCS)', 'right'),
+                pdfHeaderCell('เป้าหมาย (PCS)', 'right'),
+                pdfHeaderCell('ผลต่าง', 'right'),
+                pdfHeaderCell('Eff %', 'right'),
+                pdfHeaderCell('สถานะ', 'center')
+            ]];
+
+            s.hourSequence.forEach((hr, idx) => {
+                const actual = s.actuals[idx] || 0;
+                const target = s.targets[idx] || 0;
+                if (actual === 0 && target === 0) return; // ข้ามชั่วโมงที่ไม่มีทั้งยอดจริงและเป้า
+
+                const diff = actual - target;
+                const eff = target > 0 ? (actual / target) * 100 : null;
+                // ชั่วโมงที่เป้าเป็น 0 คือช่วงพัก (เช่น 12:00-13:00) ตัดสินผ่าน/ไม่ผ่านไม่ได้
+                const statusText = !s.completed[idx]
+                    ? 'กำลังผลิต'
+                    : eff === null
+                        ? 'นอกเวลาผลิต'
+                        : (eff >= REPORT_EFF_TARGET ? 'ถึงเป้า' : 'ต่ำกว่าเป้า');
+
+                body.push([
+                    pdfCell(s.hourLabels[idx], 'center'),
+                    pdfCell(actual.toLocaleString(), 'right'),
+                    pdfCell(target.toLocaleString(), 'right'),
+                    pdfCell((diff >= 0 ? '+' : '') + diff.toLocaleString(), 'right', diff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
+                    pdfEffCell(eff),
+                    pdfCell(statusText, 'center', s.completed[idx] ? rptEffColor(eff) : PDF_COLOR.muted)
+                ]);
+            });
+
+            if (body.length === 1) return [];
+
+            const totalEff = s.totalTargetVal > 0 ? (s.totalActualVal / s.totalTargetVal) * 100 : null;
+            const totalDiff = s.totalActualVal - s.totalTargetVal;
+
+            body.push([
+                pdfTotalCell('รวมชั่วโมงที่ครบแล้ว', 'center'),
+                pdfTotalCell(s.totalActualVal.toLocaleString(), 'right'),
+                pdfTotalCell(s.totalTargetVal.toLocaleString(), 'right'),
+                pdfTotalCell((totalDiff >= 0 ? '+' : '') + totalDiff.toLocaleString(), 'right', totalDiff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
+                pdfTotalCell(totalEff === null ? '-' : totalEff.toFixed(1) + '%', 'right', rptEffColor(totalEff)),
+                pdfTotalCell('', 'center')
+            ]);
+
+            return [
+                ...pdfHeading('ผลผลิตรายชั่วโมงเทียบเป้าหมาย (Hourly vs Target)'),
+                {
+                    table: { headerRows: 1, widths: [70, '*', '*', '*', '*', 70], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote(`หมายเหตุ: แถวรวมนับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ตรงกับวิธีคำนวณ Eff% บนหน้าจอ ` +
+                    `ส่วนเป้าหมายรายชั่วโมงคำนวณแบบไดนามิกตามกำลังผลิตของรุ่นและไลน์ที่รันจริงในชั่วโมงนั้น ` +
+                    `คอลัมน์สถานะตัดสินจาก Eff% เทียบเป้า ${REPORT_EFF_TARGET}% ไม่ใช่จากผลต่างจำนวนชิ้น`)
+            ];
+        }
+
+        function buildReportLineContent() {
+            if (!lastHourlySummary || !lastHourlySummary.byLine || lastHourlySummary.byLine.length === 0) return [];
+
+            const lines = lastHourlySummary.byLine;
+
+            // ถ้าข้อมูลไม่ได้ระบุไลน์มาเลย ตารางนี้จะมีแถวเดียวชื่อ "ไม่ระบุไลน์" ซึ่งไม่ได้ให้ข้อมูลอะไรเพิ่ม
+            if (lines.length === 1 && lines[0].line === '-') return [];
+
+            const grandQty = lines.reduce((sum, l) => sum + l.qty, 0);
+            const grandTarget = lines.reduce((sum, l) => sum + l.target, 0);
+            const grandEff = lastHourlySummary.totalTargetVal > 0
+                ? (lastHourlySummary.totalActualVal / lastHourlySummary.totalTargetVal) * 100
+                : null;
+
+            const body = [[
+                pdfHeaderCell('ไลน์ผลิต (Line)'),
+                pdfHeaderCell('ยอดผลิต (PCS)', 'right'),
+                pdfHeaderCell('สัดส่วน', 'right'),
+                pdfHeaderCell('ชั่วโมงที่ผลิต', 'right'),
+                pdfHeaderCell('เฉลี่ย PCS/Hr', 'right'),
+                pdfHeaderCell('จำนวนรุ่น', 'right'),
+                pdfHeaderCell('เป้าหมาย (PCS)', 'right'),
+                pdfHeaderCell('Eff %', 'right')
+            ]];
+
+            lines.forEach(l => {
+                const share = grandQty > 0 ? (l.qty / grandQty) * 100 : 0;
+                const activeHours = l.activeHours || 1;
+                body.push([
+                    pdfCell(l.line === '-' ? 'ไม่ระบุไลน์' : 'Line ' + l.line),
+                    pdfCell(l.qty.toLocaleString(), 'right'),
+                    pdfCell(share.toFixed(1) + '%', 'right'),
+                    pdfCell(l.activeHours.toLocaleString(), 'right'),
+                    pdfCell(Math.round(l.qty / activeHours).toLocaleString(), 'right'),
+                    pdfCell(l.modelCount.toLocaleString(), 'right'),
+                    pdfCell(l.target > 0 ? l.target.toLocaleString() : '-', 'right'),
+                    pdfEffCell(l.eff)
+                ]);
+            });
+
+            body.push([
+                pdfTotalCell(`รวมทั้งสิ้น (${lines.length} ไลน์)`),
+                pdfTotalCell(grandQty.toLocaleString(), 'right'),
+                pdfTotalCell('100.0%', 'right'),
+                pdfTotalCell('', 'right'),
+                pdfTotalCell('', 'right'),
+                pdfTotalCell('', 'right'),
+                pdfTotalCell(grandTarget > 0 ? grandTarget.toLocaleString() : '-', 'right'),
+                pdfTotalCell(grandEff === null ? '-' : grandEff.toFixed(1) + '%', 'right', rptEffColor(grandEff))
+            ]);
+
+            return [
+                ...pdfHeading('สรุปยอดผลิตแยกรายไลน์ผลิต'),
+                {
+                    table: { headerRows: 1, widths: ['*', 58, 44, 52, 54, 44, 58, 44], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote('หมายเหตุ: คอลัมน์ยอดผลิตนับทุกชั่วโมงที่มีการสแกน ส่วนเป้าหมายและ Eff% นับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ' +
+                    `จึงอาจไม่เท่ากับยอดผลิตในแถวเดียวกัน เกณฑ์ตัดสินคือ Eff% ตั้งแต่ ${REPORT_EFF_TARGET}% ขึ้นไป`)
+            ];
+        }
+
+        function buildReportModelContent() {
+            const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
+            if (okScans.length === 0) return [];
+
+            const byModel = {};
+            okScans.forEach(s => {
+                if (!byModel[s.model]) byModel[s.model] = { qty: 0, hours: new Set() };
+                byModel[s.model].qty += (s.qty || 1);
+                byModel[s.model].hours.add(`${s.prodDate}_${s.hour}`);
+            });
+
+            const grandTotal = Object.values(byModel).reduce((sum, m) => sum + m.qty, 0);
+            const sorted = Object.entries(byModel).sort((a, b) => b[1].qty - a[1].qty);
+
+            const body = [[
+                pdfHeaderCell('รุ่นสินค้า (Model)'),
+                pdfHeaderCell('ยอดผลิต (PCS)', 'right'),
+                pdfHeaderCell('สัดส่วน', 'right'),
+                pdfHeaderCell('ชั่วโมงที่ผลิต', 'right'),
+                pdfHeaderCell('เฉลี่ย PCS/Hr', 'right')
+            ]];
+
+            sorted.forEach(([modelName, info]) => {
+                const share = grandTotal > 0 ? (info.qty / grandTotal) * 100 : 0;
+                const activeHours = info.hours.size || 1;
+                body.push([
+                    pdfCell(modelName),
+                    pdfCell(info.qty.toLocaleString(), 'right'),
+                    pdfCell(share.toFixed(1) + '%', 'right'),
+                    pdfCell(activeHours.toLocaleString(), 'right'),
+                    pdfCell(Math.round(info.qty / activeHours).toLocaleString(), 'right')
+                ]);
+            });
+
+            body.push([
+                pdfTotalCell(`รวมทั้งสิ้น (${sorted.length} รุ่น)`),
+                pdfTotalCell(grandTotal.toLocaleString(), 'right'),
+                pdfTotalCell('100.0%', 'right'),
+                pdfTotalCell('', 'right'),
+                pdfTotalCell('', 'right')
+            ]);
+
+            return [
+                ...pdfHeading('สรุปยอดผลิตแยกรายรุ่นสินค้า'),
+                {
+                    table: { headerRows: 1, widths: ['*', 80, 70, 80, 80], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                }
+            ];
+        }
+
+        function buildReportCapacityContent() {
+            const rows = computeCapacityRows();
+            if (rows.length === 0) return [];
+
+            const body = [[
+                pdfHeaderCell('รุ่นสินค้า (Model)'),
+                pdfHeaderCell('กำลังผลิต 100%', 'right'),
+                pdfHeaderCell('รันปกติเฉลี่ย', 'right'),
+                pdfHeaderCell('ความเร็วสูงสุด', 'right'),
+                pdfHeaderCell('Cycle Time', 'right'),
+                pdfHeaderCell('Eff %', 'right')
+            ]];
+
+            rows.forEach(({ modelName, stdCap, steadyAvg, peakCap, cycleTimeText, eff }) => {
+                body.push([
+                    pdfCell(modelName),
+                    pdfCell(stdCap.toLocaleString(), 'right'),
+                    pdfCell(steadyAvg > 0 ? steadyAvg.toLocaleString() : '-', 'right'),
+                    pdfCell(peakCap > 0 ? peakCap.toLocaleString() : '-', 'right'),
+                    pdfCell(cycleTimeText, 'right'),
+                    pdfEffCell(eff)
+                ]);
+            });
+
+            return [
+                ...pdfHeading('สถิติกำลังผลิตจริงรายรุ่น (Actual Capacity Auditor)'),
+                {
+                    table: { headerRows: 1, widths: ['*', 72, 68, 72, 66, 50], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote('หมายเหตุ: หน่วยความเร็วเป็น PCS/Hr คำนวณจากสถิติจริงหลังกรองการสแกนซ้ำภายใน 1 วินาที ' +
+                    'และตัดรอบที่ทิ้งช่วงเกิน 5 นาทีออก เพื่อไม่ให้เวลาพักและช่วงเปลี่ยนรุ่นทำให้ค่าเพี้ยน')
+            ];
+        }
+
+        function buildReportIncidentsContent(scope) {
+            const incidents = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
+            const heading = pdfHeading('บันทึกเหตุการณ์และปัญหาผลิต (Incident Log)');
+
+            if (incidents.length === 0) {
+                return [...heading, pdfNote('ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่และไลน์ที่เลือก')];
+            }
+
+            const body = [[
+                pdfHeaderCell('วันผลิต', 'center'),
+                pdfHeaderCell('ช่วงเวลา', 'center'),
+                pdfHeaderCell('ไลน์', 'center'),
+                pdfHeaderCell('รุ่นสินค้า'),
+                pdfHeaderCell('ประเภทปัญหา'),
+                pdfHeaderCell('รายละเอียดบันทึก')
+            ]];
+
+            incidents.forEach(inc => {
+                const timeLabel = inc.time
+                    ? `${inc.time} น.`
+                    : `${String(inc.hour).padStart(2, '0')}:00 - ${String((inc.hour + 1) % 24).padStart(2, '0')}:00 น.`;
+                body.push([
+                    pdfCell(formatThaiDate(inc.date), 'center'),
+                    pdfCell(timeLabel, 'center'),
+                    pdfCell(inc.line === 'All' ? 'ทุกไลน์' : 'Line ' + inc.line, 'center'),
+                    pdfCell(inc.model === 'All' ? 'ทุกรุ่น' : (inc.model || '-')),
+                    pdfCell(inc.categoryText || inc.category || '-'),
+                    pdfCell(inc.notes || '-')
+                ]);
+            });
+
+            return [
+                ...heading,
+                {
+                    table: { headerRows: 1, widths: [64, 74, 46, 82, 88, '*'], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
+            ];
+        }
+
+        function buildReportRawScansContent() {
+            if (allFilteredRows.length === 0) return [];
+
+            const body = [[
+                pdfHeaderCell('เวลาสแกน', 'center'),
+                pdfHeaderCell('วันผลิต', 'center'),
+                pdfHeaderCell('กะ', 'center'),
+                pdfHeaderCell('Job Order'),
+                pdfHeaderCell('รุ่นสินค้า'),
+                pdfHeaderCell('รหัสบาร์โค้ด'),
+                pdfHeaderCell('สถานะ', 'center')
+            ]];
+
+            allFilteredRows.forEach(s => {
+                body.push([
+                    pdfCell(s.time, 'center'),
+                    pdfCell(formatThaiDate(s.prodDate), 'center'),
+                    pdfCell(s.shift, 'center'),
+                    pdfCell(s.jobOrder),
+                    pdfCell(s.model),
+                    pdfCell(s.barcode),
+                    pdfCell(s.status, 'center')
+                ]);
+            });
+
+            const heading = pdfHeading('ประวัติการสแกนรายรายการ (Live Scan Feed)');
+            heading[0].pageBreak = 'before'; // ตารางยาวมาก ขึ้นหน้าใหม่ให้อ่านง่าย
+
+            return [
+                ...heading,
+                {
+                    table: { headerRows: 1, widths: [50, 66, 34, '*', 92, 96, 38], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote(`รวมทั้งหมด ${allFilteredRows.length.toLocaleString()} รายการ`)
+            ];
+        }
+
+        // ==========================================
+        // โหลด pdfmake + ฟอนต์แบบ lazy เฉพาะตอนกด Export ครั้งแรก
+        // ==========================================
+        function loadScriptOnce(src) {
+            return new Promise((resolve, reject) => {
+                const existing = document.querySelector(`script[data-report-src="${src}"]`);
+                if (existing) {
+                    if (existing.dataset.loaded === 'true') return resolve();
+                    existing.addEventListener('load', () => resolve());
+                    existing.addEventListener('error', () => reject(new Error('โหลดไฟล์ไม่สำเร็จ: ' + src)));
+                    return;
+                }
+                const el = document.createElement('script');
+                el.src = src;
+                el.dataset.reportSrc = src;
+                el.onload = () => { el.dataset.loaded = 'true'; resolve(); };
+                el.onerror = () => reject(new Error('โหลดไฟล์ไม่สำเร็จ: ' + src));
+                document.head.appendChild(el);
+            });
+        }
+
+        async function ensurePdfEngine() {
+            if (!window.pdfMake) await loadScriptOnce(PDFMAKE_CDN);
+            if (!window.REPORT_PDF_FONTS) await loadScriptOnce(PDF_FONTS_SRC);
+
+            if (!window.pdfMake) throw new Error('ไม่พบไลบรารี pdfmake');
+            if (!window.REPORT_PDF_FONTS) throw new Error('ไม่พบไฟล์ฟอนต์ของรายงาน');
+
+            // ใช้เฉพาะฟอนต์ Sarabun ที่ฝังมา ไม่แตะฟอนต์เริ่มต้นของ pdfmake ซึ่งไม่รองรับภาษาไทย
+            pdfMake.vfs = Object.assign({}, pdfMake.vfs, window.REPORT_PDF_FONTS);
+            pdfMake.fonts = {
+                Sarabun: {
+                    normal: 'Sarabun-Regular.ttf',
+                    bold: 'Sarabun-Bold.ttf',
+                    italics: 'Sarabun-Regular.ttf',
+                    bolditalics: 'Sarabun-Bold.ttf'
+                }
+            };
+        }
+
+        // ==========================================
+        // ตัวเปิด/ปิดหน้าต่างเลือกหัวข้อ และตัวสั่งสร้างไฟล์
+        // ==========================================
         function openExportModal() {
             const modal = document.getElementById('export-modal');
             if (!modal) return;
@@ -3541,449 +3993,64 @@
             if (modal) modal.classList.add('hidden');
         }
 
-        function buildReportMetaHtml(scope) {
-            const generatedAt = new Date().toLocaleString('th-TH', {
-                dateStyle: 'medium',
-                timeStyle: 'short'
+        // ประกอบเอกสารทั้งฉบับตามหัวข้อที่ผู้ใช้ติ๊กเลือก
+        function buildReportDoc(scope) {
+            const opt = id => {
+                const el = document.getElementById(id);
+                return el ? el.checked : false;
+            };
+
+            const sections = [];
+            if (opt('export-opt-kpi'))       sections.push(buildReportKpiContent());
+            if (opt('export-opt-charts'))    sections.push(buildReportChartsContent());
+            if (opt('export-opt-hourly'))    sections.push(buildReportHourlyContent());
+            if (opt('export-opt-line'))      sections.push(buildReportLineContent());
+            if (opt('export-opt-model'))     sections.push(buildReportModelContent());
+            if (opt('export-opt-capacity'))  sections.push(buildReportCapacityContent());
+            if (opt('export-opt-incidents')) sections.push(buildReportIncidentsContent(scope));
+            if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansContent());
+
+            // ไล่เลขหัวข้อหลังจากรู้แล้วว่าหัวข้อไหนมีข้อมูลจริงบ้าง เลขจะได้เรียง 1,2,3... ไม่มีข้าม
+            const filled = sections.filter(section => section.length > 0);
+            filled.forEach((section, idx) => {
+                section[0].text = `${idx + 1}. ${section[0].text}`;
             });
 
-            return `
-                <div class="rpt-avoid-break" style="margin-bottom: 12pt;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:8pt;">
-                        <div>
-                            <div class="rpt-h1">รายงานสรุปการผลิตจากระบบสแกนบาร์โค้ด</div>
-                            <div class="rpt-sub">Barcode Real-time Production Report</div>
-                        </div>
-                        <div class="rpt-sub" style="text-align:right;">
-                            ออกรายงานเมื่อ<br><b>${escapeHtml(generatedAt)} น.</b>
-                        </div>
-                    </div>
-                    <div class="rpt-meta">
-                        <div><b>ช่วงวันผลิต:</b> ${escapeHtml(scope.dateLabel)}</div>
-                        <div><b>กะการทำงาน:</b> ${escapeHtml(scope.shift)}</div>
-                        <div><b>ไลน์การผลิต:</b> ${escapeHtml(scope.line)}</div>
-                        <div><b>Job Order:</b> ${escapeHtml(scope.job)}</div>
-                        <div><b>รุ่นสินค้า:</b> ${escapeHtml(scope.model)}</div>
-                        <div><b>คำค้นหา:</b> ${scope.search ? escapeHtml(scope.search) : '-'}</div>
-                    </div>
-                    <div class="rpt-criteria">
-                        <b>เกณฑ์ตัดสินในรายงานฉบับนี้:</b>
-                        เป้าหมายประสิทธิภาพการผลิต (Eff%) = <b>${REPORT_EFF_TARGET}%</b>
-                        · <span class="rpt-good">สีเขียว = ถึงเป้า (${REPORT_EFF_TARGET}% ขึ้นไป)</span>
-                        · <span class="rpt-warn">สีเหลือง = ใกล้เป้า (${REPORT_EFF_WARN}-${REPORT_EFF_TARGET}%)</span>
-                        · <span class="rpt-bad">สีแดง = ต่ำกว่าเป้า (ต่ำกว่า ${REPORT_EFF_WARN}%)</span>
-                    </div>
-                </div>
-            `;
-        }
+            if (filled.length === 0) return null;
 
-        function buildReportKpiHtml() {
-            const eff = lastHourlySummary ? lastHourlySummary.effPercent : null;
-
-            return `
-                <div class="rpt-section rpt-avoid-break">
-                    <div class="rpt-h2">{{NO}}. สรุปตัวชี้วัดหลัก (KPI Summary)</div>
-                    <div class="rpt-kpis">
-                        <div class="rpt-kpi">
-                            <span>ยอดสแกนสะสม</span>
-                            <strong style="color:#4338ca;">${escapeHtml(els.kpiTotalScans.textContent)}</strong>
-                            <span>ชิ้น (PCS)</span>
-                        </div>
-                        <div class="rpt-kpi">
-                            <span>ความเร็วเฉลี่ย</span>
-                            <strong style="color:#047857;">${escapeHtml(els.kpiAvgSpeed.textContent)}</strong>
-                            <span>ชิ้น / ชั่วโมง</span>
-                        </div>
-                        <div class="rpt-kpi">
-                            <span>รุ่นสินค้าที่สแกน</span>
-                            <strong style="color:#b45309;">${escapeHtml(els.kpiActiveModels.textContent)}</strong>
-                            <span>โมเดล</span>
-                        </div>
-                        <div class="rpt-kpi">
-                            <span>เวลาสแกนล่าสุด</span>
-                            <strong style="font-size:10pt; color:#334155;">${escapeHtml(els.kpiLastScan.textContent)}</strong>
-                            <span>${escapeHtml(els.kpiLastElapsed.textContent)}</span>
-                        </div>
-                        <div class="rpt-kpi">
-                            <span>ประสิทธิภาพผลิต</span>
-                            <strong class="${rptEffClass(eff)}">${eff === null ? '-' : eff + '%'}</strong>
-                            <span>เป้าหมาย ${REPORT_EFF_TARGET}%</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function buildReportChartsHtml() {
-            const blocks = [];
-
-            if (hourlyChartObj) {
-                blocks.push(`
-                    <div class="rpt-avoid-break" style="margin-bottom:10pt;">
-                        <div class="rpt-sub" style="margin-bottom:3pt;"><b>แนวโน้มการสแกนรายชั่วโมง (PCS/Hour) เทียบเส้นเป้าหมาย</b></div>
-                        <img class="rpt-chart" src="${hourlyChartObj.toBase64Image('image/png', 1)}" alt="กราฟแนวโน้มรายชั่วโมง">
-                    </div>
-                `);
-            }
-
-            if (modelChartObj) {
-                blocks.push(`
-                    <div class="rpt-avoid-break">
-                        <div class="rpt-sub" style="margin-bottom:3pt;"><b>สัดส่วนและยอดผลิตแยกรายรุ่น (PCS)</b></div>
-                        <img class="rpt-chart" src="${modelChartObj.toBase64Image('image/png', 1)}" alt="กราฟยอดผลิตรายรุ่น">
-                    </div>
-                `);
-            }
-
-            if (blocks.length === 0) return '';
-
-            return `
-                <div class="rpt-section">
-                    <div class="rpt-h2">{{NO}}. กราฟภาพรวมการผลิต</div>
-                    ${blocks.join('')}
-                </div>
-            `;
-        }
-
-        function buildReportHourlyHtml() {
-            if (!lastHourlySummary) return '';
-
-            const s = lastHourlySummary;
-            let rows = '';
-            let shownCount = 0;
-
-            s.hourSequence.forEach((hr, idx) => {
-                const actual = s.actuals[idx] || 0;
-                const target = s.targets[idx] || 0;
-                if (actual === 0 && target === 0) return; // ข้ามชั่วโมงที่ไม่มีทั้งยอดจริงและเป้า
-
-                shownCount++;
-                const diff = actual - target;
-                const eff = target > 0 ? (actual / target) * 100 : null;
-                // ชั่วโมงที่เป้าเป็น 0 คือช่วงพัก (เช่น 12:00-13:00) ตัดสินผ่าน/ไม่ผ่านไม่ได้
-                const statusText = !s.completed[idx]
-                    ? 'กำลังผลิต'
-                    : eff === null
-                        ? 'นอกเวลาผลิต'
-                        : (eff >= REPORT_EFF_TARGET ? 'ถึงเป้า' : 'ต่ำกว่าเป้า');
-
-                rows += `
-                    <tr>
-                        <td class="rpt-mid">${escapeHtml(s.hourLabels[idx])}</td>
-                        <td class="rpt-num">${actual.toLocaleString()}</td>
-                        <td class="rpt-num">${target.toLocaleString()}</td>
-                        <td class="rpt-num ${diff >= 0 ? 'rpt-good' : 'rpt-bad'}">${diff >= 0 ? '+' : ''}${diff.toLocaleString()}</td>
-                        <td class="rpt-num ${rptEffClass(eff)}">${eff === null ? '-' : eff.toFixed(1) + '%'}</td>
-                        <td class="rpt-mid ${s.completed[idx] ? rptEffClass(eff) : 'rpt-muted'}">${statusText}</td>
-                    </tr>
-                `;
-            });
-
-            if (shownCount === 0) return '';
-
-            const totalEff = s.totalTargetVal > 0 ? (s.totalActualVal / s.totalTargetVal) * 100 : null;
-            const totalDiff = s.totalActualVal - s.totalTargetVal;
-
-            return `
-                <div class="rpt-section">
-                    <div class="rpt-h2">{{NO}}. ผลผลิตรายชั่วโมงเทียบเป้าหมาย (Hourly vs Target)</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th class="rpt-mid" style="width:16%;">ช่วงเวลา</th>
-                                <th style="width:16%; text-align:right;">ยอดจริง (PCS)</th>
-                                <th style="width:16%; text-align:right;">เป้าหมาย (PCS)</th>
-                                <th style="width:16%; text-align:right;">ผลต่าง</th>
-                                <th style="width:16%; text-align:right;">Eff %</th>
-                                <th class="rpt-mid" style="width:20%;">สถานะ</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                        <tfoot>
-                            <tr>
-                                <td class="rpt-mid" style="background:#eef2ff; font-weight:700;">รวมเฉพาะชั่วโมงที่ครบ 60 นาที</td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${s.totalActualVal.toLocaleString()}</td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${s.totalTargetVal.toLocaleString()}</td>
-                                <td class="rpt-num ${totalDiff >= 0 ? 'rpt-good' : 'rpt-bad'}" style="background:#eef2ff;">${totalDiff >= 0 ? '+' : ''}${totalDiff.toLocaleString()}</td>
-                                <td class="rpt-num ${rptEffClass(totalEff)}" style="background:#eef2ff;">${totalEff === null ? '-' : totalEff.toFixed(1) + '%'}</td>
-                                <td style="background:#eef2ff;"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    <div class="rpt-sub" style="margin-top:3pt;">
-                        หมายเหตุ: แถวรวมนับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ตรงกับวิธีคำนวณ Eff% บนหน้าจอ
-                        ส่วนเป้าหมายรายชั่วโมงคำนวณแบบไดนามิกตามกำลังผลิตของรุ่นและไลน์ที่รันจริงในชั่วโมงนั้น
-                        คอลัมน์สถานะตัดสินจาก Eff% เทียบเป้า ${REPORT_EFF_TARGET}% ไม่ใช่จากผลต่างจำนวนชิ้น
-                    </div>
-                </div>
-            `;
-        }
-
-        function buildReportLineHtml() {
-            if (!lastHourlySummary || !lastHourlySummary.byLine || lastHourlySummary.byLine.length === 0) return '';
-
-            const lines = lastHourlySummary.byLine;
-
-            // ถ้าข้อมูลไม่ได้ระบุไลน์มาเลย ตารางนี้จะมีแถวเดียวชื่อ "ไม่ระบุไลน์" ซึ่งไม่ได้ให้ข้อมูลอะไรเพิ่ม
-            if (lines.length === 1 && lines[0].line === '-') return '';
-
-            const grandQty = lines.reduce((sum, l) => sum + l.qty, 0);
-            const grandTarget = lines.reduce((sum, l) => sum + l.target, 0);
-            const grandEff = lastHourlySummary.totalTargetVal > 0
-                ? (lastHourlySummary.totalActualVal / lastHourlySummary.totalTargetVal) * 100
-                : null;
-
-            let rows = '';
-            lines.forEach(l => {
-                const share = grandQty > 0 ? (l.qty / grandQty) * 100 : 0;
-                const activeHours = l.activeHours || 1;
-                rows += `
-                    <tr>
-                        <td>${l.line === '-' ? 'ไม่ระบุไลน์' : escapeHtml('Line ' + l.line)}</td>
-                        <td class="rpt-num">${l.qty.toLocaleString()}</td>
-                        <td class="rpt-num">${share.toFixed(1)}%</td>
-                        <td class="rpt-num">${l.activeHours.toLocaleString()}</td>
-                        <td class="rpt-num">${Math.round(l.qty / activeHours).toLocaleString()}</td>
-                        <td class="rpt-num">${l.modelCount.toLocaleString()}</td>
-                        <td class="rpt-num">${l.target > 0 ? l.target.toLocaleString() : '-'}</td>
-                        <td class="rpt-num ${rptEffClass(l.eff)}">${l.eff === null ? '-' : l.eff.toFixed(1) + '%'}</td>
-                    </tr>
-                `;
-            });
-
-            return `
-                <div class="rpt-section">
-                    <div class="rpt-h2">{{NO}}. สรุปยอดผลิตแยกรายไลน์ผลิต</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width:16%;">ไลน์ผลิต (Line)</th>
-                                <th style="width:13%; text-align:right;">ยอดผลิต (PCS)</th>
-                                <th style="width:11%; text-align:right;">สัดส่วน</th>
-                                <th style="width:12%; text-align:right;">ชั่วโมงที่ผลิต</th>
-                                <th style="width:13%; text-align:right;">เฉลี่ย PCS/Hr</th>
-                                <th style="width:11%; text-align:right;">จำนวนรุ่น</th>
-                                <th style="width:13%; text-align:right;">เป้าหมาย (PCS)</th>
-                                <th style="width:11%; text-align:right;">Eff %</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                        <tfoot>
-                            <tr>
-                                <td style="background:#eef2ff; font-weight:700;">รวมทั้งสิ้น (${lines.length} ไลน์)</td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${grandQty.toLocaleString()}</td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">100.0%</td>
-                                <td style="background:#eef2ff;"></td>
-                                <td style="background:#eef2ff;"></td>
-                                <td style="background:#eef2ff;"></td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${grandTarget > 0 ? grandTarget.toLocaleString() : '-'}</td>
-                                <td class="rpt-num ${rptEffClass(grandEff)}" style="background:#eef2ff;">${grandEff === null ? '-' : grandEff.toFixed(1) + '%'}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    <div class="rpt-sub" style="margin-top:3pt;">
-                        หมายเหตุ: คอลัมน์ยอดผลิตนับทุกชั่วโมงที่มีการสแกน ส่วนเป้าหมายและ Eff% นับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว
-                        จึงอาจไม่เท่ากับยอดผลิตในแถวเดียวกัน เกณฑ์ตัดสินคือ Eff% ตั้งแต่ ${REPORT_EFF_TARGET}% ขึ้นไป
-                    </div>
-                </div>
-            `;
-        }
-
-        function buildReportModelHtml() {
-            const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
-            if (okScans.length === 0) return '';
-
-            const byModel = {};
-            okScans.forEach(s => {
-                if (!byModel[s.model]) byModel[s.model] = { qty: 0, hours: new Set() };
-                byModel[s.model].qty += (s.qty || 1);
-                byModel[s.model].hours.add(`${s.prodDate}_${s.hour}`);
-            });
-
-            const grandTotal = Object.values(byModel).reduce((sum, m) => sum + m.qty, 0);
-            const sorted = Object.entries(byModel).sort((a, b) => b[1].qty - a[1].qty);
-
-            let rows = '';
-            sorted.forEach(([modelName, info]) => {
-                const share = grandTotal > 0 ? (info.qty / grandTotal) * 100 : 0;
-                const activeHours = info.hours.size || 1;
-                rows += `
-                    <tr>
-                        <td>${escapeHtml(modelName)}</td>
-                        <td class="rpt-num">${info.qty.toLocaleString()}</td>
-                        <td class="rpt-num">${share.toFixed(1)}%</td>
-                        <td class="rpt-num">${activeHours.toLocaleString()}</td>
-                        <td class="rpt-num">${Math.round(info.qty / activeHours).toLocaleString()}</td>
-                    </tr>
-                `;
-            });
-
-            return `
-                <div class="rpt-section">
-                    <div class="rpt-h2">{{NO}}. สรุปยอดผลิตแยกรายรุ่นสินค้า</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width:34%;">รุ่นสินค้า (Model)</th>
-                                <th style="width:17%; text-align:right;">ยอดผลิต (PCS)</th>
-                                <th style="width:16%; text-align:right;">สัดส่วน</th>
-                                <th style="width:16%; text-align:right;">ชั่วโมงที่ผลิต</th>
-                                <th style="width:17%; text-align:right;">เฉลี่ย PCS/Hr</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                        <tfoot>
-                            <tr>
-                                <td style="background:#eef2ff; font-weight:700;">รวมทั้งสิ้น (${sorted.length} รุ่น)</td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">${grandTotal.toLocaleString()}</td>
-                                <td class="rpt-num" style="background:#eef2ff; font-weight:700;">100.0%</td>
-                                <td style="background:#eef2ff;"></td>
-                                <td style="background:#eef2ff;"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-            `;
-        }
-
-        function buildReportCapacityHtml() {
-            const rows = computeCapacityRows();
-            if (rows.length === 0) return '';
-
-            let body = '';
-            rows.forEach(({ modelName, stdCap, steadyAvg, peakCap, cycleTimeText, eff }) => {
-                body += `
-                    <tr>
-                        <td>${escapeHtml(modelName)}</td>
-                        <td class="rpt-num">${stdCap.toLocaleString()}</td>
-                        <td class="rpt-num">${steadyAvg > 0 ? steadyAvg.toLocaleString() : '-'}</td>
-                        <td class="rpt-num">${peakCap > 0 ? peakCap.toLocaleString() : '-'}</td>
-                        <td class="rpt-num">${escapeHtml(cycleTimeText)}</td>
-                        <td class="rpt-num ${rptEffClass(eff)}">${eff === null ? '-' : eff.toFixed(1) + '%'}</td>
-                    </tr>
-                `;
-            });
-
-            return `
-                <div class="rpt-section">
-                    <div class="rpt-h2">{{NO}}. สถิติกำลังผลิตจริงรายรุ่น (Actual Capacity Auditor)</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width:26%;">รุ่นสินค้า (Model)</th>
-                                <th style="width:15%; text-align:right;">กำลังผลิต 100%</th>
-                                <th style="width:15%; text-align:right;">รันปกติเฉลี่ย</th>
-                                <th style="width:15%; text-align:right;">ความเร็วสูงสุด</th>
-                                <th style="width:15%; text-align:right;">Cycle Time</th>
-                                <th style="width:14%; text-align:right;">Eff %</th>
-                            </tr>
-                        </thead>
-                        <tbody>${body}</tbody>
-                    </table>
-                    <div class="rpt-sub" style="margin-top:3pt;">
-                        หมายเหตุ: หน่วยความเร็วเป็น PCS/Hr คำนวณจากสถิติจริงหลังกรองการสแกนซ้ำภายใน 1 วินาที
-                        และตัดรอบที่ทิ้งช่วงเกิน 5 นาทีออก เพื่อไม่ให้เวลาพักและช่วงเปลี่ยนรุ่นทำให้ค่าเพี้ยน
-                    </div>
-                </div>
-            `;
-        }
-
-        function buildReportIncidentsHtml(scope) {
-            const incidents = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
-
-            if (incidents.length === 0) {
-                return `
-                    <div class="rpt-section rpt-avoid-break">
-                        <div class="rpt-h2">{{NO}}. บันทึกเหตุการณ์และปัญหาผลิต (Incident Log)</div>
-                        <div class="rpt-sub" style="padding:8pt; border:0.5pt solid #e2e8f0; border-radius:4pt;">
-                            ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่และไลน์ที่เลือก
-                        </div>
-                    </div>
-                `;
-            }
-
-            let rows = '';
-            incidents.forEach(inc => {
-                const timeLabel = inc.time
-                    ? `${inc.time} น.`
-                    : `${String(inc.hour).padStart(2, '0')}:00 - ${String((inc.hour + 1) % 24).padStart(2, '0')}:00 น.`;
-                rows += `
-                    <tr>
-                        <td class="rpt-mid">${escapeHtml(formatThaiDate(inc.date))}</td>
-                        <td class="rpt-mid">${escapeHtml(timeLabel)}</td>
-                        <td class="rpt-mid">${inc.line === 'All' ? 'ทุกไลน์' : escapeHtml('Line ' + inc.line)}</td>
-                        <td>${inc.model === 'All' ? 'ทุกรุ่น' : escapeHtml(inc.model || '-')}</td>
-                        <td>${escapeHtml(inc.categoryText || inc.category || '-')}</td>
-                        <td>${escapeHtml(inc.notes || '-')}</td>
-                    </tr>
-                `;
-            });
-
-            return `
-                <div class="rpt-section">
-                    <div class="rpt-h2">{{NO}}. บันทึกเหตุการณ์และปัญหาผลิต (Incident Log)</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th class="rpt-mid" style="width:13%;">วันผลิต</th>
-                                <th class="rpt-mid" style="width:14%;">ช่วงเวลา</th>
-                                <th class="rpt-mid" style="width:10%;">ไลน์</th>
-                                <th style="width:16%;">รุ่นสินค้า</th>
-                                <th style="width:17%;">ประเภทปัญหา</th>
-                                <th style="width:30%;">รายละเอียดบันทึก</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                    <div class="rpt-sub" style="margin-top:3pt;">รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์</div>
-                </div>
-            `;
-        }
-
-        function buildReportRawScansHtml() {
-            if (allFilteredRows.length === 0) return '';
-
-            let rows = '';
-            allFilteredRows.forEach(s => {
-                rows += `
-                    <tr>
-                        <td class="rpt-mid">${escapeHtml(s.time)}</td>
-                        <td class="rpt-mid">${escapeHtml(formatThaiDate(s.prodDate))}</td>
-                        <td class="rpt-mid">${escapeHtml(s.shift)}</td>
-                        <td>${escapeHtml(s.jobOrder)}</td>
-                        <td>${escapeHtml(s.model)}</td>
-                        <td>${escapeHtml(s.barcode)}</td>
-                        <td class="rpt-mid">${escapeHtml(s.status)}</td>
-                    </tr>
-                `;
-            });
-
-            return `
-                <div class="rpt-section rpt-page-break">
-                    <div class="rpt-h2">{{NO}}. ประวัติการสแกนรายรายการ (Live Scan Feed)</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th class="rpt-mid" style="width:12%;">เวลาสแกน</th>
-                                <th class="rpt-mid" style="width:14%;">วันผลิต</th>
-                                <th class="rpt-mid" style="width:9%;">กะ</th>
-                                <th style="width:16%;">Job Order</th>
-                                <th style="width:18%;">รุ่นสินค้า</th>
-                                <th style="width:23%;">รหัสบาร์โค้ด</th>
-                                <th class="rpt-mid" style="width:8%;">สถานะ</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                    <div class="rpt-sub" style="margin-top:3pt;">รวมทั้งหมด ${allFilteredRows.length.toLocaleString()} รายการ</div>
-                </div>
-            `;
+            return {
+                pageSize: 'A4',
+                pageMargins: [PDF_PAGE_MARGIN, PDF_PAGE_MARGIN + 4, PDF_PAGE_MARGIN, PDF_PAGE_MARGIN + 10],
+                defaultStyle: { font: 'Sarabun', fontSize: 8, color: PDF_COLOR.text },
+                info: {
+                    title: `รายงานสรุปการผลิต ${scope.dateLabel}`,
+                    author: 'Barcode Real-time Monitor'
+                },
+                content: [
+                    ...buildReportMetaContent(scope),
+                    ...[].concat(...filled)
+                ],
+                footer: (currentPage, pageCount) => ({
+                    columns: [
+                        {
+                            text: pdfText('เอกสารนี้สร้างอัตโนมัติจากระบบ Barcode Real-time Monitor · ข้อมูลตรงตามตัวกรองที่ระบุไว้หน้าแรก'),
+                            fontSize: 6.5,
+                            color: PDF_COLOR.muted
+                        },
+                        {
+                            text: `หน้า ${currentPage} / ${pageCount}`,
+                            fontSize: 6.5,
+                            color: PDF_COLOR.muted,
+                            alignment: 'right',
+                            width: 60
+                        }
+                    ],
+                    margin: [PDF_PAGE_MARGIN, 8, PDF_PAGE_MARGIN, 0]
+                })
+            };
         }
 
         async function generatePdfReport() {
-            const report = document.getElementById('pdf-report');
-            if (!report) return;
-
             if (filteredScans.length === 0) {
                 return Swal.fire({
                     icon: 'warning',
@@ -3992,102 +4059,52 @@
                 });
             }
 
-            const opt = id => {
-                const el = document.getElementById(id);
-                return el ? el.checked : false;
-            };
-
             const scope = getReportScope();
-            const sections = [];
-
-            if (opt('export-opt-kpi'))       sections.push(buildReportKpiHtml());
-            if (opt('export-opt-charts'))    sections.push(buildReportChartsHtml());
-            if (opt('export-opt-hourly'))    sections.push(buildReportHourlyHtml());
-            if (opt('export-opt-line'))      sections.push(buildReportLineHtml());
-            if (opt('export-opt-model'))     sections.push(buildReportModelHtml());
-            if (opt('export-opt-capacity'))  sections.push(buildReportCapacityHtml());
-            if (opt('export-opt-incidents')) sections.push(buildReportIncidentsHtml(scope));
-            if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansHtml());
-
-            // ไล่เลขหัวข้อหลังจากรู้แล้วว่าหัวข้อไหนมีข้อมูลจริงบ้าง เลขจะได้เรียง 1,2,3... ไม่มีข้าม
-            let sectionNo = 0;
-            const body = sections
-                .filter(Boolean)
-                .join('')
-                .replace(/\{\{NO\}\}/g, () => ++sectionNo);
-
-            if (!body) {
+            const doc = buildReportDoc(scope);
+            if (!doc) {
                 return Swal.fire({
                     icon: 'warning',
                     title: 'ยังไม่ได้เลือกหัวข้อรายงาน',
-                    text: 'กรุณาติ๊กเลือกอย่างน้อย 1 หัวข้อก่อนสร้างรายงานครับ'
+                    text: 'กรุณาติ๊กเลือกอย่างน้อย 1 หัวข้อที่มีข้อมูลก่อนสร้างรายงานครับ'
                 });
             }
 
             closeExportModal();
 
-            report.innerHTML = `
-                ${buildReportMetaHtml(scope)}
-                ${body}
-                <div class="rpt-foot">
-                    เอกสารนี้สร้างอัตโนมัติจากระบบ Barcode Real-time Monitor · ข้อมูลตรงตามตัวกรองที่ระบุไว้ด้านบน
-                </div>
-            `;
+            // ครั้งแรกต้องโหลด pdfmake (~2MB) กับไฟล์ฟอนต์ อาจใช้เวลาสักครู่ จึงขึ้นสถานะให้เห็น
+            Swal.fire({
+                title: 'กำลังสร้างไฟล์ PDF',
+                text: 'ระบบกำลังประกอบเอกสารและจะดาวน์โหลดให้อัตโนมัติเมื่อเสร็จครับ',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
 
-            // จัดวางเอกสารนอกจอก่อน เพื่อบังคับให้เบราว์เซอร์ layout และถอดรหัสรูปกราฟให้เสร็จ
-            // ไม่งั้นบางเบราว์เซอร์จะพิมพ์ออกมาโดยที่รูปกราฟยังว่างอยู่
-            report.style.display = 'block';
-            report.style.position = 'fixed';
-            report.style.left = '-10000px';
-            report.style.top = '0';
-            report.style.width = '794px';
-
-            const images = Array.from(report.querySelectorAll('img'));
-            await Promise.all(images.map(img => img.complete
-                ? Promise.resolve()
-                : new Promise(resolve => { img.onload = img.onerror = resolve; })
-            ));
-            await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 100)));
-
-            // ตั้งชื่อเอกสารชั่วคราว เพราะเบราว์เซอร์ใช้ document.title เป็นชื่อไฟล์ PDF เริ่มต้น
-            const previousTitle = document.title;
-            document.title = `Barcode-Report_${scope.startDate}${scope.endDate !== scope.startDate ? '_ถึง_' + scope.endDate : ''}`;
-
-            // หยุด auto refresh ชั่วคราว กันไม่ให้ข้อมูลถูกวาดใหม่ระหว่างเปิดหน้าต่างพิมพ์
-            const wasAutoRefreshing = refreshIntervalId !== null;
-            if (wasAutoRefreshing) {
-                clearInterval(refreshIntervalId);
-                refreshIntervalId = null;
-            }
-
-            const cleanUp = () => {
-                document.title = previousTitle;
-                report.style.display = '';
-                report.style.position = '';
-                report.style.left = '';
-                report.style.top = '';
-                report.style.width = '';
-                report.innerHTML = '';
-                if (wasAutoRefreshing && refreshIntervalId === null) {
-                    startAutoRefreshTimer();
-                }
-            };
-
-            window.addEventListener('afterprint', cleanUp, { once: true });
+            const fileName = `Barcode-Report_${scope.startDate}${scope.endDate !== scope.startDate ? '_ถึง_' + scope.endDate : ''}.pdf`;
 
             try {
-                window.print();
+                await ensurePdfEngine();
+                await new Promise((resolve, reject) => {
+                    try {
+                        pdfMake.createPdf(doc).download(fileName, resolve);
+                    } catch (err) {
+                        reject(err);
+                    }
+                });
+
+                Swal.fire({
+                    icon: 'success',
+                    title: 'ดาวน์โหลดรายงานแล้ว',
+                    text: fileName,
+                    timer: 2600,
+                    showConfirmButton: false
+                });
             } catch (err) {
-                console.error('เปิดหน้าต่างพิมพ์ไม่สำเร็จ:', err);
+                console.error('สร้างไฟล์ PDF ไม่สำเร็จ:', err);
                 Swal.fire({
                     icon: 'error',
-                    title: 'เปิดหน้าต่างพิมพ์ไม่ได้',
-                    text: 'เบราว์เซอร์ปฏิเสธการเปิดหน้าต่างพิมพ์ ลองกด Ctrl+P (หรือ Cmd+P) เพื่อสั่งพิมพ์เองอีกครั้งครับ'
+                    title: 'สร้างไฟล์ PDF ไม่สำเร็จ',
+                    text: `${err.message || err} — หากเครื่องนี้ต่ออินเทอร์เน็ตไม่ได้ ระบบจะโหลดตัวสร้าง PDF ไม่ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่ครับ`
                 });
-            } finally {
-                // เบราว์เซอร์ส่วนใหญ่บล็อกที่ print() จนกว่าจะปิดหน้าต่าง แต่บางตัวไม่ยิง afterprint
-                // จึงเก็บกวาดซ้ำอีกชั้นแบบหน่วงเวลา (cleanUp ทำงานซ้ำได้ปลอดภัย)
-                setTimeout(cleanUp, 1000);
             }
         }
 
@@ -4337,8 +4354,5 @@
             return match ? match[1] : '0';
         }
     </script>
-
-    <!-- เอกสารรายงาน PDF: ซ่อนบนหน้าจอ ถูกสร้างขึ้นใหม่ทุกครั้งที่กด Export แล้วแสดงเฉพาะตอนพิมพ์ -->
-    <div id="pdf-report" aria-hidden="true"></div>
 </body>
 </html>
