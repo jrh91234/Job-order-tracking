@@ -1754,6 +1754,16 @@
                 actuals: hourSequence.map(hr =>
                     okScans.filter(s => s.hour === hr).reduce((sum, s) => sum + (s.qty || 1), 0)
                 ),
+                // แยกยอดรายรุ่นของแต่ละชั่วโมง เรียงจากมากไปน้อย ใช้ทำคอลัมน์ "รุ่นที่ผลิต" ในรายงาน
+                // เป็นตัวเลขชุดเดียวกับที่วาดเป็นแท่งซ้อนบนกราฟรายชั่วโมง
+                modelsByHour: hourSequence.map(hr => {
+                    const counts = {};
+                    okScans.forEach(s => {
+                        if (s.hour !== hr) return;
+                        counts[s.model] = (counts[s.model] || 0) + (s.qty || 1);
+                    });
+                    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+                }),
                 completed: hourSequence.map((hr, idx) =>
                     !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx)
                 ),
@@ -3447,7 +3457,12 @@
             if (value === null || value === undefined) return '';
             return String(value)
                 .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, '')
-                .replace(/\s+/g, ' ')
+                // รวมรูปแบบขึ้นบรรทัดใหม่ให้เหลือแบบเดียว แล้วยุบเฉพาะช่องว่างแนวนอนที่ซ้ำกัน
+                // ต้องคงการขึ้นบรรทัดใหม่ไว้ ไม่งั้นเซลล์ที่ตั้งใจให้หลายบรรทัด (เช่น รุ่นที่ผลิตรายชั่วโมง
+                // หรือหมายเหตุที่ผู้ใช้พิมพ์ขึ้นบรรทัดเอง) จะถูกบีบมาต่อกันเป็นบรรทัดเดียวจนอ่านยาก
+                .replace(/\r\n?/g, '\n')
+                .replace(/[^\S\n]+/g, ' ')
+                .replace(/ *\n */g, '\n')
                 .trim();
         }
 
@@ -3724,7 +3739,8 @@
                 pdfHeaderCell('เป้าหมาย (PCS)', 'right'),
                 pdfHeaderCell('ผลต่าง', 'right'),
                 pdfHeaderCell('Eff %', 'right'),
-                pdfHeaderCell('สถานะ', 'center')
+                pdfHeaderCell('สถานะ', 'center'),
+                pdfHeaderCell('รุ่นที่ผลิตในชั่วโมงนี้ (PCS)')
             ]];
 
             s.hourSequence.forEach((hr, idx) => {
@@ -3741,13 +3757,20 @@
                         ? 'นอกเวลาผลิต'
                         : (eff >= REPORT_EFF_TARGET ? 'ถึงเป้า' : 'ต่ำกว่าเป้า');
 
+                // แจกแจงรุ่นที่เดินในชั่วโมงนี้ บรรทัดละรุ่นเพื่อให้กวาดตาอ่านง่ายตอนมีหลายรุ่น
+                const models = (s.modelsByHour && s.modelsByHour[idx]) || [];
+                const modelText = models.length === 0
+                    ? '-'
+                    : models.map(([name, qty]) => `${name} (${qty.toLocaleString()})`).join('\n');
+
                 body.push([
                     pdfCell(s.hourLabels[idx], 'center'),
                     pdfCell(actual.toLocaleString(), 'right'),
                     pdfCell(target.toLocaleString(), 'right'),
                     pdfCell((diff >= 0 ? '+' : '') + diff.toLocaleString(), 'right', diff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
                     pdfEffCell(eff),
-                    pdfCell(statusText, 'center', s.completed[idx] ? rptEffColor(eff) : PDF_COLOR.muted)
+                    pdfCell(statusText, 'center', s.completed[idx] ? rptEffColor(eff) : PDF_COLOR.muted),
+                    pdfCell(modelText, 'left', models.length === 0 ? PDF_COLOR.muted : PDF_COLOR.text)
                 ]);
             });
 
@@ -3762,18 +3785,20 @@
                 pdfTotalCell(s.totalTargetVal.toLocaleString(), 'right'),
                 pdfTotalCell((totalDiff >= 0 ? '+' : '') + totalDiff.toLocaleString(), 'right', totalDiff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
                 pdfTotalCell(totalEff === null ? '-' : totalEff.toFixed(1) + '%', 'right', rptEffColor(totalEff)),
-                pdfTotalCell('', 'center')
+                pdfTotalCell('', 'center'),
+                pdfTotalCell('')
             ]);
 
             return [
                 ...pdfHeading('ผลผลิตรายชั่วโมงเทียบเป้าหมาย (Hourly vs Target)'),
                 {
-                    table: { headerRows: 1, widths: [70, '*', '*', '*', '*', 70], body: body },
+                    table: { headerRows: 1, widths: [70, 54, 58, 44, 40, 60, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`หมายเหตุ: แถวรวมนับเฉพาะชั่วโมงที่ผ่านไปครบ 60 นาทีแล้ว ตรงกับวิธีคำนวณ Eff% บนหน้าจอ ` +
                     `ส่วนเป้าหมายรายชั่วโมงคำนวณแบบไดนามิกตามกำลังผลิตของรุ่นและไลน์ที่รันจริงในชั่วโมงนั้น ` +
-                    `คอลัมน์สถานะตัดสินจาก Eff% เทียบเป้า ${REPORT_EFF_TARGET}% ไม่ใช่จากผลต่างจำนวนชิ้น`)
+                    `คอลัมน์สถานะตัดสินจาก Eff% เทียบเป้า ${REPORT_EFF_TARGET}% ไม่ใช่จากผลต่างจำนวนชิ้น · ` +
+                    `คอลัมน์รุ่นที่ผลิตแจกแจงยอดของแต่ละรุ่นในชั่วโมงนั้น รวมกันแล้วเท่ากับคอลัมน์ยอดจริง`)
             ];
         }
 
