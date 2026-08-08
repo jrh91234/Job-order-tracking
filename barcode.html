@@ -3954,7 +3954,32 @@
             ];
         }
 
-        function buildReportJobStatusContent() {
+        // บันทึกเหตุการณ์ไม่มีช่อง Job order จึงจับคู่เข้ากับ Job ผ่าน "รุ่นสินค้า" ที่ Job นั้นผลิต
+        // เหตุการณ์ที่บันทึกไว้ว่ากระทบ "ทุกรุ่น" ถือว่ากระทบทุก Job ด้วย
+        function summarizeIncidentCategories(incidents) {
+            if (incidents.length === 0) return '';
+            const counts = {};
+            incidents.forEach(inc => {
+                const label = inc.categoryText || inc.category || 'อื่น ๆ';
+                counts[label] = (counts[label] || 0) + 1;
+            });
+            return Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([label, n]) => (n > 1 ? `${label} (${n})` : label))
+                .join('\n');
+        }
+
+        // เอาเฉพาะเหตุการณ์ที่ระบุรุ่นตรงกับ Job นั้น ส่วนเหตุการณ์ที่กระทบทุกรุ่นแยกไปสรุปใต้ตาราง
+        // ไม่งั้นเหตุการณ์เดียวจะขึ้นซ้ำทุกแถวจนคอลัมน์นี้ไม่ช่วยแยกแยะอะไรเลย
+        function summarizeIncidentsForModel(incidents, model) {
+            const target = String(model || '').trim();
+            if (!target) return '';
+            return summarizeIncidentCategories(
+                incidents.filter(inc => inc.model !== 'All' && String(inc.model || '').trim() === target)
+            );
+        }
+
+        function buildReportJobStatusContent(scope) {
             if (!planJobs || planJobs.length === 0) return [];
 
             // ยอดที่สแกนได้จริงในช่วงของรายงานนี้ แยกตาม Job order
@@ -3979,6 +4004,9 @@
                 (a.progress || 0) - (b.progress || 0)
             );
 
+            // เหตุการณ์ในช่วงและไลน์เดียวกับรายงาน ใช้อธิบายว่า Job ค้างเพราะอะไร
+            const incidentsInScope = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
+
             const body = [[
                 pdfHeaderCell('Job Order'),
                 pdfHeaderCell('รุ่นสินค้า (Model)'),
@@ -3986,7 +4014,7 @@
                 pdfHeaderCell('ผลิตแล้ว', 'right'),
                 pdfHeaderCell('คงเหลือ', 'right'),
                 pdfHeaderCell('คืบหน้า', 'right'),
-                pdfHeaderCell('ผลิตช่วงนี้', 'right'),
+                pdfHeaderCell('หมายเหตุ / สาเหตุที่ยังไม่จบ'),
                 pdfHeaderCell('สถานะ', 'center')
             ]];
 
@@ -4011,6 +4039,22 @@
                     statusColor = PDF_COLOR.warn;
                 }
 
+                // หมายเหตุ = ข้อความที่คนกรอกไว้ในชีต Plan + เหตุการณ์ที่บันทึกไว้ของรุ่นนี้
+                const noteParts = [];
+                if (j.remark) noteParts.push(j.remark);
+                const incidentText = summarizeIncidentsForModel(incidentsInScope, j.model);
+                if (incidentText) noteParts.push(incidentText);
+
+                // เตือนเฉพาะงานที่ "เคยเดินแล้วหยุด" ซึ่งควรมีคนอธิบายได้ว่าติดอะไร
+                // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
+                const isStalled = inPeriod === 0 && j.actual > 0;
+                const noteText = noteParts.length > 0
+                    ? noteParts.join('\n')
+                    : (isStalled ? 'ยังไม่มีบันทึกสาเหตุ' : '-');
+                const noteColor = noteParts.length > 0
+                    ? PDF_COLOR.text
+                    : (isStalled ? PDF_COLOR.warn : PDF_COLOR.muted);
+
                 body.push([
                     pdfCell(j.job),
                     pdfCell(j.model || '-'),
@@ -4018,10 +4062,16 @@
                     pdfCell(j.actual.toLocaleString(), 'right'),
                     pdfCell(j.remaining.toLocaleString(), 'right'),
                     pdfCell(j.progress === null ? '-' : j.progress.toFixed(1) + '%', 'right'),
-                    pdfCell(inPeriod > 0 ? inPeriod.toLocaleString() : '-', 'right'),
+                    pdfCell(noteText, 'left', noteColor),
                     pdfCell(statusText, 'center', statusColor, true)
                 ]);
             });
+
+            // เหตุการณ์ที่บันทึกว่ากระทบทุกรุ่น กระทบทุก Job เท่ากันหมด จึงบอกครั้งเดียวใต้ตาราง
+            const allModelText = summarizeIncidentCategories(incidentsInScope.filter(inc => inc.model === 'All'));
+            const allModelNote = allModelText
+                ? pdfNote('เหตุการณ์ที่กระทบทุกรุ่นในช่วงนี้ (มีผลกับทุก Job ข้างต้น): ' + allModelText.split('\n').join(' · '))
+                : null;
 
             const totalProgress = sumPlan > 0 ? (sumActual / sumPlan) * 100 : null;
             body.push([
@@ -4031,20 +4081,24 @@
                 pdfTotalCell(sumActual.toLocaleString(), 'right'),
                 pdfTotalCell(sumRemaining.toLocaleString(), 'right'),
                 pdfTotalCell(totalProgress === null ? '-' : totalProgress.toFixed(1) + '%', 'right'),
-                pdfTotalCell(sumPeriod > 0 ? sumPeriod.toLocaleString() : '-', 'right'),
+                pdfTotalCell(''),
                 pdfTotalCell('', 'center')
             ]);
 
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 88, 46, 50, 46, 46, 50, 54], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [88, 78, 40, 44, 40, 40, '*', 50], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน ' +
-                    'ส่วนคอลัมน์ "ผลิตช่วงนี้" คือยอดสแกนเฉพาะในช่วงและตัวกรองของรายงานฉบับนี้เท่านั้น · ' +
-                    'กำลังผลิต = มีการสแกนในช่วงรายงานนี้ · หยุดค้าง = เคยผลิตแล้วแต่ช่วงนี้ไม่มีการสแกน · ยังไม่เริ่ม = ยังไม่มียอดผลิตเลย')
-            ];
+                pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน · ' +
+                    'กำลังผลิต = มีการสแกนในช่วงรายงานนี้ · หยุดค้าง = เคยผลิตแล้วแต่ช่วงนี้ไม่มีการสแกน · ยังไม่เริ่ม = ยังไม่มียอดผลิตเลย'),
+                allModelNote,
+                pdfNote('คอลัมน์หมายเหตุ: รวมข้อความจากช่อง Remark ในชีต Plan เข้ากับเหตุการณ์ที่บันทึกไว้ในช่วงของรายงานนี้ · ' +
+                    'บันทึกเหตุการณ์ไม่มีช่อง Job order ระบบจึงจับคู่ผ่าน "รุ่นสินค้า" ที่ Job นั้นผลิต ' +
+                    'ถ้ามีหลาย Job ผลิตรุ่นเดียวกัน เหตุการณ์เดียวกันจะขึ้นให้ทุก Job นั้น · ' +
+                    'แถวที่ขึ้นว่า "ยังไม่มีบันทึกสาเหตุ" คือ Job ที่เคยเดินแล้วหยุดโดยไม่มีใครรายงานว่าติดอะไร เป็นจุดที่ควรตามก่อน')
+            ].filter(Boolean); // allModelNote เป็น null ได้เมื่อไม่มีเหตุการณ์ที่กระทบทุกรุ่น
         }
 
         function buildReportCapacityContent() {
@@ -4247,7 +4301,7 @@
             if (opt('export-opt-hourly'))    sections.push(buildReportHourlyContent());
             if (opt('export-opt-line'))      sections.push(buildReportLineContent());
             if (opt('export-opt-model'))     sections.push(buildReportModelContent());
-            if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent());
+            if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent(scope));
             if (opt('export-opt-capacity'))  sections.push(buildReportCapacityContent());
             if (opt('export-opt-incidents')) sections.push(buildReportIncidentsContent(scope));
             if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansContent());
@@ -4444,6 +4498,10 @@
                 const l = k.trim().toLowerCase();
                 return l === 'status' || l === 'isclosed' || l === 'state' || l === 'job status' || l === 'สถานะ';
             });
+            const remarkKey = keys.find(k => {
+                const l = k.trim().toLowerCase();
+                return l === 'remark' || l === 'remarks' || l === 'note' || l === 'notes' || l === 'หมายเหตุ';
+            });
 
             if (!jobKey || !planKey) {
                 console.warn('ชีต Plan ไม่มีคอลัมน์ Job order หรือ Plan จำนวน จึงข้ามหัวข้อ Job ค้าง');
@@ -4471,6 +4529,7 @@
                     actual: actual,
                     remaining: Math.max(plan - actual, 0),
                     progress: plan > 0 ? (actual / plan) * 100 : null,
+                    remark: remarkKey ? String(row[remarkKey] || '').trim() : '',
                     closed: ['closed', 'close', 'archive', 'archived'].includes(rawStatus)
                 });
             });
