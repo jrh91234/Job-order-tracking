@@ -107,7 +107,7 @@ function doPost(e) {
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "Category", "CategoryText", "Notes"]);
+      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"]);
     }
     
     var id = data.id;
@@ -132,20 +132,46 @@ function doPost(e) {
     }
     
     // SAVE action
-    var rowData = [
-      data.id,
-      data.date,
-      data.hour,
-      data.line,
-      data.model || "All",
-      data.category,
-      data.categoryText,
-      data.notes
-    ];
-    
+    // เขียนค่าโดยอิงชื่อคอลัมน์ในหัวตารางจริง ไม่ใช่ตำแหน่งตายตัว
+    // ชีตเดิมมีแค่ 8 คอลัมน์ (ไม่มี JobOrder กับ Time) โค้ดนี้จะเติมหัวคอลัมน์ที่ขาดให้เอง
+    // แถวเก่าที่มีอยู่แล้วจะเว้นว่างในคอลัมน์ใหม่ ไม่ถูกแตะต้อง
+    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"];
+    var headers = values.length > 0 ? values[0].slice() : [];
+    var added = false;
+    for (var c = 0; c < REQUIRED_COLS.length; c++) {
+      var name = REQUIRED_COLS[c];
+      var found = false;
+      for (var h = 0; h < headers.length; h++) {
+        if (String(headers[h]).trim() === name) { found = true; break; }
+      }
+      if (!found) { headers.push(name); added = true; }
+    }
+    if (added) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+
+    var valueByCol = {
+      "ID": data.id,
+      "Date": data.date,
+      "Hour": data.hour,
+      "Line": data.line,
+      "Model": data.model || "All",
+      "JobOrder": data.jobOrder || "",
+      "Category": data.category,
+      "CategoryText": data.categoryText,
+      "Notes": data.notes,
+      "Time": data.time || ""
+    };
+
+    var rowData = [];
+    for (var k = 0; k < headers.length; k++) {
+      var key = String(headers[k]).trim();
+      rowData.push(valueByCol.hasOwnProperty(key) ? valueByCol[key] : "");
+    }
+
     if (rowIndex !== -1) {
       // Update existing row
-      sheet.getRange(rowIndex, 1, 1, 8).setValues([rowData]);
+      sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
     } else {
       // Append new row
       sheet.appendRow(rowData);

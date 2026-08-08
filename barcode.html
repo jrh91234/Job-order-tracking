@@ -396,6 +396,7 @@
                             <th class="p-3 text-center w-24">ช่วงเวลา</th>
                             <th class="p-3 text-center w-20">ไลน์ (Line)</th>
                             <th class="p-3 w-32">รุ่นสินค้า (Model)</th>
+                            <th class="p-3 w-40">Job Order</th>
                             <th class="p-3 w-40">ประเภทปัญหา</th>
                             <th class="p-3">รายละเอียดบันทึก</th>
                             <th class="p-3 text-center w-24">การจัดการ</th>
@@ -403,7 +404,7 @@
                     </thead>
                     <tbody id="incident-log-tbody" class="divide-y divide-slate-100 font-medium">
                         <tr>
-                            <td colspan="6" class="text-center p-6 text-slate-400 italic">
+                            <td colspan="7" class="text-center p-6 text-slate-400 italic">
                                 วันนี้ยังไม่มีการรายงานปัญหาขัดข้อง (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
                             </td>
                         </tr>
@@ -752,9 +753,33 @@
       if (rowIndex !== -1) sheet.deleteRow(rowIndex);
       return ContentService.createTextOutput(JSON.stringify({result: "success"})).setMimeType(ContentService.MimeType.JSON);
     }
-    var rowData = [data.id, data.date, data.hour, data.line, data.model || "All", data.category, data.categoryText, data.notes, data.time || ""];
+    // เขียนค่าโดยอิงชื่อคอลัมน์ในหัวตารางจริง และเติมหัวคอลัมน์ที่ขาดให้เอง (JobOrder / Time)
+    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"];
+    var headers = values.length > 0 ? values[0].slice() : [];
+    var added = false;
+    for (var c = 0; c &lt; REQUIRED_COLS.length; c++) {
+      var found = false;
+      for (var h = 0; h &lt; headers.length; h++) {
+        if (String(headers[h]).trim() === REQUIRED_COLS[c]) { found = true; break; }
+      }
+      if (!found) { headers.push(REQUIRED_COLS[c]); added = true; }
+    }
+    if (added) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+    var valueByCol = {
+      "ID": data.id, "Date": data.date, "Hour": data.hour, "Line": data.line,
+      "Model": data.model || "All", "JobOrder": data.jobOrder || "",
+      "Category": data.category, "CategoryText": data.categoryText,
+      "Notes": data.notes, "Time": data.time || ""
+    };
+    var rowData = [];
+    for (var k = 0; k &lt; headers.length; k++) {
+      var key = String(headers[k]).trim();
+      rowData.push(valueByCol.hasOwnProperty(key) ? valueByCol[key] : "");
+    }
+
     if (rowIndex !== -1) {
-      sheet.getRange(rowIndex, 1, 1, 9).setValues([rowData]);
+      sheet.getRange(rowIndex, 1, 1, rowData.length).setValues([rowData]);
     } else {
       sheet.appendRow(rowData);
     }
@@ -818,6 +843,13 @@
                     <select id="incident-model" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
                         <!-- Populated dynamically -->
                     </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Job Order</label>
+                    <select id="incident-job" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <!-- Populated dynamically -->
+                    </select>
+                    <p id="incident-job-hint" class="text-[10px] text-slate-400 mt-1"></p>
                 </div>
                 <div>
                     <div class="flex justify-between items-center mb-1">
@@ -2568,6 +2600,7 @@
                                 time: row.Time || '',
                                 line: row.Line,
                                 model: row.Model || 'All',
+                                jobOrder: row.JobOrder || row['Job Order'] || '',
                                 category: row.Category,
                                 categoryText: row.CategoryText,
                                 notes: row.Notes
@@ -2649,6 +2682,97 @@
             document.getElementById('incident-list-modal').classList.add('hidden');
         }
 
+        // เติมรายการ Job order ให้ฟอร์มบันทึกเหตุการณ์
+        // ลำดับความสำคัญ: Job ที่กำลังผลิตรุ่นนั้นอยู่จริง (มีการสแกน) > Job ที่ยังเปิดอยู่ของรุ่นนั้น > Job เปิดอื่น ๆ
+        function populateIncidentJobOptions(preferredJob) {
+            const select = document.getElementById('incident-job');
+            const hint = document.getElementById('incident-job-hint');
+            if (!select) return;
+
+            const date = els.filterStartDate.value;
+            const model = document.getElementById('incident-model').value;
+            const line = document.getElementById('incident-line').value;
+
+            // 1) Job ที่มีการสแกนจริงในวันนั้น กรองตามรุ่น/ไลน์ที่เลือกไว้ เรียงจากสแกนล่าสุด
+            const lastScanByJob = {};
+            processedScans.forEach(sc => {
+                if (sc.status.toUpperCase() !== 'OK') return;
+                if (sc.prodDate !== date) return;
+                if (model !== 'All' && sc.model !== model) return;
+                if (line !== 'All' && sc.line !== line) return;
+                const job = String(sc.jobOrder || '').trim();
+                if (!job || job === 'MANUAL_MODE') return;
+                if (!lastScanByJob[job] || sc.ts > lastScanByJob[job]) lastScanByJob[job] = sc.ts;
+            });
+            const producing = Object.entries(lastScanByJob).sort((a, b) => b[1] - a[1]).map(([job]) => job);
+
+            // 2) Job ที่ยังเปิดอยู่ในชีต Plan
+            const openJobs = (planJobs || []).filter(j => !j.closed && (j.progress === null || j.progress < 100));
+            const jobModel = job => {
+                const info = openJobs.find(j => j.job === job);
+                return info && info.model ? info.model : '';
+            };
+
+            select.innerHTML = '';
+            const addOption = (value, label, parent) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = label;
+                (parent || select).appendChild(opt);
+            };
+            const addGroup = label => {
+                const g = document.createElement('optgroup');
+                g.label = label;
+                select.appendChild(g);
+                return g;
+            };
+
+            addOption('', 'ไม่ระบุ Job order');
+
+            const used = new Set();
+            if (producing.length > 0) {
+                const g = addGroup('กำลังผลิตอยู่ (มีการสแกนในวันที่เลือก)');
+                producing.forEach(job => {
+                    const m = jobModel(job);
+                    addOption(job, m ? `${job} — ${m}` : job, g);
+                    used.add(job);
+                });
+            }
+
+            const sameModel = openJobs
+                .filter(j => model !== 'All' && j.model === model && !used.has(j.job))
+                .map(j => j.job);
+            if (sameModel.length > 0) {
+                const g = addGroup(`Job ที่ยังเปิดอยู่ของรุ่น ${model}`);
+                sameModel.forEach(job => { addOption(job, job, g); used.add(job); });
+            }
+
+            const otherOpen = openJobs.filter(j => !used.has(j.job)).map(j => j.job);
+            if (otherOpen.length > 0) {
+                const g = addGroup('Job อื่นที่ยังเปิดอยู่');
+                otherOpen.forEach(job => {
+                    const m = jobModel(job);
+                    addOption(job, m ? `${job} — ${m}` : job, g);
+                });
+            }
+
+            // เลือกอัตโนมัติ: ค่าที่เคยบันทึกไว้ > Job ที่สแกนล่าสุด > Job เปิดอยู่ตัวเดียวของรุ่นนั้น
+            const hasOption = v => Array.from(select.options).some(o => o.value === v);
+            let chosen = '';
+            if (preferredJob && hasOption(preferredJob)) chosen = preferredJob;
+            else if (producing.length > 0) chosen = producing[0];
+            else if (sameModel.length === 1) chosen = sameModel[0];
+            select.value = chosen;
+
+            if (hint) {
+                hint.textContent = producing.length > 0
+                    ? 'เลือกให้อัตโนมัติจาก Job ที่สแกนล่าสุดของรุ่นนี้ เปลี่ยนเองได้'
+                    : (openJobs.length > 0
+                        ? 'ไม่พบการสแกนของรุ่นนี้ในวันที่เลือก จึงให้เลือกจาก Job ที่ยังเปิดอยู่'
+                        : 'ยังไม่มีข้อมูล Job order (ต้องดึงชีต Plan ให้สำเร็จก่อน)');
+            }
+        }
+
         function openIncidentModalForHour(hour, model = 'All') {
             loadIncidents();
             const modal = document.getElementById('incident-modal');
@@ -2719,10 +2843,12 @@
                     btnDelete.classList.remove('hidden');
                     // แสดงเวลาที่แน่นอนที่เคยบันทึกไว้ (ถ้ามี) แทนเวลาต้นชั่วโมง
                     if (existing.time) setTimeValue(existing.time);
+                    populateIncidentJobOptions(existing.jobOrder);
                 } else {
                     selectCat.value = 'Breakdown';
                     textareaNotes.value = '';
                     btnDelete.classList.add('hidden');
+                    populateIncidentJobOptions();
                 }
             };
 
@@ -2769,6 +2895,8 @@
             const category = document.getElementById('incident-category').value;
             const categoryText = document.getElementById('incident-category').options[document.getElementById('incident-category').selectedIndex].text;
             const notes = document.getElementById('incident-notes').value.trim();
+            const jobSelect = document.getElementById('incident-job');
+            const jobOrder = jobSelect ? jobSelect.value : '';
 
             if (!activeDate) return;
 
@@ -2780,6 +2908,7 @@
                 time: timeValue,
                 line: line,
                 model: model,
+                jobOrder: jobOrder,
                 category: category,
                 categoryText: categoryText,
                 notes: notes
@@ -2829,7 +2958,7 @@
             if (dayIncidents.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="6" class="text-center p-6 text-slate-400 italic">
+                        <td colspan="7" class="text-center p-6 text-slate-400 italic">
                             วันนี้ยังไม่มีการรายงานปัญหาขัดข้อง (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
                         </td>
                     </tr>
@@ -2849,6 +2978,7 @@
                         <td class="p-3 text-center font-bold text-slate-700">${timeLabel}</td>
                         <td class="p-3 text-center text-indigo-600 font-bold">${lineName}</td>
                         <td class="p-3 text-slate-700 font-semibold">${modelName}</td>
+                        <td class="p-3 text-slate-500 font-mono text-[11px]">${inc.jobOrder ? escapeHtml(inc.jobOrder) : '-'}</td>
                         <td class="p-3 text-slate-700 font-semibold">${inc.categoryText}</td>
                         <td class="p-3 text-slate-500 whitespace-pre-wrap">${inc.notes || '-'}</td>
                         <td class="p-3 text-center font-bold">
@@ -2870,6 +3000,7 @@
                 time: incident.time || '',
                 line: incident.line,
                 model: incident.model || 'All',
+                jobOrder: incident.jobOrder || '',
                 category: incident.category,
                 categoryText: incident.categoryText,
                 notes: incident.notes
@@ -3213,6 +3344,8 @@
                                         hour: parseInt(row.Hour) || 0,
                                         line: row.Line,
                                         model: row.Model || 'All',
+                                        jobOrder: row.JobOrder || row['Job Order'] || '',
+                                        time: row.Time || '',
                                         category: row.Category,
                                         categoryText: row.CategoryText,
                                         notes: row.Notes
@@ -3954,7 +4087,39 @@
             ];
         }
 
-        function buildReportJobStatusContent() {
+        // บันทึกเหตุการณ์ไม่มีช่อง Job order จึงจับคู่เข้ากับ Job ผ่าน "รุ่นสินค้า" ที่ Job นั้นผลิต
+        // เหตุการณ์ที่บันทึกไว้ว่ากระทบ "ทุกรุ่น" ถือว่ากระทบทุก Job ด้วย
+        function summarizeIncidentCategories(incidents) {
+            if (incidents.length === 0) return '';
+            const counts = {};
+            incidents.forEach(inc => {
+                const label = inc.categoryText || inc.category || 'อื่น ๆ';
+                counts[label] = (counts[label] || 0) + 1;
+            });
+            return Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([label, n]) => (n > 1 ? `${label} (${n})` : label))
+                .join('\n');
+        }
+
+        // จับคู่เหตุการณ์เข้ากับ Job: ถ้าเหตุการณ์ระบุ Job order ไว้ก็ใช้ตัวนั้นตรง ๆ
+        // ถ้าไม่ได้ระบุ (เช่น บันทึกไว้ก่อนมีช่องนี้) ค่อยถอยไปเดาจากรุ่นสินค้าเหมือนเดิม
+        // เหตุการณ์ที่กระทบทุกรุ่นแยกไปสรุปใต้ตาราง ไม่งั้นจะขึ้นซ้ำทุกแถวจนแยกแยะอะไรไม่ได้
+        function summarizeIncidentsForJob(incidents, job, model) {
+            const targetJob = String(job || '').trim();
+            const targetModel = String(model || '').trim();
+
+            const exact = incidents.filter(inc => targetJob && String(inc.jobOrder || '').trim() === targetJob);
+            const byModel = incidents.filter(inc =>
+                !String(inc.jobOrder || '').trim() &&
+                inc.model !== 'All' &&
+                targetModel && String(inc.model || '').trim() === targetModel
+            );
+
+            return summarizeIncidentCategories(exact.concat(byModel));
+        }
+
+        function buildReportJobStatusContent(scope) {
             if (!planJobs || planJobs.length === 0) return [];
 
             // ยอดที่สแกนได้จริงในช่วงของรายงานนี้ แยกตาม Job order
@@ -3979,6 +4144,9 @@
                 (a.progress || 0) - (b.progress || 0)
             );
 
+            // เหตุการณ์ในช่วงและไลน์เดียวกับรายงาน ใช้อธิบายว่า Job ค้างเพราะอะไร
+            const incidentsInScope = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
+
             const body = [[
                 pdfHeaderCell('Job Order'),
                 pdfHeaderCell('รุ่นสินค้า (Model)'),
@@ -3986,7 +4154,7 @@
                 pdfHeaderCell('ผลิตแล้ว', 'right'),
                 pdfHeaderCell('คงเหลือ', 'right'),
                 pdfHeaderCell('คืบหน้า', 'right'),
-                pdfHeaderCell('ผลิตช่วงนี้', 'right'),
+                pdfHeaderCell('หมายเหตุ / สาเหตุที่ยังไม่จบ'),
                 pdfHeaderCell('สถานะ', 'center')
             ]];
 
@@ -4011,6 +4179,22 @@
                     statusColor = PDF_COLOR.warn;
                 }
 
+                // หมายเหตุ = ข้อความที่คนกรอกไว้ในชีต Plan + เหตุการณ์ที่บันทึกไว้ของรุ่นนี้
+                const noteParts = [];
+                if (j.remark) noteParts.push(j.remark);
+                const incidentText = summarizeIncidentsForJob(incidentsInScope, j.job, j.model);
+                if (incidentText) noteParts.push(incidentText);
+
+                // เตือนเฉพาะงานที่ "เคยเดินแล้วหยุด" ซึ่งควรมีคนอธิบายได้ว่าติดอะไร
+                // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
+                const isStalled = inPeriod === 0 && j.actual > 0;
+                const noteText = noteParts.length > 0
+                    ? noteParts.join('\n')
+                    : (isStalled ? 'ยังไม่มีบันทึกสาเหตุ' : '-');
+                const noteColor = noteParts.length > 0
+                    ? PDF_COLOR.text
+                    : (isStalled ? PDF_COLOR.warn : PDF_COLOR.muted);
+
                 body.push([
                     pdfCell(j.job),
                     pdfCell(j.model || '-'),
@@ -4018,10 +4202,16 @@
                     pdfCell(j.actual.toLocaleString(), 'right'),
                     pdfCell(j.remaining.toLocaleString(), 'right'),
                     pdfCell(j.progress === null ? '-' : j.progress.toFixed(1) + '%', 'right'),
-                    pdfCell(inPeriod > 0 ? inPeriod.toLocaleString() : '-', 'right'),
+                    pdfCell(noteText, 'left', noteColor),
                     pdfCell(statusText, 'center', statusColor, true)
                 ]);
             });
+
+            // เหตุการณ์ที่บันทึกว่ากระทบทุกรุ่น กระทบทุก Job เท่ากันหมด จึงบอกครั้งเดียวใต้ตาราง
+            const allModelText = summarizeIncidentCategories(incidentsInScope.filter(inc => inc.model === 'All'));
+            const allModelNote = allModelText
+                ? pdfNote('เหตุการณ์ที่กระทบทุกรุ่นในช่วงนี้ (มีผลกับทุก Job ข้างต้น): ' + allModelText.split('\n').join(' · '))
+                : null;
 
             const totalProgress = sumPlan > 0 ? (sumActual / sumPlan) * 100 : null;
             body.push([
@@ -4031,20 +4221,24 @@
                 pdfTotalCell(sumActual.toLocaleString(), 'right'),
                 pdfTotalCell(sumRemaining.toLocaleString(), 'right'),
                 pdfTotalCell(totalProgress === null ? '-' : totalProgress.toFixed(1) + '%', 'right'),
-                pdfTotalCell(sumPeriod > 0 ? sumPeriod.toLocaleString() : '-', 'right'),
+                pdfTotalCell(''),
                 pdfTotalCell('', 'center')
             ]);
 
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 88, 46, 50, 46, 46, 50, 54], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [88, 78, 40, 44, 40, 40, '*', 50], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน ' +
-                    'ส่วนคอลัมน์ "ผลิตช่วงนี้" คือยอดสแกนเฉพาะในช่วงและตัวกรองของรายงานฉบับนี้เท่านั้น · ' +
-                    'กำลังผลิต = มีการสแกนในช่วงรายงานนี้ · หยุดค้าง = เคยผลิตแล้วแต่ช่วงนี้ไม่มีการสแกน · ยังไม่เริ่ม = ยังไม่มียอดผลิตเลย')
-            ];
+                pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน · ' +
+                    'กำลังผลิต = มีการสแกนในช่วงรายงานนี้ · หยุดค้าง = เคยผลิตแล้วแต่ช่วงนี้ไม่มีการสแกน · ยังไม่เริ่ม = ยังไม่มียอดผลิตเลย'),
+                allModelNote,
+                pdfNote('คอลัมน์หมายเหตุ: รวมข้อความจากช่อง Remark ในชีต Plan เข้ากับเหตุการณ์ที่บันทึกไว้ในช่วงของรายงานนี้ · ' +
+                    'เหตุการณ์ที่ระบุ Job order ไว้จะจับคู่ตรงตัว ส่วนเหตุการณ์เก่าที่ยังไม่มี Job order จะเดาจากรุ่นสินค้าแทน ' +
+                    'ซึ่งถ้ามีหลาย Job ผลิตรุ่นเดียวกันก็จะขึ้นให้ทุก Job นั้น · ' +
+                    'แถวที่ขึ้นว่า "ยังไม่มีบันทึกสาเหตุ" คือ Job ที่เคยเดินแล้วหยุดโดยไม่มีใครรายงานว่าติดอะไร เป็นจุดที่ควรตามก่อน')
+            ].filter(Boolean); // allModelNote เป็น null ได้เมื่อไม่มีเหตุการณ์ที่กระทบทุกรุ่น
         }
 
         function buildReportCapacityContent() {
@@ -4098,6 +4292,7 @@
                 pdfHeaderCell('ช่วงเวลา', 'center'),
                 pdfHeaderCell('ไลน์', 'center'),
                 pdfHeaderCell('รุ่นสินค้า'),
+                pdfHeaderCell('Job Order'),
                 pdfHeaderCell('ประเภทปัญหา'),
                 pdfHeaderCell('รายละเอียดบันทึก')
             ]];
@@ -4111,6 +4306,7 @@
                     pdfCell(timeLabel, 'center'),
                     pdfCell(inc.line === 'All' ? 'ทุกไลน์' : 'Line ' + inc.line, 'center'),
                     pdfCell(inc.model === 'All' ? 'ทุกรุ่น' : (inc.model || '-')),
+                    pdfCell(inc.jobOrder || '-', 'left', inc.jobOrder ? PDF_COLOR.text : PDF_COLOR.muted),
                     pdfCell(inc.categoryText || inc.category || '-'),
                     pdfCell(inc.notes || '-')
                 ]);
@@ -4119,7 +4315,7 @@
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [64, 74, 46, 82, 88, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [56, 66, 40, 70, 84, 78, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
@@ -4247,7 +4443,7 @@
             if (opt('export-opt-hourly'))    sections.push(buildReportHourlyContent());
             if (opt('export-opt-line'))      sections.push(buildReportLineContent());
             if (opt('export-opt-model'))     sections.push(buildReportModelContent());
-            if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent());
+            if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent(scope));
             if (opt('export-opt-capacity'))  sections.push(buildReportCapacityContent());
             if (opt('export-opt-incidents')) sections.push(buildReportIncidentsContent(scope));
             if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansContent());
@@ -4444,6 +4640,10 @@
                 const l = k.trim().toLowerCase();
                 return l === 'status' || l === 'isclosed' || l === 'state' || l === 'job status' || l === 'สถานะ';
             });
+            const remarkKey = keys.find(k => {
+                const l = k.trim().toLowerCase();
+                return l === 'remark' || l === 'remarks' || l === 'note' || l === 'notes' || l === 'หมายเหตุ';
+            });
 
             if (!jobKey || !planKey) {
                 console.warn('ชีต Plan ไม่มีคอลัมน์ Job order หรือ Plan จำนวน จึงข้ามหัวข้อ Job ค้าง');
@@ -4471,6 +4671,7 @@
                     actual: actual,
                     remaining: Math.max(plan - actual, 0),
                     progress: plan > 0 ? (actual / plan) * 100 : null,
+                    remark: remarkKey ? String(row[remarkKey] || '').trim() : '',
                     closed: ['closed', 'close', 'archive', 'archived'].includes(rawStatus)
                 });
             });
