@@ -58,6 +58,39 @@
             animation: blink-text 1.2s infinite;
         }
 
+        /* ==========================================
+           กล่อง Modal บนจอมือถือ
+           เดิมกล่องยืดตามเนื้อหาโดยไม่จำกัดความสูง พอรายการยาว (เช่น หัวข้อรายงาน)
+           กล่องจะสูงเกินจอจนปุ่มด้านล่างตกขอบไป กดไม่ได้
+           ========================================== */
+        /* กล่องแบ่งเป็นสามชั้น: หัวข้อ + เนื้อหาที่เลื่อนได้ + แถบปุ่มที่อยู่ติดขอบล่างเสมอ */
+        .modal-panel {
+            display: flex;
+            flex-direction: column;
+            /* dvh คิดตามพื้นที่จริงหลังหักแถบ URL ของเบราว์เซอร์มือถือที่ยืดหดได้
+               ส่วน vh ไว้เป็นค่าสำรองให้เบราว์เซอร์รุ่นเก่าที่ยังไม่รู้จัก dvh */
+            max-height: 90vh;
+            max-height: 90dvh;
+        }
+
+        .modal-body {
+            overflow-y: auto;
+            /* min-height ต้องเป็น 0 ไม่งั้น flex item จะไม่ยอมหดให้เล็กกว่าเนื้อหาข้างใน */
+            min-height: 0;
+            flex: 1 1 auto;
+            /* กันไม่ให้การเลื่อนในกล่องไปลากหน้าเว็บด้านหลังตามไปด้วย */
+            overscroll-behavior: contain;
+        }
+
+        /* แถบปุ่มไม่หด ไม่เลื่อน จึงเห็นได้เสมอแม้รายการข้างบนจะยาวแค่ไหน */
+        .modal-actions {
+            flex: 0 0 auto;
+            background: #fff;
+            padding: 0.75rem 1.5rem 1.5rem;
+            border-bottom-left-radius: 1rem;
+            border-bottom-right-radius: 1rem;
+        }
+
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 pb-12 min-h-screen">
@@ -432,7 +465,8 @@
 
     <!-- Settings Modal -->
     <div id="config-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div class="modal-panel bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="modal-body p-6 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="database" class="text-indigo-600 w-5 h-5"></i>
@@ -472,8 +506,9 @@
                     📖 ดูคู่มือและโค้ดของ Google Apps Script
                 </button>
             </div>
+            </div>
 
-            <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
+            <div class="modal-actions flex gap-3 border-t border-slate-100 text-xs">
                 <button onclick="resetToDefaults()" class="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors">
                     กู้คืนค่าเริ่มต้น (Reset)
                 </button>
@@ -486,7 +521,8 @@
 
     <!-- Export PDF Report Modal -->
     <div id="export-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div class="modal-panel bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="modal-body p-6 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="file-down" class="text-emerald-600 w-5 h-5"></i>
@@ -582,14 +618,15 @@
                 กดปุ่มด้านล่างแล้วไฟล์ PDF จะถูกดาวน์โหลดลงเครื่องให้อัตโนมัติ
                 ครั้งแรกอาจใช้เวลาสักครู่เพราะระบบต้องโหลดตัวสร้างเอกสารก่อน ครั้งถัดไปจะเร็วขึ้น
             </div>
+            </div>
 
-            <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
+            <div class="modal-actions flex gap-3 border-t border-slate-100 text-xs">
                 <button onclick="closeExportModal()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors">
                     ยกเลิก
                 </button>
                 <button onclick="generatePdfReport()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-colors flex items-center justify-center gap-1.5">
-                    <i data-lucide="download" class="w-4 h-4"></i>
-                    ดาวน์โหลดรายงาน PDF
+                    <i data-lucide="download" class="w-4 h-4 shrink-0"></i>
+                    <span class="whitespace-nowrap">ดาวน์โหลด PDF</span>
                 </button>
             </div>
         </div>
@@ -597,7 +634,8 @@
 
     <!-- Google Apps Script Instructions Modal -->
     <div id="apps-script-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+        <div class="modal-panel bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div class="modal-body p-6 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="code" class="text-indigo-600 w-5 h-5"></i>
@@ -728,8 +766,9 @@
   }
 }</pre>
             </div>
+            </div>
 
-            <div class="border-t border-slate-100 pt-3 text-right">
+            <div class="modal-actions border-t border-slate-100 text-right">
                 <button onclick="closeAppsScriptModal()" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md transition-colors font-sans">
                     ปิดหน้าต่าง
                 </button>
@@ -739,7 +778,8 @@
 
     <!-- Incident/Event Registration Modal -->
     <div id="incident-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div class="modal-panel bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="modal-body p-6 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5"></i>
@@ -796,8 +836,9 @@
                         class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-sans"></textarea>
                 </div>
             </div>
+            </div>
 
-            <div class="flex gap-3 border-t border-slate-100 pt-3 text-xs">
+            <div class="modal-actions flex gap-3 border-t border-slate-100 text-xs">
                 <button id="btn-delete-incident" onclick="deleteIncident()" class="hidden px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors">
                     ลบประวัติ
                 </button>
@@ -814,7 +855,8 @@
 
     <!-- Incident List Modal (แสดงรายการเหตุการณ์ที่บันทึกไว้เมื่อกดที่ไอคอนเครื่องหมายตกใจบนกราฟ) -->
     <div id="incident-list-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div class="modal-panel bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="modal-body p-6 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5"></i>
@@ -828,8 +870,9 @@
             <div id="incident-list-content" class="space-y-2 max-h-80 overflow-y-auto pr-1">
                 <!-- Populated dynamically -->
             </div>
+            </div>
 
-            <div class="border-t border-slate-100 pt-3">
+            <div class="modal-actions border-t border-slate-100">
                 <button id="incident-list-add-btn" class="w-full py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5">
                     <i data-lucide="plus" class="w-3.5 h-3.5"></i>
                     บันทึกปัญหาเพิ่มเติมของชั่วโมงนี้
@@ -840,7 +883,8 @@
 
     <!-- Category Manager Modal -->
     <div id="category-manager-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+        <div class="modal-panel bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="modal-body p-6 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="settings-2" class="text-indigo-600 w-5 h-5"></i>
@@ -870,8 +914,9 @@
                     <!-- Loaded dynamically -->
                 </div>
             </div>
+            </div>
 
-            <div class="border-t border-slate-100 pt-3 text-right">
+            <div class="modal-actions border-t border-slate-100 text-right">
                 <button onclick="closeCategoryManagerModal()" class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors">
                     ปิดหน้าต่าง
                 </button>
