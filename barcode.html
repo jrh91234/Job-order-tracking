@@ -545,6 +545,14 @@
                 </label>
 
                 <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input type="checkbox" id="export-opt-jobs" checked class="mt-0.5 w-4 h-4 accent-emerald-600">
+                    <span class="text-xs">
+                        <b class="text-slate-700 block">สถานะ Job order ที่ยังค้าง</b>
+                        <span class="text-slate-400">รุ่นสินค้า แผน ยอดผลิตสะสม คงเหลือ และความคืบหน้าของแต่ละใบสั่งผลิต</span>
+                    </span>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
                     <input type="checkbox" id="export-opt-capacity" checked class="mt-0.5 w-4 h-4 accent-emerald-600">
                     <span class="text-xs">
                         <b class="text-slate-700 block">สถิติกำลังผลิตจริงรายรุ่น (Capacity Auditor)</b>
@@ -877,12 +885,15 @@
         const FIXED_BARCODE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
         const FIXED_OEE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
         const CAPACITY_GID = '1140596720';
+        // ชีต Plan อยู่ในเอกสารเผยแพร่ตัวเดียวกับ Capacity ใช้ดูแผนงานกับความคืบหน้าของแต่ละ Job order
+        const PLAN_GID = '1416776201';
         
         let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_SHEET_URL || '';
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
         let oeeSheetUrl = localStorage.getItem('job_tracker_sheet_url') || FIXED_OEE_SHEET_URL || '';
         let capacityMode = 'max'; // Default capacity mode: max cap
         let capacityDataMap = {}; // Model Name -> { planning: X, max: Y }
+        let planJobs = [];        // แผนงานรายใบสั่งผลิตจากชีต Plan ใช้ทำหัวข้อ Job ค้างในรายงาน PDF
         let modelColorMap = {};   // Stable model name -> hex color mapping
         let prevModelCounts = []; // To track production increases for energy surge animation
         let activeRunningModels = {};
@@ -3089,9 +3100,17 @@
                 return text;
             });
 
+            const planCsvUrl = buildGoogleSheetCsvUrl(oeeSheetUrl, PLAN_GID);
+
             const promises = [
                 fetchText(csvUrl + (csvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()),
-                fetchText(capacityCsvUrl + (capacityCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now())
+                fetchText(capacityCsvUrl + (capacityCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()),
+                // ชีต Plan ใช้เฉพาะหัวข้อ Job ค้างในรายงาน ถ้าดึงไม่ได้ก็ไม่ควรทำให้ทั้งหน้าพัง
+                fetchText(planCsvUrl + (planCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now())
+                    .catch(err => {
+                        console.warn('ดึงชีต Plan ไม่สำเร็จ หัวข้อ Job ค้างจะไม่ถูกใส่ในรายงาน:', err);
+                        return '';
+                    })
             ];
 
             if (incidentSheetGid) {
@@ -3107,7 +3126,15 @@
             }
 
             Promise.all(promises)
-            .then(([barcodeText, capacityText, incidentText]) => {
+            .then(([barcodeText, capacityText, planText, incidentText]) => {
+                if (planText) {
+                    Papa.parse(planText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: planResults => parsePlanSheet(planResults.data)
+                    });
+                }
+
                 if (incidentText) {
                     Papa.parse(incidentText, {
                         header: true,
@@ -3213,6 +3240,15 @@
                 'QWKDE3100EZ30': { planning: 40, max: 50 }
             };
             
+            // Mock plan data (ชีต Plan) สำหรับหัวข้อ Job ค้างในรายงาน
+            planJobs = [
+                { job: 'TH-SCDD2026060564', model: 'S9HCL14',        plan: 1200, actual: 940,  remaining: 260,  progress: 78.3, closed: false },
+                { job: 'TH-SCDD2026060565', model: 'S9HCL16',        plan: 900,  actual: 615,  remaining: 285,  progress: 68.3, closed: false },
+                { job: 'TH-SCDD2026060570', model: 'EZ9EPL104',      plan: 640,  actual: 0,    remaining: 640,  progress: 0,    closed: false },
+                { job: 'TH-SCDD2026060558', model: 'QO3-100EZ12G/SN', plan: 480, actual: 300,  remaining: 180,  progress: 62.5, closed: false },
+                { job: 'TH-SCDD2026060540', model: 'S9HCL110',       plan: 750,  actual: 750,  remaining: 0,    progress: 100,  closed: true }
+            ];
+
             // Generate some beautiful mock data matching 7/7/2569
             const mockLogs = [];
             const todayBE = '7/7/2569';
@@ -3809,6 +3845,99 @@
             ];
         }
 
+        function buildReportJobStatusContent() {
+            if (!planJobs || planJobs.length === 0) return [];
+
+            // ยอดที่สแกนได้จริงในช่วงของรายงานนี้ แยกตาม Job order
+            const scannedInPeriod = {};
+            filteredScans
+                .filter(s => s.status.toUpperCase() === 'OK')
+                .forEach(s => {
+                    scannedInPeriod[s.jobOrder] = (scannedInPeriod[s.jobOrder] || 0) + (s.qty || 1);
+                });
+
+            const heading = pdfHeading('สถานะ Job order ที่ยังค้างและความคืบหน้า');
+
+            // Job ที่ค้าง = ยังไม่ถูกปิด และผลิตยังไม่ครบตามแผน
+            const open = planJobs.filter(j => !j.closed && (j.progress === null || j.progress < 100));
+            if (open.length === 0) {
+                return [...heading, pdfNote('ไม่มี Job order ค้างในระบบ ทุกใบสั่งผลิตปิดครบตามแผนแล้ว')];
+            }
+
+            // เรียงให้ Job ที่เดินอยู่ในช่วงรายงานนี้ขึ้นก่อน แล้วไล่จากคืบหน้าน้อยไปมาก
+            open.sort((a, b) =>
+                (scannedInPeriod[b.job] || 0) - (scannedInPeriod[a.job] || 0) ||
+                (a.progress || 0) - (b.progress || 0)
+            );
+
+            const body = [[
+                pdfHeaderCell('Job Order'),
+                pdfHeaderCell('รุ่นสินค้า (Model)'),
+                pdfHeaderCell('แผน (PCS)', 'right'),
+                pdfHeaderCell('ผลิตแล้ว', 'right'),
+                pdfHeaderCell('คงเหลือ', 'right'),
+                pdfHeaderCell('คืบหน้า', 'right'),
+                pdfHeaderCell('ผลิตช่วงนี้', 'right'),
+                pdfHeaderCell('สถานะ', 'center')
+            ]];
+
+            let sumPlan = 0, sumActual = 0, sumRemaining = 0, sumPeriod = 0;
+
+            open.forEach(j => {
+                const inPeriod = scannedInPeriod[j.job] || 0;
+                sumPlan += j.plan;
+                sumActual += j.actual;
+                sumRemaining += j.remaining;
+                sumPeriod += inPeriod;
+
+                let statusText, statusColor;
+                if (inPeriod > 0) {
+                    statusText = 'กำลังผลิต';
+                    statusColor = PDF_COLOR.good;
+                } else if (j.actual === 0) {
+                    statusText = 'ยังไม่เริ่ม';
+                    statusColor = PDF_COLOR.muted;
+                } else {
+                    statusText = 'หยุดค้าง';
+                    statusColor = PDF_COLOR.warn;
+                }
+
+                body.push([
+                    pdfCell(j.job),
+                    pdfCell(j.model || '-'),
+                    pdfCell(j.plan.toLocaleString(), 'right'),
+                    pdfCell(j.actual.toLocaleString(), 'right'),
+                    pdfCell(j.remaining.toLocaleString(), 'right'),
+                    pdfCell(j.progress === null ? '-' : j.progress.toFixed(1) + '%', 'right'),
+                    pdfCell(inPeriod > 0 ? inPeriod.toLocaleString() : '-', 'right'),
+                    pdfCell(statusText, 'center', statusColor, true)
+                ]);
+            });
+
+            const totalProgress = sumPlan > 0 ? (sumActual / sumPlan) * 100 : null;
+            body.push([
+                pdfTotalCell(`รวม ${open.length} Job ที่ค้าง`),
+                pdfTotalCell(''),
+                pdfTotalCell(sumPlan.toLocaleString(), 'right'),
+                pdfTotalCell(sumActual.toLocaleString(), 'right'),
+                pdfTotalCell(sumRemaining.toLocaleString(), 'right'),
+                pdfTotalCell(totalProgress === null ? '-' : totalProgress.toFixed(1) + '%', 'right'),
+                pdfTotalCell(sumPeriod > 0 ? sumPeriod.toLocaleString() : '-', 'right'),
+                pdfTotalCell('', 'center')
+            ]);
+
+            return [
+                ...heading,
+                {
+                    table: { headerRows: 1, widths: ['*', 88, 46, 50, 46, 46, 50, 54], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน ' +
+                    'ส่วนคอลัมน์ "ผลิตช่วงนี้" คือยอดสแกนเฉพาะในช่วงและตัวกรองของรายงานฉบับนี้เท่านั้น · ' +
+                    'กำลังผลิต = มีการสแกนในช่วงรายงานนี้ · หยุดค้าง = เคยผลิตแล้วแต่ช่วงนี้ไม่มีการสแกน · ยังไม่เริ่ม = ยังไม่มียอดผลิตเลย')
+            ];
+        }
+
         function buildReportCapacityContent() {
             const rows = computeCapacityRows();
             if (rows.length === 0) return [];
@@ -4006,6 +4135,7 @@
             if (opt('export-opt-hourly'))    sections.push(buildReportHourlyContent());
             if (opt('export-opt-line'))      sections.push(buildReportLineContent());
             if (opt('export-opt-model'))     sections.push(buildReportModelContent());
+            if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent());
             if (opt('export-opt-capacity'))  sections.push(buildReportCapacityContent());
             if (opt('export-opt-incidents')) sections.push(buildReportIncidentsContent(scope));
             if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansContent());
@@ -4179,6 +4309,59 @@
                 panel.classList.add('hidden');
                 if (chevron) chevron.style.transform = 'rotate(0deg)';
             }
+        }
+
+        // อ่านชีต Plan ให้ได้แผนงานรายใบสั่งผลิต ชื่อคอลัมน์ในชีตจริงมีหลายแบบ จึงค้นแบบยืดหยุ่น
+        // ให้ตรงกับที่หน้า Job Monitor (index.html) ใช้อยู่ เพื่อให้ตัวเลขสองหน้าตรงกัน
+        function parsePlanSheet(rows) {
+            planJobs = [];
+            if (!rows || rows.length === 0) return;
+
+            const keys = Object.keys(rows[0] || {});
+            const findKey = candidates => keys.find(k =>
+                candidates.some(c => k.toLowerCase().replace(/\s/g, '').includes(c.toLowerCase().replace(/\s/g, '')))
+            );
+
+            const jobKey = keys.find(k => k.includes('Job order No.')) || findKey(['Job order', 'Job No']);
+            const modelKey = keys.find(k => k.trim() === 'Order model') || findKey(['Model']);
+            const planKey = keys.find(k => k.includes('Plan จำนวน')) || findKey(['Plan']);
+            const actualKey = keys.find(k => k.trim() === 'Actual')
+                || keys.find(k => k.toLowerCase().includes('actual') && !k.toLowerCase().includes('date'));
+            const scanKey = findKey(['Actual Scan', 'Barcode Actual', 'ยอดแสกน', 'แสกนจริง']);
+            const statusKey = keys.find(k => {
+                const l = k.trim().toLowerCase();
+                return l === 'status' || l === 'isclosed' || l === 'state' || l === 'job status' || l === 'สถานะ';
+            });
+
+            if (!jobKey || !planKey) {
+                console.warn('ชีต Plan ไม่มีคอลัมน์ Job order หรือ Plan จำนวน จึงข้ามหัวข้อ Job ค้าง');
+                return;
+            }
+
+            const toNumber = v => parseInt(String(v === null || v === undefined ? '' : v).replace(/[^0-9-]/g, ''), 10) || 0;
+
+            rows.forEach(row => {
+                const job = String(row[jobKey] || '').trim();
+                if (!job) return;
+
+                const plan = toNumber(row[planKey]);
+                // ใช้ยอดที่สูงกว่าระหว่างยอดแมนนวลกับยอดสแกน เหมือนที่หน้า Job Monitor ทำ กันนับซ้ำ
+                const actual = Math.max(
+                    actualKey ? toNumber(row[actualKey]) : 0,
+                    scanKey ? toNumber(row[scanKey]) : 0
+                );
+                const rawStatus = statusKey ? String(row[statusKey] || '').trim().toLowerCase() : '';
+
+                planJobs.push({
+                    job: job,
+                    model: modelKey ? String(row[modelKey] || '-').trim() : '-',
+                    plan: plan,
+                    actual: actual,
+                    remaining: Math.max(plan - actual, 0),
+                    progress: plan > 0 ? (actual / plan) * 100 : null,
+                    closed: ['closed', 'close', 'archive', 'archived'].includes(rawStatus)
+                });
+            });
         }
 
         function parseCapacitySheet(rows) {
