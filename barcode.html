@@ -662,7 +662,7 @@
                 <ol class="list-decimal pl-4 space-y-1">
                     <li>เปิด <b>script.google.com</b> กด <b>"โปรเจกต์ใหม่ (New project)"</b> — <u>ไม่ใช่</u> เมนู "ส่วนขยาย → Apps Script" จากในชีต เพราะนั่นจะเข้าไปที่โปรเจกต์เดิมของหน้าลงยอด</li>
                     <li>ตั้งชื่อโปรเจกต์ให้ชัด เช่น <b>"Incident Sync"</b> แล้วคัดลอกโค้ดด้านล่างนี้ทั้งหมดไปวาง</li>
-                    <li>แก้บรรทัด <b>SPREADSHEET_ID</b> บนสุดของโค้ด ให้เป็น ID ของชีตที่ต้องการเก็บข้อมูล (ตัวยาว ๆ ใน URL ของชีต ระหว่าง <span class="font-mono">/d/</span> กับ <span class="font-mono">/edit</span>)</li>
+                    <li>บรรทัด <b>SPREADSHEET_ID</b> บนสุดของโค้ด ใส่ ID ของชีต "ลงยอด H9" ไว้ให้แล้ว ถ้าจะเก็บลงชีตอื่นค่อยแก้ตรงนั้น (ID คือส่วนยาว ๆ ใน URL ของชีต ระหว่าง <span class="font-mono">/d/</span> กับ <span class="font-mono">/edit</span>)</li>
                     <li>กดปุ่ม <b>"การทำให้ใช้งานได้ (Deploy)" -> "การทำให้ใช้งานได้ใหม่ (New Deployment)"</b></li>
                     <li>เลือกประเภทเป็น <b>"เว็บแอป (Web App)"</b>, ตั้งค่า <i>"ผู้ดำเนินงานเป็น: ฉัน (Me)"</i> และ <i>"ผู้มีสิทธิ์เข้าถึงเป็น: ทุกคน (Anyone)"</i></li>
                     <li>กด Deploy คัดลอก URL เว็บแอปที่ได้ มาใส่ในช่อง <b>"Apps Script URL สำหรับบันทึกเหตุการณ์"</b> ในหน้าตั้งค่าของบอร์ดนี้ — ต้องเป็นคนละ URL กับของหน้าลงยอด</li>
@@ -671,7 +671,7 @@
                 <p class="font-bold text-slate-800 mt-3">📋 โค้ดสำหรับคัดลอก (Copy Code):</p>
                 <pre class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[10px] font-mono select-all overflow-x-auto whitespace-pre">// โปรเจกต์นี้ต้องแยกจากโปรเจกต์ของหน้าลงยอด ห้ามรวมกันเพราะ doPost จะทับกัน
 // โปรเจกต์แยก (standalone) ไม่มี active spreadsheet จึงต้องระบุ ID ของชีตตรงนี้
-var SPREADSHEET_ID = "ใส่ ID ของชีตตรงนี้";
+var SPREADSHEET_ID = "1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U";
 
 function doPost(e) {
   var lock = LockService.getScriptLock();

@@ -24,7 +24,8 @@
 
 // โปรเจกต์แยก (standalone) ไม่ได้ผูกกับชีตใดชีตหนึ่ง getActiveSpreadsheet() จึงคืนค่า null
 // ต้องระบุ ID ของสเปรดชีตเป้าหมายตรงนี้ (ส่วนที่อยู่ระหว่าง /d/ กับ /edit ใน URL ของชีต)
-var SPREADSHEET_ID = "ใส่ ID ของชีตตรงนี้";
+// ค่านี้คือชีต "ลงยอด H9" ที่ใช้งานจริงอยู่ ถ้าย้ายไปชีตอื่นให้แก้ตรงนี้จุดเดียว
+var SPREADSHEET_ID = "1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U";
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
