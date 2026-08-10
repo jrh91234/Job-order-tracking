@@ -373,6 +373,41 @@
             </div>
         </div>
 
+        <!-- Manpower Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100 gap-3">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="users" class="w-5 h-5 text-indigo-500"></i>
+                        กำลังคนรายไลน์วันนี้ (Manpower)
+                    </h3>
+                    <p class="text-xs text-slate-400">ใช้คำนวณ PCS/คน/ชม. เพื่อเทียบประสิทธิภาพข้ามไลน์ที่คนไม่เท่ากัน</p>
+                </div>
+                <button onclick="openManpowerModal()" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0">
+                    <i data-lucide="user-plus" class="w-4 h-4"></i>
+                    กรอกกำลังคน
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50/80">
+                        <tr class="text-slate-500">
+                            <th class="p-3 text-center font-bold">กะ</th>
+                            <th class="p-3 text-center font-bold">ไลน์ (Line)</th>
+                            <th class="p-3 text-right font-bold">ประกอบ</th>
+                            <th class="p-3 text-right font-bold">Feeder</th>
+                            <th class="p-3 text-right font-bold">Leader</th>
+                            <th class="p-3 text-right font-bold">รวมคน</th>
+                            <th class="p-3 text-right font-bold">ยอดสแกน</th>
+                            <th class="p-3 text-right font-bold">ชม.ที่ผลิต</th>
+                            <th class="p-3 text-right font-bold">PCS/คน/ชม.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="manpower-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Today's Incident Log Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100">
@@ -595,6 +630,14 @@
                     <span class="text-xs">
                         <b class="text-slate-700 block">สถิติกำลังผลิตจริงรายรุ่น (Capacity Auditor)</b>
                         <span class="text-slate-400">Max, Steady Avg, Peak, Cycle Time และ Eff%</span>
+                    </span>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input type="checkbox" id="export-opt-manpower" checked class="mt-0.5 w-4 h-4 accent-emerald-600">
+                    <span class="text-xs">
+                        <b class="text-slate-700 block">กำลังคนรายไลน์ (Manpower)</b>
+                        <span class="text-slate-400">จำนวนคนแยกตามกะและไลน์ พร้อม PCS/คน/ชม.</span>
                     </span>
                 </label>
 
@@ -830,6 +873,59 @@ function doPost(e) {
         </div>
     </div>
 
+    <!-- Manpower Entry Modal -->
+    <div id="manpower-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="modal-panel bg-white rounded-2xl max-w-2xl w-full shadow-xl">
+            <div class="modal-body p-6 space-y-4">
+                <div class="flex justify-between items-start border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="users" class="w-5 h-5 text-indigo-600"></i>
+                            กรอกกำลังคนรายไลน์
+                        </h3>
+                        <p id="manpower-modal-date" class="text-xs text-slate-400 mt-0.5"></p>
+                    </div>
+                    <button onclick="closeManpowerModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">กะทำงาน</label>
+                    <select id="manpower-shift" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="Day">☀️ กะเช้า (Day Shift)</option>
+                        <option value="Night">🌙 กะดึก (Night Shift)</option>
+                    </select>
+                    <p class="text-[10px] text-slate-400 mt-1">กำลังคนเก็บแยกตามกะ เปลี่ยนกะแล้วตัวเลขจะสลับตามชุดของกะนั้น</p>
+                </div>
+
+                <div class="overflow-x-auto max-h-80 overflow-y-auto pr-1">
+                    <table class="w-full text-xs">
+                        <thead class="bg-slate-50/80 sticky top-0">
+                            <tr class="text-slate-500">
+                                <th class="p-2.5 text-left font-bold">ไลน์</th>
+                                <th class="p-2.5 text-center font-bold">ประกอบ</th>
+                                <th class="p-2.5 text-center font-bold">Feeder</th>
+                                <th class="p-2.5 text-center font-bold">Leader</th>
+                                <th class="p-2.5 text-right font-bold">รวม</th>
+                            </tr>
+                        </thead>
+                        <tbody id="manpower-form-body" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-3 border-t border-slate-100 text-xs">
+                    <button onclick="closeManpowerModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
+                        ยกเลิก
+                    </button>
+                    <button onclick="saveManpower()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
+                        บันทึกกำลังคน
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Incident/Event Registration Modal -->
     <div id="incident-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="modal-panel bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
@@ -1031,6 +1127,11 @@ function doPost(e) {
         // ปุ่มลบต้องอ้างอิงค่านี้ ไม่ใช่ประกอบคีย์ขึ้นมาใหม่จากช่องในฟอร์ม เพราะถ้าค่าใดค่าหนึ่งไม่ตรง
         // (เช่นรุ่นสินค้าไม่อยู่ในรายการของวันนั้น) คีย์จะเพี้ยนแล้วกดลบไม่ติดโดยไม่มีอะไรฟ้อง
         let editingIncidentId = null;
+
+        // กำลังคนรายไลน์ แยกตามกะ
+        // Key เป็นรูปแบบ "YYYY-MM-DD_กะ_ไลน์" เช่น "2026-08-10_Day_Line 5"
+        // ขึ้นต้นด้วยวันที่เหมือนคีย์ของบันทึกเหตุการณ์ จึงใช้ normalizeIncidentDate ร่วมกันได้
+        let manpowerLogs = {};
         let incidentCategories = [
             { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
             { code: "Material", text: "📦 วัตถุดิบขาดแคลน (Material Shortage)" },
@@ -1215,6 +1316,9 @@ function doPost(e) {
                     loadCategories();
                     loadCategoriesFromCloud();
                     fetchIncidentsFromAppsScript();
+                    loadManpower();
+                    renderManpowerTable();
+                    fetchManpowerFromAppsScript();
 
                     // Load Data
                     if (barcodeSheetUrl) {
@@ -1485,6 +1589,9 @@ function doPost(e) {
 
             // Render Incidents Table
             renderIncidentTable();
+
+            // กำลังคนขึ้นกับทั้งวันที่และกะที่เลือก จึงต้องวาดใหม่ทุกครั้งที่ตัวกรองเปลี่ยน
+            renderManpowerTable();
         }
 
         // ==========================================
@@ -2622,6 +2729,142 @@ function doPost(e) {
             tbody.innerHTML = html;
         }
 
+        function renderManpowerTable() {
+            const tbody = document.getElementById('manpower-tbody');
+            if (!tbody) return;
+
+            const activeDate = els.filterStartDate.value;
+            const rows = computeManpowerRows(activeDate, els.filterShift ? els.filterShift.value : 'All');
+
+            if (rows.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="text-center p-6 text-slate-400 italic">
+                            ยังไม่มีข้อมูลการผลิตหรือกำลังคนของวันที่เลือก (กดปุ่ม "กรอกกำลังคน" เพื่อเริ่มบันทึกได้เลยครับ)
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            const fmt = n => n.toLocaleString();
+            let html = '';
+            rows.forEach(r => {
+                const shiftLabel = r.shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก';
+                const perHeadText = r.perHead > 0 ? r.perHead.toFixed(1) : '-';
+                // ไลน์ที่มีการผลิตแต่ยังไม่กรอกกำลังคน ต้องมองเห็นได้ทันทีว่าตัวเลขยังขาด
+                const missing = !r.hasManpower && r.qty > 0;
+                html += `
+                    <tr class="hover:bg-slate-50/50 transition-colors ${missing ? 'bg-amber-50/40' : ''}">
+                        <td class="p-3 text-center font-semibold text-slate-600">${shiftLabel}</td>
+                        <td class="p-3 text-center font-bold text-indigo-600">${escapeHtml(r.line)}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${r.assembler || '-'}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${r.feeder || '-'}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${r.leader || '-'}</td>
+                        <td class="p-3 text-right font-mono font-bold text-slate-800">${r.headcount || '-'}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${fmt(r.qty)}</td>
+                        <td class="p-3 text-right font-mono text-slate-500">${r.activeHours || '-'}</td>
+                        <td class="p-3 text-right font-mono font-black ${r.perHead > 0 ? 'text-emerald-600' : 'text-slate-300'}">
+                            ${missing ? '<span class="text-amber-600 font-bold text-[10px]">ยังไม่กรอกคน</span>' : perHeadText}
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function openManpowerModal() {
+            loadManpower();
+            const activeDate = els.filterStartDate.value;
+            if (!activeDate) return;
+
+            document.getElementById('manpower-modal-date').textContent = `วันผลิต ${formatThaiDate(activeDate)}`;
+
+            const shiftSelect = document.getElementById('manpower-shift');
+            const currentShift = els.filterShift && els.filterShift.value !== 'All' ? els.filterShift.value : 'Day';
+            shiftSelect.value = currentShift;
+            shiftSelect.onchange = () => renderManpowerForm(activeDate, shiftSelect.value);
+
+            renderManpowerForm(activeDate, currentShift);
+            document.getElementById('manpower-modal').classList.remove('hidden');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function renderManpowerForm(date, shift) {
+            const body = document.getElementById('manpower-form-body');
+            const rows = computeManpowerRows(date, shift);
+
+            if (rows.length === 0) {
+                body.innerHTML = `<tr><td colspan="5" class="p-5 text-center text-slate-400 italic">ยังไม่มีไลน์ที่ผลิตในกะนี้</td></tr>`;
+                return;
+            }
+
+            body.innerHTML = rows.map(r => `
+                <tr data-line="${escapeHtml(r.line)}">
+                    <td class="p-2.5 font-bold text-slate-700">${escapeHtml(r.line)}</td>
+                    ${['assembler', 'feeder', 'leader'].map(role => `
+                        <td class="p-1.5">
+                            <input type="number" min="0" step="1" value="${r[role] || 0}" data-role="${role}"
+                                class="mp-input w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-center font-mono font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
+                        </td>
+                    `).join('')}
+                    <td class="p-2.5 text-right font-mono font-black text-indigo-600 mp-total">${r.headcount}</td>
+                </tr>
+            `).join('');
+
+            body.querySelectorAll('.mp-input').forEach(input => {
+                input.addEventListener('input', () => {
+                    const tr = input.closest('tr');
+                    const sum = Array.from(tr.querySelectorAll('.mp-input'))
+                        .reduce((acc, el) => acc + (parseInt(el.value, 10) || 0), 0);
+                    tr.querySelector('.mp-total').textContent = sum;
+                });
+            });
+        }
+
+        function closeManpowerModal() {
+            document.getElementById('manpower-modal').classList.add('hidden');
+        }
+
+        function saveManpower() {
+            const date = els.filterStartDate.value;
+            const shift = document.getElementById('manpower-shift').value;
+            if (!date) return;
+
+            const records = [];
+            document.querySelectorAll('#manpower-form-body tr[data-line]').forEach(tr => {
+                const line = tr.getAttribute('data-line');
+                const get = role => {
+                    const v = parseInt(tr.querySelector(`.mp-input[data-role="${role}"]`).value, 10);
+                    return Number.isFinite(v) && v >= 0 ? v : 0;
+                };
+                records.push({
+                    id: manpowerKey(date, shift, line),
+                    date, shift, line,
+                    assembler: get('assembler'),
+                    feeder: get('feeder'),
+                    leader: get('leader')
+                });
+            });
+
+            records.forEach(rec => { manpowerLogs[rec.id] = rec; });
+            saveManpowerLocal();
+            closeManpowerModal();
+            renderManpowerTable();
+
+            // ส่งขึ้นชีตทีละไลน์ แล้วสรุปผลรวมครั้งเดียว ไม่เด้ง toast ทีละแถวให้รำคาญ
+            Promise.all(records.map(rec => syncManpowerToGoogleSheets(rec))).then(results => {
+                const failed = results.filter(r => r !== true);
+                if (failed.length === 0) {
+                    showIncidentToast('success', `บันทึกกำลังคนขึ้น Google Sheet แล้ว ${records.length} ไลน์`,
+                        `แท็บ Manpower ถูกอัปเดตแล้ว (${shift === 'Day' ? 'กะเช้า' : 'กะดึก'})`);
+                } else {
+                    showIncidentToast('warning', `ส่งกำลังคนขึ้น Google Sheet ไม่สำเร็จ ${failed.length} จาก ${records.length} ไลน์`,
+                        String(failed[0]) + ' (ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว)');
+                }
+            });
+        }
+
         // ==========================================
         // INCIDENT EVENTS LOGIC (LOCAL STORAGE & GAS SYNC)
         // ==========================================
@@ -2743,6 +2986,145 @@ function doPost(e) {
 
         function saveIncidentsLocal() {
             localStorage.setItem('job_tracker_incident_logs', JSON.stringify(incidentLogs));
+        }
+
+        // ==========================================
+        // MANPOWER (กำลังคนรายไลน์ แยกตามกะ)
+        // ==========================================
+        function manpowerKey(date, shift, line) {
+            return `${date}_${shift}_${line}`;
+        }
+
+        function loadManpower() {
+            try {
+                const data = localStorage.getItem('job_tracker_manpower');
+                manpowerLogs = data ? JSON.parse(data) : {};
+            } catch (e) {
+                manpowerLogs = {};
+            }
+        }
+
+        function saveManpowerLocal() {
+            localStorage.setItem('job_tracker_manpower', JSON.stringify(manpowerLogs));
+        }
+
+        function fetchManpowerFromAppsScript() {
+            if (!appsScriptUrl) return Promise.resolve();
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'GET_MANPOWER' }),
+                redirect: 'follow'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data || data.result !== 'success' || !data.manpower) return;
+                const cloud = {};
+                data.manpower.forEach(row => {
+                    if (!row.ID) return;
+                    cloud[row.ID] = {
+                        id: row.ID,
+                        date: normalizeIncidentDate(row.Date, row.ID),
+                        shift: String(row.Shift || '').trim(),
+                        line: String(row.Line || '').trim(),
+                        assembler: parseInt(row.Assembler, 10) || 0,
+                        feeder: parseInt(row.Feeder, 10) || 0,
+                        leader: parseInt(row.Leader, 10) || 0
+                    };
+                });
+                // กันข้อมูลหายแบบเดียวกับบันทึกเหตุการณ์: ผลลัพธ์ว่างต้องไม่ทับของที่มีอยู่ในเครื่อง
+                if (Object.keys(cloud).length === 0 && Object.keys(manpowerLogs).length > 0) return;
+                manpowerLogs = cloud;
+                saveManpowerLocal();
+                renderManpowerTable();
+            })
+            .catch(err => {
+                console.warn('Failed to load manpower from cloud:', err);
+            });
+        }
+
+        function syncManpowerToGoogleSheets(record) {
+            if (!appsScriptUrl) {
+                showIncidentToast('warning', 'บันทึกกำลังคนลงเครื่องนี้แล้ว (ยังไม่ขึ้น Google Sheet)',
+                    'ยังไม่ได้ตั้งค่า Apps Script URL ในหน้าตั้งค่า');
+                return Promise.resolve(false);
+            }
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: record.action || 'SAVE_MANPOWER',
+                    id: record.id,
+                    date: record.date,
+                    shift: record.shift,
+                    line: record.line,
+                    assembler: record.assembler,
+                    feeder: record.feeder,
+                    leader: record.leader
+                }),
+                redirect: 'follow'
+            })
+            .then(res => {
+                if (!res.ok) throw new Error(`Apps Script ตอบกลับ HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(data => {
+                if (!data || data.result !== 'success') {
+                    throw new Error((data && data.message) || 'Apps Script ตอบกลับไม่สำเร็จ');
+                }
+                return true;
+            })
+            .catch(err => {
+                console.error('Error syncing manpower:', err);
+                return err.message;
+            });
+        }
+
+        /**
+         * รวมกำลังคนกับยอดสแกนของวัน/กะที่เลือก ออกมาเป็นแถวละไลน์
+         *
+         * PCS/คน/ชม. = ยอดสแกน ÷ จำนวนคนรวม ÷ ชั่วโมงที่ไลน์นั้นมีการผลิตจริง
+         * ใช้ "ชั่วโมงที่มีการผลิตจริง" ไม่ใช่ 8 หรือ 12 ชั่วโมงตายตัว เพราะไลน์ที่หยุดครึ่งกะ
+         * ไม่ควรถูกมองว่าประสิทธิภาพต่ำทั้งที่ตอนเดินงานทำได้ปกติ (สูตรเดียวกับคอลัมน์เฉลี่ยจริง)
+         */
+        function computeManpowerRows(date, shiftFilter) {
+            const okScans = processedScans.filter(s =>
+                s.prodDate === date && String(s.status).toUpperCase() === 'OK');
+
+            const shifts = shiftFilter && shiftFilter !== 'All' ? [shiftFilter] : ['Day', 'Night'];
+            const rows = [];
+
+            shifts.forEach(shift => {
+                const shiftScans = okScans.filter(s => s.shift === shift);
+
+                // ไลน์ที่ต้องแสดง = ไลน์ที่มีการผลิต รวมกับไลน์ที่เคยกรอกกำลังคนไว้แล้ว
+                const lines = new Set(shiftScans.map(s => s.line).filter(Boolean));
+                Object.values(manpowerLogs).forEach(mp => {
+                    if (mp.date === date && mp.shift === shift && mp.line) lines.add(mp.line);
+                });
+
+                Array.from(lines).sort().forEach(line => {
+                    const mp = manpowerLogs[manpowerKey(date, shift, line)] || null;
+                    const assembler = mp ? mp.assembler : 0;
+                    const feeder = mp ? mp.feeder : 0;
+                    const leader = mp ? mp.leader : 0;
+                    const headcount = assembler + feeder + leader;
+
+                    const lineScans = shiftScans.filter(s => s.line === line);
+                    const qty = lineScans.reduce((sum, s) => sum + (s.qty || 1), 0);
+                    const activeHours = new Set(lineScans.map(s => s.hour)).size;
+                    const perHead = headcount > 0 && activeHours > 0 ? qty / headcount / activeHours : 0;
+
+                    rows.push({
+                        date, shift, line,
+                        assembler, feeder, leader, headcount,
+                        qty, activeHours, perHead,
+                        hasManpower: !!mp
+                    });
+                });
+            });
+
+            return rows;
         }
 
         function getIncidentsForDate(date) {
@@ -3603,6 +3985,7 @@ function doPost(e) {
                                 if (appsScriptUrl && !incidentSheetGid) {
                                     fetchIncidentsFromAppsScript();
                                 }
+                                fetchManpowerFromAppsScript();
                             }
                         });
                     }
@@ -3826,6 +4209,7 @@ function doPost(e) {
                     ? formatThaiDate(startDate)
                     : `${formatThaiDate(startDate)} - ${formatThaiDate(endDate)}`,
                 shift: getSelectedLabel(els.filterShift, 'ทุกกะทำงาน'),
+                shiftValue: els.filterShift ? els.filterShift.value : 'All',
                 line: getSelectedLabel(els.filterLine, 'ทุก Line'),
                 lineValue: els.filterLine ? els.filterLine.value : 'All',
                 job: getSelectedLabel(els.filterJob, 'ทุก Job Order'),
@@ -4482,6 +4866,63 @@ function doPost(e) {
             ];
         }
 
+        function buildReportManpowerContent(scope) {
+            // ไล่ทีละวันในช่วงที่เลือก เพราะกำลังคนบันทึกเป็นรายวัน+รายกะ ไม่ใช่ค่าคงที่
+            const rows = [];
+            const [sy, sm, sd] = scope.startDate.split('-').map(Number);
+            for (let d = new Date(sy, sm - 1, sd); ; d.setDate(d.getDate() + 1)) {
+                const key = toLocalDateKey(d);
+                if (key > scope.endDate) break;
+                computeManpowerRows(key, scope.shiftValue).forEach(r => {
+                    if (scope.lineValue && scope.lineValue !== 'All' && r.line !== scope.lineValue) return;
+                    if (r.headcount > 0 || r.qty > 0) rows.push(r);
+                });
+                if (key === scope.endDate) break;
+            }
+
+            if (rows.length === 0) return [];
+
+            const body = [[
+                pdfHeaderCell('วันผลิต', 'center'),
+                pdfHeaderCell('กะ', 'center'),
+                pdfHeaderCell('ไลน์', 'center'),
+                pdfHeaderCell('ประกอบ', 'right'),
+                pdfHeaderCell('Feeder', 'right'),
+                pdfHeaderCell('Leader', 'right'),
+                pdfHeaderCell('รวมคน', 'right'),
+                pdfHeaderCell('ยอดสแกน', 'right'),
+                pdfHeaderCell('ชม.ผลิต', 'right'),
+                pdfHeaderCell('PCS/คน/ชม.', 'right')
+            ]];
+
+            rows.forEach(r => {
+                body.push([
+                    pdfCell(formatThaiDate(r.date), 'center'),
+                    pdfCell(r.shift === 'Day' ? 'เช้า' : 'ดึก', 'center'),
+                    pdfCell(r.line, 'center'),
+                    pdfCell(r.assembler ? String(r.assembler) : '-', 'right'),
+                    pdfCell(r.feeder ? String(r.feeder) : '-', 'right'),
+                    pdfCell(r.leader ? String(r.leader) : '-', 'right'),
+                    pdfCell(r.headcount ? String(r.headcount) : '-', 'right'),
+                    pdfCell(r.qty.toLocaleString(), 'right'),
+                    pdfCell(r.activeHours ? String(r.activeHours) : '-', 'right'),
+                    pdfCell(r.perHead > 0 ? r.perHead.toFixed(1) : '-', 'right',
+                            r.perHead > 0 ? PDF_COLOR.text : PDF_COLOR.muted)
+                ]);
+            });
+
+            return [
+                ...pdfHeading('กำลังคนรายไลน์ (Manpower)'),
+                {
+                    table: { headerRows: 1, dontBreakRows: true, widths: [56, 32, 44, 44, 44, 44, 44, 58, 44, '*'], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote('PCS/คน/ชม. = ยอดสแกน ÷ จำนวนคนรวม ÷ ชั่วโมงที่ไลน์นั้นมีการผลิตจริง · ' +
+                    'ใช้ชั่วโมงที่ผลิตจริงแทนชั่วโมงกะเต็ม เพื่อไม่ให้ไลน์ที่หยุดครึ่งกะดูประสิทธิภาพต่ำทั้งที่ตอนเดินงานทำได้ปกติ · ' +
+                    'แถวที่รวมคนเป็น "-" คือไลน์ที่ยังไม่ได้กรอกกำลังคนของวันนั้น')
+            ];
+        }
+
         function buildReportIncidentsContent(scope) {
             const incidents = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
             const heading = pdfHeading('บันทึกเหตุการณ์และปัญหาผลิต (Incident Log)');
@@ -4649,6 +5090,7 @@ function doPost(e) {
             if (opt('export-opt-model'))     sections.push(buildReportModelContent());
             if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent(scope));
             if (opt('export-opt-capacity'))  sections.push(buildReportCapacityContent());
+            if (opt('export-opt-manpower'))  sections.push(buildReportManpowerContent(scope));
             if (opt('export-opt-incidents')) sections.push(buildReportIncidentsContent(scope));
             if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansContent());
 
