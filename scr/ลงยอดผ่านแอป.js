@@ -160,6 +160,24 @@ function doPost(e) {
     // จบส่วนฟังก์ชัน Undo
     // ==========================================
 
+    // ตรวจว่าเป็นคำขอลงยอดจริงก่อนจะเขียนแถวใหม่
+    // มาถึงบรรทัดนี้แปลว่า close_job กับ undo ถูกจัดการไปหมดแล้ว และการลงยอดจริงจะไม่ส่ง action มาเลย
+    // เครื่องที่ยังค้าง URL เก่าของหน้าบันทึกเหตุการณ์จะยิง GET_INCIDENTS / GET_CATEGORIES / SAVE / DELETE
+    // เข้ามาที่นี่ ซึ่ง payload ไม่มี recorder และ jobNo เลย เดิมจึงถูก append เป็นแถวที่มีแต่คำว่า undefined
+    // (เพราะโค้ดด้านล่างต่อสตริง "'" + data.recorder ซึ่งได้ "'undefined" เมื่อค่าเป็น undefined)
+    if (data.action) {
+      return jsonOutput({
+        result: "ignored",
+        message: 'ปลายทางนี้รับเฉพาะการลงยอด ไม่รองรับ action "' + data.action + '"'
+      });
+    }
+    if (!data.recorder || !data.jobNo) {
+      return jsonOutput({
+        result: "ignored",
+        message: "ไม่ใช่คำขอลงยอด (ต้องมีทั้ง recorder และ jobNo)"
+      });
+    }
+
     // 2. อ่านสูตร R1C1 จากบรรทัดล่าสุดเตรียมไว้ (เพื่อก๊อปปี้ลงมา)
     var formulas = [];
     if (lastRow > 1) {
@@ -184,7 +202,7 @@ function doPost(e) {
         isDataFilled = true;
       }
       else if (header.includes("recorder") || header.includes("ผู้บันทึก") || header.includes("ผู้กรอก")) { 
-        value = "'" + data.recorder; isDataFilled = true;
+        value = data.recorder ? "'" + data.recorder : ""; isDataFilled = true;
       } 
       // ต้องเป็น || ไม่ใช่ && เพราะหัวคอลัมน์อาจเป็น "Date" หรือ "วันที่" อย่างใดอย่างหนึ่ง
       // ถ้าใช้ && แล้วหัวตารางไม่มีทั้งสองคำ ช่องวันที่จะถูกปล่อยว่าง ทำให้แถวนั้นหายจากหน้า Job Monitor
@@ -200,7 +218,8 @@ function doPost(e) {
         isDataFilled = true;
       }
       else if (header.includes("time") || header.includes("เวลา")) {
-        value = "'" + data.time; isDataFilled = true;
+        // ต้องเช็คก่อนต่อสตริง ไม่งั้นค่าที่หายไปจะกลายเป็นข้อความว่า "undefined" ในชีต
+        value = data.time ? "'" + data.time : ""; isDataFilled = true;
       }
       else if (header.includes("shift") || header.includes("กะ") || header.includes("ช่วงเวลา")) {
         value = data.shift; isDataFilled = true;
