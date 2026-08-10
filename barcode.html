@@ -2631,6 +2631,17 @@
                             };
                         }
                     });
+                    // กันข้อมูลหาย: ถ้าคลาวด์ไม่มีแถวเลย (เช่น ยังไม่มีแท็บ Incidents หรือเขียนขึ้นชีตไม่สำเร็จ)
+                    // ห้ามเอาผลลัพธ์ว่างไปทับของที่บันทึกไว้ในเครื่อง เพราะจะลบบันทึกที่ยังไม่ได้ซิงก์ทิ้งทั้งหมด
+                    const cloudCount = Object.keys(cloudIncidents).length;
+                    if (cloudCount === 0 && Object.keys(incidentLogs).length > 0) {
+                        showIncidentSyncWarning(
+                            'ยังไม่พบบันทึกเหตุการณ์ใน Google Sheet',
+                            'ระบบจะใช้ข้อมูลที่เก็บไว้ในเครื่องนี้ต่อไป กรุณาตรวจว่าแท็บ Incidents ถูกสร้างแล้วและ Apps Script deploy เวอร์ชันล่าสุด'
+                        );
+                        return;
+                    }
+
                     incidentLogs = cloudIncidents;
                     saveIncidentsLocal();
                     if (hourlyChartObj) hourlyChartObj.update();
@@ -3014,6 +3025,22 @@
             tbody.innerHTML = html;
         }
 
+        // แจ้งเตือนแบบไม่บล็อกหน้าจอ ใช้กับปัญหาการซิงก์ที่เดิมเงียบสนิท (รูปแบบเดียวกับหน้าลงยอด)
+        function showIncidentSyncWarning(title, detail) {
+            console.warn(title, detail || '');
+            if (typeof Swal === 'undefined') return;
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title: title,
+                text: detail || '',
+                showConfirmButton: false,
+                timer: 6000,
+                timerProgressBar: true
+            });
+        }
+
         function syncIncidentToGoogleSheets(incident) {
             if (!appsScriptUrl) return;
             const payload = {
@@ -3029,14 +3056,32 @@
                 categoryText: incident.categoryText,
                 notes: incident.notes
             };
-            fetch(appsScriptUrl, {
+            // ใช้รูปแบบเดียวกับการโพสต์ที่ใช้งานได้จริงในหน้าลงยอด (index.html) และการซิงก์ประเภทปัญหา
+            // เดิมตรงนี้ใช้ mode:'no-cors' คู่กับ Content-Type: application/json ซึ่งมีปัญหา 2 อย่าง
+            //   1) no-cors จะได้ response แบบ opaque อ่านผลไม่ได้ .then() จึงขึ้นว่าสำเร็จเสมอแม้ชีตไม่ได้ถูกเขียน
+            //   2) application/json ไม่อยู่ในรายการ header ที่ no-cors อนุญาต จึงถูกตัดทิ้งเงียบ ๆ
+            // text/plain เป็น header ที่ปลอดภัยกับ CORS อยู่แล้ว จึงไม่เกิด preflight และยังอ่านผลลัพธ์กลับมาได้
+            return fetch(appsScriptUrl, {
                 method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payload),
+                redirect: 'follow'
             })
-            .then(() => console.log('Incident synced successfully'))
-            .catch(err => console.error('Error syncing:', err));
+            .then(res => {
+                if (!res.ok) throw new Error(`Apps Script ตอบกลับ HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(data => {
+                if (!data || data.result !== 'success') {
+                    throw new Error((data && data.message) || 'Apps Script ตอบกลับไม่สำเร็จ');
+                }
+                console.log('Incident synced successfully');
+            })
+            .catch(err => {
+                // บันทึกลงเครื่องสำเร็จไปแล้ว แต่ขึ้นชีตไม่ได้ ต้องบอกผู้ใช้ ไม่งั้นจะนึกว่าข้อมูลขึ้นคลาวด์แล้ว
+                console.error('Error syncing incident:', err);
+                showIncidentSyncWarning('ส่งบันทึกเหตุการณ์ขึ้น Google Sheet ไม่สำเร็จ', err.message + ' (ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว)');
+            });
         }
 
         // ==========================================
@@ -3376,6 +3421,8 @@
                                     };
                                 }
                             });
+                            // เช่นเดียวกับเส้นทาง Apps Script: ผลลัพธ์ว่างต้องไม่ทับข้อมูลในเครื่อง
+                            if (Object.keys(cloudIncidents).length === 0 && Object.keys(incidentLogs).length > 0) return;
                             incidentLogs = cloudIncidents;
                             saveIncidentsLocal();
                             renderIncidentTable();
