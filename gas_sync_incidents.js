@@ -158,6 +158,72 @@ function doPost(e) {
       }
     }
     
+    // --- MANPOWER OPERATIONS (กำลังคนรายไลน์ แยกตามกะ) ---
+    // แยกแท็บของตัวเองเพราะเป็นคนละมิติกับบันทึกเหตุการณ์: 1 แถว = 1 วัน + 1 กะ + 1 ไลน์
+    if (action === "GET_MANPOWER" || action === "SAVE_MANPOWER" || action === "DELETE_MANPOWER") {
+      var mpName = "Manpower";
+      var mpSheet = ss.getSheetByName(mpName);
+      var MP_COLS = ["ID", "Date", "Shift", "Line", "Assembler", "Feeder", "Leader", "Total", "UpdatedAt"];
+      if (!mpSheet) {
+        mpSheet = ss.insertSheet(mpName);
+        mpSheet.appendRow(MP_COLS);
+      }
+
+      var mpValues = mpSheet.getDataRange().getValues();
+
+      if (action === "GET_MANPOWER") {
+        var mpList = [];
+        if (mpValues.length > 1) {
+          var mpHeaders = mpValues[0];
+          for (var r = 1; r < mpValues.length; r++) {
+            var rec = {};
+            for (var c = 0; c < mpHeaders.length; c++) rec[mpHeaders[c]] = mpValues[r][c];
+            mpList.push(rec);
+          }
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success", manpower: mpList}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (!data.id) {
+        return ContentService.createTextOutput(JSON.stringify({
+          result: "ignored", message: "คำขอกำลังคนต้องมี id"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var mpRow = -1;
+      for (var r2 = 1; r2 < mpValues.length; r2++) {
+        if (mpValues[r2][0] == data.id) { mpRow = r2 + 1; break; }
+      }
+
+      if (action === "DELETE_MANPOWER") {
+        if (mpRow !== -1) mpSheet.deleteRow(mpRow);
+        return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Deleted"}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var asm = Number(data.assembler) || 0;
+      var fdr = Number(data.feeder) || 0;
+      var ldr = Number(data.leader) || 0;
+      // นำหน้าค่าที่เป็นข้อความด้วย ' เพื่อไม่ให้ Sheets แปลงชนิดเอง (บทเรียนจากคอลัมน์ Date และ Time)
+      var mpData = [
+        data.id,
+        data.date ? "'" + data.date : "",
+        data.shift ? "'" + data.shift : "",
+        data.line ? "'" + data.line : "",
+        asm, fdr, ldr, asm + fdr + ldr,
+        "'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")
+      ];
+
+      if (mpRow !== -1) {
+        mpSheet.getRange(mpRow, 1, 1, mpData.length).setValues([mpData]);
+      } else {
+        mpSheet.appendRow(mpData);
+      }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Saved"}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- INCIDENT LOGS OPERATIONS (WRITE/DELETE) ---
     // รับเฉพาะคำขอที่เป็นของบันทึกเหตุการณ์จริง ๆ เท่านั้น
     // การโพสต์จากหน้าลงยอด (index.html) ส่ง payload ที่ไม่มีฟิลด์ action มาด้วย

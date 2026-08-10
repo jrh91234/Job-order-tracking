@@ -35,14 +35,28 @@ Apps Script รวมทุกไฟล์ในโปรเจกต์เด�
 | ชื่อโปรเจกต์ใน Apps Script | ตั้งชื่อให้สื่อ เช่น `Incident Sync` |
 | ประเภท | แยกอิสระ (standalone) เปิดจาก script.google.com เท่านั้น ไม่อยู่ในเมนูของชีต |
 | ไฟล์ต้นฉบับในรีโป | `gas_sync_incidents.js` |
-| เขียนลงแท็บ | `Incidents` และ `IncidentCategories` |
+| เขียนลงแท็บ | `Incidents`, `IncidentCategories` และ `Manpower` |
 | Web App URL | `https://script.google.com/macros/s/AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf/exec` |
 | ใครเรียก | `barcode.html` ผ่านค่า `incidentAppsScriptUrl` ใน `config.json` |
-| รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY` |
+| รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY`, `GET_MANPOWER`, `SAVE_MANPOWER`, `DELETE_MANPOWER` |
 | ตรวจสุขภาพ | เปิด URL ตรง ๆ ในเบราว์เซอร์ จะได้ JSON บอกว่าผูกกับชีตไหน |
 
 ทั้งสองโปรเจกต์เขียนลง **สเปรดชีตเดียวกัน** คือ `ลงยอด H9`
 ID: `1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U`
+
+## แท็บ `Manpower`
+
+กำลังคนรายไลน์ แยกตามกะ 1 แถว = 1 วัน + 1 กะ + 1 ไลน์
+
+```
+ID = "2026-08-10_Day_Line 5"
+คอลัมน์: ID | Date | Shift | Line | Assembler | Feeder | Leader | Total | UpdatedAt
+```
+
+ค่าที่เป็นข้อความถูกเขียนโดยนำหน้าด้วย `'` เพื่อไม่ให้ Sheets แปลงชนิดเอง
+(บทเรียนจากคอลัมน์ `Date` ใน PR #38 และ `Time` ใน PR #47)
+
+หน้าจอใช้ตัวเลขนี้คำนวณ **PCS/คน/ชม.** = ยอดสแกน ÷ จำนวนคนรวม ÷ ชั่วโมงที่ไลน์นั้นผลิตจริง
 
 ## หาโปรเจกต์ไม่เจอ ทำอย่างไร
 
