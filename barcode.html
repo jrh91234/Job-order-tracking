@@ -2635,7 +2635,7 @@
                     // ห้ามเอาผลลัพธ์ว่างไปทับของที่บันทึกไว้ในเครื่อง เพราะจะลบบันทึกที่ยังไม่ได้ซิงก์ทิ้งทั้งหมด
                     const cloudCount = Object.keys(cloudIncidents).length;
                     if (cloudCount === 0 && Object.keys(incidentLogs).length > 0) {
-                        showIncidentSyncWarning(
+                        showIncidentToast('warning',
                             'ยังไม่พบบันทึกเหตุการณ์ใน Google Sheet',
                             'ระบบจะใช้ข้อมูลที่เก็บไว้ในเครื่องนี้ต่อไป กรุณาตรวจว่าแท็บ Incidents ถูกสร้างแล้วและ Apps Script deploy เวอร์ชันล่าสุด'
                         );
@@ -3025,24 +3025,38 @@
             tbody.innerHTML = html;
         }
 
-        // แจ้งเตือนแบบไม่บล็อกหน้าจอ ใช้กับปัญหาการซิงก์ที่เดิมเงียบสนิท (รูปแบบเดียวกับหน้าลงยอด)
-        function showIncidentSyncWarning(title, detail) {
-            console.warn(title, detail || '');
+        // แจ้งผลการบันทึกเหตุการณ์แบบไม่บล็อกหน้าจอ ใช้ทั้งกรณีสำเร็จและล้มเหลว (รูปแบบเดียวกับหน้าลงยอด)
+        // เดิมกดบันทึกแล้วเงียบสนิท ผู้ใช้จึงแยกไม่ออกว่าข้อมูลขึ้นชีตแล้วหรือค้างอยู่แค่ในเครื่อง
+        function showIncidentToast(icon, title, detail) {
+            if (icon === 'success') {
+                console.log(title, detail || '');
+            } else {
+                console.warn(title, detail || '');
+            }
             if (typeof Swal === 'undefined') return;
             Swal.fire({
                 toast: true,
                 position: 'top-end',
-                icon: 'warning',
+                icon: icon,
                 title: title,
                 text: detail || '',
                 showConfirmButton: false,
-                timer: 6000,
+                timer: icon === 'success' ? 3000 : 6000,
                 timerProgressBar: true
             });
         }
 
         function syncIncidentToGoogleSheets(incident) {
-            if (!appsScriptUrl) return;
+            const isDelete = incident.action === 'DELETE';
+            const actionLabel = isDelete ? 'ลบบันทึกเหตุการณ์' : 'บันทึกเหตุการณ์';
+
+            // ยังไม่ได้ตั้งค่า Apps Script URL = ข้อมูลอยู่ในเครื่องนี้เครื่องเดียว ต้องบอกให้ชัด
+            if (!appsScriptUrl) {
+                showIncidentToast('warning', actionLabel + 'ลงเครื่องนี้แล้ว (ยังไม่ขึ้น Google Sheet)',
+                    'ยังไม่ได้ตั้งค่า Apps Script URL ในหน้าตั้งค่า ข้อมูลจึงเก็บอยู่ในเบราว์เซอร์นี้เท่านั้น');
+                return;
+            }
+
             const payload = {
                 action: incident.action || 'SAVE',
                 id: incident.id,
@@ -3075,12 +3089,12 @@
                 if (!data || data.result !== 'success') {
                     throw new Error((data && data.message) || 'Apps Script ตอบกลับไม่สำเร็จ');
                 }
-                console.log('Incident synced successfully');
+                showIncidentToast('success', actionLabel + 'ขึ้น Google Sheet เรียบร้อย', 'แท็บ Incidents ถูกอัปเดตแล้ว');
             })
             .catch(err => {
                 // บันทึกลงเครื่องสำเร็จไปแล้ว แต่ขึ้นชีตไม่ได้ ต้องบอกผู้ใช้ ไม่งั้นจะนึกว่าข้อมูลขึ้นคลาวด์แล้ว
-                console.error('Error syncing incident:', err);
-                showIncidentSyncWarning('ส่งบันทึกเหตุการณ์ขึ้น Google Sheet ไม่สำเร็จ', err.message + ' (ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว)');
+                showIncidentToast('warning', 'ส่ง' + actionLabel + 'ขึ้น Google Sheet ไม่สำเร็จ',
+                    err.message + ' (ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว)');
             });
         }
 
