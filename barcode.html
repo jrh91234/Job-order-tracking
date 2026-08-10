@@ -4352,6 +4352,18 @@ function doPost(e) {
         // คืน [] เมื่อไม่มีข้อมูล ตัวเลขหัวข้อจะถูกไล่ให้ทีหลังใน buildReportDoc()
         // ==========================================
 
+        // โลโก้บริษัทบนหัวกระดาษของรายงาน PDF
+        //
+        // ต้องเป็น data URI ของไฟล์ภาพ (PNG หรือ JPEG) เพราะ pdfmake ฝังภาพลงไฟล์ตอนสร้าง
+        // ไม่ได้ไปโหลดจาก URL ภายนอก รายงานจึงเปิดได้แม้ไม่มีเน็ตและไม่พึ่งเซิร์ฟเวอร์อื่น
+        //
+        // วิธีสร้างค่า: เอาไฟล์โลโก้มาแปลงเป็น base64 แล้ววางต่อท้าย "data:image/png;base64,"
+        //   Windows PowerShell : [Convert]::ToBase64String([IO.File]::ReadAllBytes("logo.png")) | Set-Clipboard
+        //   macOS / Linux      : base64 -w0 logo.png
+        //
+        // ปล่อยเป็นค่าว่างไว้ได้ หัวกระดาษจะเป็นแบบไม่มีโลโก้ตามเดิม
+        const REPORT_LOGO_DATA_URI = '';
+
         function buildReportMetaContent(scope) {
             const generatedAt = new Date().toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -4360,11 +4372,19 @@ function doPost(e) {
             return [
                 {
                     columns: [
+                        // โลโก้จะโผล่ก็ต่อเมื่อมีการใส่ค่า REPORT_LOGO_DATA_URI ไว้แล้วเท่านั้น
+                        // ถ้ายังไม่ใส่ หัวกระดาษจะเป็นแบบเดิมทุกประการ ไม่พังและไม่มีช่องว่างค้าง
+                        ...(REPORT_LOGO_DATA_URI ? [{
+                            width: 'auto',
+                            image: REPORT_LOGO_DATA_URI,
+                            fit: [92, 34],
+                            margin: [0, 0, 10, 0]
+                        }] : []),
                         {
                             width: '*',
                             stack: [
-                                { text: 'รายงานสรุปการผลิตจากระบบสแกนบาร์โค้ด', fontSize: 16, bold: true, color: PDF_COLOR.title },
-                                { text: 'Barcode Real-time Production Report', fontSize: 8, color: PDF_COLOR.sub }
+                                { text: 'H9 Production Report', fontSize: 16, bold: true, color: PDF_COLOR.title },
+                                { text: 'รายงานสรุปการผลิตจากระบบสแกนบาร์โค้ด', fontSize: 8, color: PDF_COLOR.sub }
                             ]
                         },
                         {
@@ -5140,8 +5160,8 @@ function doPost(e) {
                 pageMargins: [PDF_PAGE_MARGIN, PDF_PAGE_MARGIN + 4, PDF_PAGE_MARGIN, PDF_PAGE_MARGIN + 10],
                 defaultStyle: { font: 'Sarabun', fontSize: 8, color: PDF_COLOR.text },
                 info: {
-                    title: `รายงานสรุปการผลิต ${scope.dateLabel}`,
-                    author: 'Barcode Real-time Monitor'
+                    title: `H9 Production Report ${scope.dateLabel}`,
+                    author: 'H9 Production Report'
                 },
                 content: [
                     ...buildReportMetaContent(scope),
@@ -5196,7 +5216,7 @@ function doPost(e) {
                 didOpen: () => Swal.showLoading()
             });
 
-            const fileName = `Barcode-Report_${scope.startDate}${scope.endDate !== scope.startDate ? '_ถึง_' + scope.endDate : ''}.pdf`;
+            const fileName = `H9-Production-Report_${scope.startDate}${scope.endDate !== scope.startDate ? '_ถึง_' + scope.endDate : ''}.pdf`;
 
             try {
                 await ensurePdfEngine();
