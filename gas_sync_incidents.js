@@ -10,6 +10,9 @@
  * this file into it makes every manual production entry hit the incident handler instead,
  * which appends a row holding only Date/Line/Model to the Incidents tab and drops the rest.
  *
+ * รายละเอียดทั้งหมด (URL, ชื่อโปรเจกต์, วิธีหาโปรเจกต์เมื่อลืม, ประวัติปัญหา):
+ * docs/apps-script-map.md
+ *
  * Instructions:
  * 1. Go to script.google.com and create a NEW project (do not use Extensions -> Apps Script
  *    from inside the sheet, that opens the existing production-entry project)
@@ -26,6 +29,44 @@
 // ต้องระบุ ID ของสเปรดชีตเป้าหมายตรงนี้ (ส่วนที่อยู่ระหว่าง /d/ กับ /edit ใน URL ของชีต)
 // ค่านี้คือชีต "ลงยอด H9" ที่ใช้งานจริงอยู่ ถ้าย้ายไปชีตอื่นให้แก้ตรงนี้จุดเดียว
 var SPREADSHEET_ID = "1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U";
+
+/**
+ * เปิด URL ของ Web App ตัวนี้ในเบราว์เซอร์แล้วจะได้ JSON บอกว่านี่คือโปรเจกต์อะไร
+ * ผูกกับชีตไหน และมีข้อมูลอยู่กี่แถว
+ *
+ * มีไว้เพื่อให้อีกหลายเดือนข้างหน้า เวลาเจอ URL นี้โดยจำไม่ได้แล้วว่าคืออะไร
+ * จะตอบตัวเองได้ทันทีโดยไม่ต้องไล่เปิดโปรเจกต์ทีละอัน (ดู docs/apps-script-map.md)
+ *
+ * หมายเหตุ: ถ้าวันหนึ่งเอาไฟล์นี้ไปรวมกับโปรเจกต์ที่มี doGet อยู่แล้ว ต้องเปลี่ยนชื่อฟังก์ชันนี้
+ * เพราะ Apps Script รวมทุกไฟล์ไว้ใน scope เดียว ตัวที่โหลดทีหลังจะทับตัวแรกเงียบ ๆ
+ * แต่ทางที่ถูกคือ "อย่ารวม" ตั้งแต่แรก เพราะ doPost ก็จะทับกันด้วย
+ */
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var incidents = ss.getSheetByName("Incidents");
+    var categories = ss.getSheetByName("IncidentCategories");
+    return ContentService.createTextOutput(JSON.stringify({
+      result: "ok",
+      project: "Incident Sync (บันทึกเหตุการณ์และปัญหาผลิต)",
+      purpose: "รับข้อมูลบันทึกเหตุการณ์จากหน้า barcode dashboard เขียนลงแท็บ Incidents",
+      note: "นี่ไม่ใช่ Web App ของหน้าลงยอด ตัวนั้นเขียนแท็บ ยอดผลิต และเป็นคนละโปรเจกต์",
+      docs: "docs/apps-script-map.md ในรีโป Job-order-tracking",
+      spreadsheet: ss.getName(),
+      spreadsheetId: SPREADSHEET_ID,
+      incidentsSheetFound: !!incidents,
+      incidentRows: incidents ? Math.max(0, incidents.getLastRow() - 1) : null,
+      categoriesSheetFound: !!categories,
+      allSheets: ss.getSheets().map(function (s) { return s.getName(); })
+    }, null, 2)).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      result: "error",
+      error: err.toString(),
+      hint: "ตรวจว่า SPREADSHEET_ID ถูกต้องและบัญชีที่ deploy มีสิทธิ์เข้าถึงชีตนั้น"
+    }, null, 2)).setMimeType(ContentService.MimeType.JSON);
+  }
+}
 
 function doPost(e) {
   var lock = LockService.getScriptLock();

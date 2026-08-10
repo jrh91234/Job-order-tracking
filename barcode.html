@@ -668,6 +668,14 @@
                     <li>กด Deploy คัดลอก URL เว็บแอปที่ได้ มาใส่ในช่อง <b>"Apps Script URL สำหรับบันทึกเหตุการณ์"</b> ในหน้าตั้งค่าของบอร์ดนี้ — ต้องเป็นคนละ URL กับของหน้าลงยอด</li>
                 </ol>
                 
+                <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                    <p class="font-bold text-slate-800">📍 ระบบนี้มี Apps Script 2 โปรเจกต์แยกกัน</p>
+                    <p><b>1. ลงยอด / Job Monitor</b> — โปรเจกต์ชื่อ <b>KPI</b> ผูกอยู่กับชีต เปิดผ่านเมนู ส่วนขยาย → Apps Script จากในชีตได้ เขียนแท็บ <span class="font-mono">ยอดผลิต</span></p>
+                    <p><b>2. บันทึกเหตุการณ์</b> — โปรเจกต์แยกอิสระ <u>ไม่ปรากฏในเมนูของชีต</u> ต้องเปิดจาก <b>script.google.com → โปรเจกต์ของฉัน</b> เท่านั้น เขียนแท็บ <span class="font-mono">Incidents</span></p>
+                    <p>ถ้าลืมว่าโปรเจกต์ตัวที่ 2 อยู่ไหน ให้เอา URL ในช่องตั้งค่ามาเปิดในเบราว์เซอร์ตรง ๆ จะได้ JSON บอกว่าเป็นโปรเจกต์อะไรและผูกกับชีตไหน</p>
+                    <p>เอกสารฉบับเต็มอยู่ที่ <span class="font-mono">docs/apps-script-map.md</span> ในรีโป และโค้ดฉบับจริงคือไฟล์ <span class="font-mono">gas_sync_incidents.js</span> — ถ้าโค้ดข้างล่างนี้ไม่ตรงกับไฟล์นั้น ให้ยึดไฟล์ในรีโป</p>
+                </div>
+
                 <p class="font-bold text-slate-800 mt-3">📋 โค้ดสำหรับคัดลอก (Copy Code):</p>
                 <pre class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[10px] font-mono select-all overflow-x-auto whitespace-pre">// โปรเจกต์นี้ต้องแยกจากโปรเจกต์ของหน้าลงยอด ห้ามรวมกันเพราะ doPost จะทับกัน
 // โปรเจกต์แยก (standalone) ไม่มี active spreadsheet จึงต้องระบุ ID ของชีตตรงนี้
