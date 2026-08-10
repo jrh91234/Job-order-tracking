@@ -1019,6 +1019,10 @@ function doPost(e) {
             return !!url && url.trim() === PRODUCTION_ENTRY_SCRIPT_URL;
         }
         let incidentSheetGid = localStorage.getItem('job_tracker_incident_sheet_gid') || '';
+        // id ของบันทึกที่กำลังเปิดอยู่ในหน้าต่างแก้ไข ตั้งค่าตอนที่ระบบเจอรายการเดิมและโชว์ปุ่มลบ
+        // ปุ่มลบต้องอ้างอิงค่านี้ ไม่ใช่ประกอบคีย์ขึ้นมาใหม่จากช่องในฟอร์ม เพราะถ้าค่าใดค่าหนึ่งไม่ตรง
+        // (เช่นรุ่นสินค้าไม่อยู่ในรายการของวันนั้น) คีย์จะเพี้ยนแล้วกดลบไม่ติดโดยไม่มีอะไรฟ้อง
+        let editingIncidentId = null;
         let incidentCategories = [
             { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
             { code: "Material", text: "📦 วัตถุดิบขาดแคลน (Material Shortage)" },
@@ -2914,6 +2918,7 @@ function doPost(e) {
                 const logKey = `${activeDate}_${hourVal}_${selectLine.value}_${selectModel.value}`;
                 const existing = incidentLogs[logKey];
                 if (existing) {
+                    editingIncidentId = existing.id || logKey;
                     selectCat.value = existing.category;
                     textareaNotes.value = existing.notes || '';
                     btnDelete.classList.remove('hidden');
@@ -2921,6 +2926,7 @@ function doPost(e) {
                     if (existing.time) setTimeValue(existing.time);
                     populateIncidentJobOptions(existing.jobOrder);
                 } else {
+                    editingIncidentId = null;
                     selectCat.value = 'Breakdown';
                     textareaNotes.value = '';
                     btnDelete.classList.add('hidden');
@@ -2959,6 +2965,7 @@ function doPost(e) {
         }
 
         function closeIncidentModal() {
+            editingIncidentId = null;
             document.getElementById('incident-modal').classList.add('hidden');
         }
 
@@ -3002,23 +3009,36 @@ function doPost(e) {
         }
 
         function deleteIncident() {
-            const activeDate = els.filterStartDate.value;
-            const hour = parseInt(document.getElementById('incident-time-hour').value);
-            const line = document.getElementById('incident-line').value;
-            const model = document.getElementById('incident-model').value;
+            // ลบด้วย id ของรายการที่เปิดอยู่จริง ปุ่มลบจะโผล่ก็ต่อเมื่อระบบเจอรายการนั้นแล้วเท่านั้น
+            const targetId = editingIncidentId;
+            const incident = targetId ? incidentLogs[targetId] : null;
 
-            const logKey = `${activeDate}_${hour}_${line}_${model}`;
-            if (incidentLogs[logKey]) {
-                const deletedItem = {...incidentLogs[logKey], action: 'DELETE'};
-                delete incidentLogs[logKey];
-                saveIncidentsLocal();
-                syncIncidentToGoogleSheets(deletedItem);
+            if (!incident) {
+                showIncidentToast('warning', 'ไม่พบบันทึกที่จะลบ',
+                    'ลองปิดหน้าต่างนี้แล้วกด "แก้ไข" จากตารางบันทึกเหตุการณ์อีกครั้ง');
+                closeIncidentModal();
+                return;
             }
+
+            const deletedItem = { ...incident, action: 'DELETE' };
+            delete incidentLogs[targetId];
+            saveIncidentsLocal();
             closeIncidentModal();
             if (hourlyChartObj) {
                 hourlyChartObj.update();
             }
             renderIncidentTable();
+
+            // ถ้าลบบนชีตไม่สำเร็จต้องเอารายการกลับคืนในเครื่อง ไม่งั้นพอโหลดหน้าใหม่แล้วดึงข้อมูลจากคลาวด์
+            // รายการจะกลับมาเองโดยไม่มีคำอธิบาย ซึ่งดูเหมือน "กดลบไม่ติด"
+            Promise.resolve(syncIncidentToGoogleSheets(deletedItem)).then(ok => {
+                if (ok === false) {
+                    incidentLogs[targetId] = incident;
+                    saveIncidentsLocal();
+                    if (hourlyChartObj) hourlyChartObj.update();
+                    renderIncidentTable();
+                }
+            });
         }
 
         function renderIncidentTable() {
@@ -3095,7 +3115,7 @@ function doPost(e) {
             if (!appsScriptUrl) {
                 showIncidentToast('warning', actionLabel + 'ลงเครื่องนี้แล้ว (ยังไม่ขึ้น Google Sheet)',
                     'ยังไม่ได้ตั้งค่า Apps Script URL ในหน้าตั้งค่า ข้อมูลจึงเก็บอยู่ในเบราว์เซอร์นี้เท่านั้น');
-                return;
+                return Promise.resolve(false);
             }
 
             const payload = {
@@ -3131,11 +3151,13 @@ function doPost(e) {
                     throw new Error((data && data.message) || 'Apps Script ตอบกลับไม่สำเร็จ');
                 }
                 showIncidentToast('success', actionLabel + 'ขึ้น Google Sheet เรียบร้อย', 'แท็บ Incidents ถูกอัปเดตแล้ว');
+                return true;
             })
             .catch(err => {
                 // บันทึกลงเครื่องสำเร็จไปแล้ว แต่ขึ้นชีตไม่ได้ ต้องบอกผู้ใช้ ไม่งั้นจะนึกว่าข้อมูลขึ้นคลาวด์แล้ว
                 showIncidentToast('warning', 'ส่ง' + actionLabel + 'ขึ้น Google Sheet ไม่สำเร็จ',
                     err.message + ' (ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว)');
+                return false;
             });
         }
 
