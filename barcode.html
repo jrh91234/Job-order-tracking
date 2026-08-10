@@ -736,11 +736,17 @@
       }
     }
     
+    // รับเฉพาะคำขอบันทึกเหตุการณ์จริง ๆ ไม่งั้นการโพสต์จากหน้าลงยอด (ที่ไม่มีฟิลด์ action)
+    // จะถูกตีความเป็น SAVE แล้วกลายเป็นแถวขยะที่มีแค่ Date/Line/Model ในแท็บ Incidents
+    if ((action !== "SAVE" && action !== "DELETE") || !data.id) {
+      return ContentService.createTextOutput(JSON.stringify({result: "ignored"})).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheetName = "Incidents";
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "Category", "CategoryText", "Notes", "Time"]);
+      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"]);
     }
     var id = data.id;
     var range = sheet.getDataRange();

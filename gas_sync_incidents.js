@@ -103,6 +103,18 @@ function doPost(e) {
     }
     
     // --- INCIDENT LOGS OPERATIONS (WRITE/DELETE) ---
+    // รับเฉพาะคำขอที่เป็นของบันทึกเหตุการณ์จริง ๆ เท่านั้น
+    // การโพสต์จากหน้าลงยอด (index.html) ส่ง payload ที่ไม่มีฟิลด์ action มาด้วย
+    // บรรทัด `data.action || "SAVE"` ด้านบนจึงตีความว่าเป็น SAVE แล้วไหลลงมาถึงตรงนี้
+    // ผลคือทุกครั้งที่สแกนลงยอด จะมีแถวขยะ (มีแค่ Date/Line/Model ไม่มี ID) ถูก append ลงแท็บ Incidents
+    // บันทึกเหตุการณ์ของจริงจะมี id เป็นคีย์รูปแบบ "YYYY-MM-DD_ชั่วโมง_ไลน์_รุ่น" เสมอ จึงใช้เป็นตัวคัดกรอง
+    if ((action !== "SAVE" && action !== "DELETE") || !data.id) {
+      return ContentService.createTextOutput(JSON.stringify({
+        result: "ignored",
+        message: "ไม่ใช่คำขอบันทึกเหตุการณ์ (ต้องมี action SAVE/DELETE และ id)"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheetName = "Incidents";
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
