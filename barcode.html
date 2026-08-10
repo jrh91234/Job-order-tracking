@@ -2581,6 +2581,30 @@
             }
         }
 
+        // แปลงค่าวันผลิตให้เป็นรูปแบบ YYYY-MM-DD เสมอ
+        // Google Sheets เก็บคอลัมน์ Date เป็นชนิดวันที่ เวลาส่งกลับมาทาง Apps Script จึงกลายเป็น ISO
+        // เช่น "2026-08-09T17:00:00.000Z" (เวลาไทยคือวันที่ 10) ทำให้การเทียบช่วงวันที่ในรายงานพลาด
+        // ลำดับความน่าเชื่อถือ: prefix ของ ID (ฝั่งหน้าจอเขียนเป็น YYYY-MM-DD อยู่แล้ว) > ค่าที่ได้จากชีต
+        function normalizeIncidentDate(value, id) {
+            const fromId = /^(\d{4}-\d{2}-\d{2})_/.exec(String(id || ''));
+            if (fromId) return fromId[1];
+
+            if (value instanceof Date && !isNaN(value)) return toLocalDateKey(value);
+
+            const str = String(value || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+            if (str) {
+                const parsed = new Date(str);
+                if (!isNaN(parsed)) return toLocalDateKey(parsed);
+            }
+            return str;
+        }
+
+        // อ่านวัน/เดือน/ปีตามเวลาท้องถิ่นของเครื่อง ไม่ใช่ UTC เพื่อไม่ให้วันที่เลื่อนไป 1 วัน
+        function toLocalDateKey(d) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
         function fetchIncidentsFromAppsScript() {
             if (!appsScriptUrl) return Promise.resolve();
             return fetch(appsScriptUrl, {
@@ -2595,7 +2619,7 @@
                         if (row.ID) {
                             cloudIncidents[row.ID] = {
                                 id: row.ID,
-                                date: row.Date,
+                                date: normalizeIncidentDate(row.Date, row.ID),
                                 hour: parseInt(row.Hour) || 0,
                                 time: row.Time || '',
                                 line: row.Line,
@@ -3340,7 +3364,7 @@
                                 if (row.ID) {
                                     cloudIncidents[row.ID] = {
                                         id: row.ID,
-                                        date: row.Date,
+                                        date: normalizeIncidentDate(row.Date, row.ID),
                                         hour: parseInt(row.Hour) || 0,
                                         line: row.Line,
                                         model: row.Model || 'All',
@@ -3643,10 +3667,12 @@
             Object.keys(incidentLogs).forEach(key => {
                 const inc = incidentLogs[key];
                 if (!inc || !inc.date) return;
-                if (inc.date < startDate || inc.date > endDate) return;
+                // ข้อมูลเก่าใน localStorage อาจเก็บวันที่มาเป็น ISO จากชีต จึงแปลงก่อนเทียบช่วงวันที่ทุกครั้ง
+                const incDate = normalizeIncidentDate(inc.date, inc.id || key);
+                if (incDate < startDate || incDate > endDate) return;
                 // ถ้าเลือกไลน์เจาะจง ให้เอาเฉพาะเหตุการณ์ของไลน์นั้นกับเหตุการณ์ที่บันทึกไว้ว่ากระทบทุกไลน์
                 if (activeLine && activeLine !== 'All' && inc.line !== 'All' && String(inc.line) !== String(activeLine)) return;
-                list.push(inc);
+                list.push({ ...inc, date: incDate });
             });
             list.sort((a, b) =>
                 String(a.date).localeCompare(String(b.date)) ||
