@@ -147,3 +147,117 @@ function cleanupIncidents() {
   Logger.log('ถ้าผลลัพธ์ไม่ถูกต้อง ให้กู้จากแท็บสำรอง "' + backupName + '"');
   return { deleted: deleted, backupSheet: backupName, kept: info.keptRows.length };
 }
+
+// ==========================================
+// ส่วนล้างแถว undefined ในแท็บ "ยอดผลิต"
+// ==========================================
+// ที่มา: หลังกู้ doPost ของหน้าลงยอดกลับมา เครื่องที่ยังค้าง URL เก่าของหน้าบันทึกเหตุการณ์
+// ยังยิง GET_INCIDENTS / GET_CATEGORIES / SAVE เข้ามาที่ปลายทางของการลงยอด payload พวกนั้น
+// ไม่มี recorder และ jobNo โค้ดเดิมที่ต่อสตริง "'" + data.recorder จึงเขียนคำว่า undefined ลงชีต
+//
+// การลงยอดจริงต้องมีทั้งผู้บันทึกและหมายเลข Job order เสมอ จึงใช้สองอย่างนี้เป็นตัวแยก
+
+var YOD_SHEET_NAME = "ยอดผลิต";
+var YOD_RECORDER_HEADER_KEYS = ["recorder", "ผู้บันทึก", "ผู้กรอก"];
+var YOD_JOB_HEADER_KEYS = ["joborder", "หมายเลขกำกับงาน", "jobno"];
+
+function findHeaderIndex_(headers, keys) {
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i]).toLowerCase().replace(/\s/g, "");
+    for (var k = 0; k < keys.length; k++) {
+      if (h.indexOf(keys[k].toLowerCase().replace(/\s/g, "")) !== -1) return i;
+    }
+  }
+  return -1;
+}
+
+/** ค่าที่ถือว่า "ไม่มีข้อมูล" รวมถึงข้อความ undefined ที่หลุดมาจากการต่อสตริง */
+function isBlankish_(v) {
+  var s = String(v === null || v === undefined ? "" : v).replace(/^'/, "").trim();
+  return s === "" || s === "undefined" || s === "null";
+}
+
+function findJunkYodRows_() {
+  var ss = SpreadsheetApp.openById(CLEANUP_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(YOD_SHEET_NAME);
+  if (!sheet) {
+    throw new Error('ไม่พบแท็บ "' + YOD_SHEET_NAME + '" ในไฟล์ "' + ss.getName() + '"');
+  }
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2) return { sheet: sheet, junkRows: [], keptCount: 0, totalRows: 0 };
+
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var headers = values[0];
+  var recIdx = findHeaderIndex_(headers, YOD_RECORDER_HEADER_KEYS);
+  var jobIdx = findHeaderIndex_(headers, YOD_JOB_HEADER_KEYS);
+  if (recIdx === -1 || jobIdx === -1) {
+    throw new Error("ไม่พบคอลัมน์ Recorder หรือ Job order No. จึงไม่สามารถแยกแถวเสียได้อย่างปลอดภัย");
+  }
+
+  var junkRows = [];
+  var keptCount = 0;
+  for (var r = 1; r < values.length; r++) {
+    // ต้องว่างทั้งสองช่องถึงจะถือว่าเป็นแถวเสีย ถ้าช่องใดช่องหนึ่งมีค่าให้เก็บไว้ก่อนเสมอ
+    if (isBlankish_(values[r][recIdx]) && isBlankish_(values[r][jobIdx])) {
+      junkRows.push({ row: r + 1, recorder: values[r][recIdx], job: values[r][jobIdx] });
+    } else {
+      keptCount++;
+    }
+  }
+
+  return { sheet: sheet, junkRows: junkRows, keptCount: keptCount, totalRows: values.length - 1 };
+}
+
+/** โหมดตรวจสอบของแท็บ ยอดผลิต ไม่ลบอะไรทั้งสิ้น รันตัวนี้ก่อนเสมอ */
+function dryRunCleanupYod() {
+  var info = findJunkYodRows_();
+  Logger.log("=== DRY RUN (" + YOD_SHEET_NAME + ") — ไม่มีการแก้ไขข้อมูล ===");
+  Logger.log("แถวข้อมูลทั้งหมด: " + info.totalRows);
+  Logger.log("แถวที่จะถูกลบ (ไม่มีทั้ง Recorder และ Job order): " + info.junkRows.length);
+  Logger.log("แถวที่จะเก็บไว้: " + info.keptCount);
+  Logger.log("");
+  Logger.log("--- ตัวอย่างแถวที่จะถูกลบ (สูงสุด 20 แถวแรก) ---");
+  for (var i = 0; i < Math.min(20, info.junkRows.length); i++) {
+    Logger.log("  แถว " + info.junkRows[i].row +
+               " | Recorder=" + JSON.stringify(info.junkRows[i].recorder) +
+               " | Job=" + JSON.stringify(info.junkRows[i].job));
+  }
+  Logger.log("");
+  Logger.log("ถ้าตัวเลขถูกต้องแล้ว ให้รัน cleanupYod() เพื่อลบจริง");
+  return { totalRows: info.totalRows, toDelete: info.junkRows.length, toKeep: info.keptCount };
+}
+
+/** ลบแถวเสียในแท็บ ยอดผลิต จริง โดยสำรองแท็บไว้ก่อนเสมอ */
+function cleanupYod() {
+  var info = findJunkYodRows_();
+  if (info.junkRows.length === 0) {
+    Logger.log("ไม่พบแถวเสีย ไม่มีอะไรต้องลบ");
+    return { deleted: 0, backupSheet: null };
+  }
+
+  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmm");
+  var backupName = YOD_SHEET_NAME + "_backup_" + stamp;
+  info.sheet.copyTo(info.sheet.getParent()).setName(backupName);
+  Logger.log("สำรองแท็บไว้แล้วที่: " + backupName);
+
+  var rows = info.junkRows.map(function (r) { return r.row; }).sort(function (a, b) { return a - b; });
+  var ranges = [];
+  var start = rows[0], prev = rows[0];
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i] === prev + 1) { prev = rows[i]; }
+    else { ranges.push({ start: start, count: prev - start + 1 }); start = rows[i]; prev = rows[i]; }
+  }
+  ranges.push({ start: start, count: prev - start + 1 });
+
+  var deleted = 0;
+  for (var j = ranges.length - 1; j >= 0; j--) {
+    info.sheet.deleteRows(ranges[j].start, ranges[j].count);
+    deleted += ranges[j].count;
+  }
+
+  Logger.log("ลบแถวเสียแล้ว " + deleted + " แถว | เหลือข้อมูลลงยอด " + info.keptCount + " แถว");
+  Logger.log('ถ้าผลลัพธ์ไม่ถูกต้อง ให้กู้จากแท็บสำรอง "' + backupName + '"');
+  return { deleted: deleted, backupSheet: backupName, kept: info.keptCount };
+}
