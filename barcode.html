@@ -381,7 +381,7 @@
                         <i data-lucide="users" class="w-5 h-5 text-indigo-500"></i>
                         กำลังคนรายไลน์วันนี้ (Manpower)
                     </h3>
-                    <p class="text-xs text-slate-400">ใช้คำนวณ PCS/คน/ชม. เพื่อเทียบประสิทธิภาพข้ามไลน์ที่คนไม่เท่ากัน</p>
+                    <p class="text-xs text-slate-400">เทียบประสิทธิภาพข้ามไลน์ที่คนไม่เท่ากัน · ตัวหารนับเฉพาะพนักงานประกอบ ส่วน Feeder และ Leader เก็บไว้เป็นข้อมูลอ้างอิง</p>
                 </div>
                 <button onclick="openManpowerModal()" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0">
                     <i data-lucide="user-plus" class="w-4 h-4"></i>
@@ -397,10 +397,10 @@
                             <th class="p-3 text-right font-bold">ประกอบ</th>
                             <th class="p-3 text-right font-bold">Feeder</th>
                             <th class="p-3 text-right font-bold">Leader</th>
-                            <th class="p-3 text-right font-bold">รวมคน</th>
+                            <th class="p-3 text-right font-bold">รวมทั้งหมด</th>
                             <th class="p-3 text-right font-bold">ยอดสแกน</th>
                             <th class="p-3 text-right font-bold">ชม.ที่ผลิต</th>
-                            <th class="p-3 text-right font-bold">PCS/คน/ชม.</th>
+                            <th class="p-3 text-right font-bold">PCS/ประกอบ/ชม.</th>
                         </tr>
                     </thead>
                     <tbody id="manpower-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
@@ -907,7 +907,7 @@ function doPost(e) {
                                 <th class="p-2.5 text-center font-bold">ประกอบ</th>
                                 <th class="p-2.5 text-center font-bold">Feeder</th>
                                 <th class="p-2.5 text-center font-bold">Leader</th>
-                                <th class="p-2.5 text-right font-bold">รวม</th>
+                                <th class="p-2.5 text-right font-bold">รวมทั้งหมด</th>
                             </tr>
                         </thead>
                         <tbody id="manpower-form-body" class="divide-y divide-slate-100"></tbody>
@@ -2753,7 +2753,7 @@ function doPost(e) {
                 const shiftLabel = r.shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก';
                 const perHeadText = r.perHead > 0 ? r.perHead.toFixed(1) : '-';
                 // ไลน์ที่มีการผลิตแต่ยังไม่กรอกกำลังคน ต้องมองเห็นได้ทันทีว่าตัวเลขยังขาด
-                const missing = !r.hasManpower && r.qty > 0;
+                const missing = r.qty > 0 && r.headcount === 0;
                 html += `
                     <tr class="hover:bg-slate-50/50 transition-colors ${missing ? 'bg-amber-50/40' : ''}">
                         <td class="p-3 text-center font-semibold text-slate-600">${shiftLabel}</td>
@@ -2761,11 +2761,11 @@ function doPost(e) {
                         <td class="p-3 text-right font-mono text-slate-700">${r.assembler || '-'}</td>
                         <td class="p-3 text-right font-mono text-slate-700">${r.feeder || '-'}</td>
                         <td class="p-3 text-right font-mono text-slate-700">${r.leader || '-'}</td>
-                        <td class="p-3 text-right font-mono font-bold text-slate-800">${r.headcount || '-'}</td>
+                        <td class="p-3 text-right font-mono font-bold text-slate-800">${r.totalPeople || '-'}</td>
                         <td class="p-3 text-right font-mono text-slate-700">${fmt(r.qty)}</td>
                         <td class="p-3 text-right font-mono text-slate-500">${r.activeHours || '-'}</td>
                         <td class="p-3 text-right font-mono font-black ${r.perHead > 0 ? 'text-emerald-600' : 'text-slate-300'}">
-                            ${missing ? '<span class="text-amber-600 font-bold text-[10px]">ยังไม่กรอกคน</span>' : perHeadText}
+                            ${missing ? '<span class="text-amber-600 font-bold text-[10px]">ยังไม่กรอกพนักงานประกอบ</span>' : perHeadText}
                         </td>
                     </tr>
                 `;
@@ -2808,7 +2808,7 @@ function doPost(e) {
                                 class="mp-input w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-center font-mono font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
                         </td>
                     `).join('')}
-                    <td class="p-2.5 text-right font-mono font-black text-indigo-600 mp-total">${r.headcount}</td>
+                    <td class="p-2.5 text-right font-mono font-black text-indigo-600 mp-total">${r.totalPeople}</td>
                 </tr>
             `).join('');
 
@@ -3108,7 +3108,12 @@ function doPost(e) {
                     const assembler = mp ? mp.assembler : 0;
                     const feeder = mp ? mp.feeder : 0;
                     const leader = mp ? mp.leader : 0;
-                    const headcount = assembler + feeder + leader;
+                    // กำลังคนของไลน์นับเฉพาะพนักงานประกอบ
+                    // feeder กับ leader ยังต้องกรอกและเก็บไว้ แต่เป็นกำลังสนับสนุน ไม่ใช่คนที่ผลิตชิ้นงานในไลน์
+                    // จึงไม่เอามาเป็นตัวหาร ไม่งั้นไลน์ที่มี leader คุมหลายไลน์จะดูประสิทธิภาพต่ำกว่าความจริง
+                    const headcount = assembler;
+                    const support = feeder + leader;
+                    const totalPeople = assembler + support;
 
                     const lineScans = shiftScans.filter(s => s.line === line);
                     const qty = lineScans.reduce((sum, s) => sum + (s.qty || 1), 0);
@@ -3117,7 +3122,8 @@ function doPost(e) {
 
                     rows.push({
                         date, shift, line,
-                        assembler, feeder, leader, headcount,
+                        assembler, feeder, leader,
+                        headcount, support, totalPeople,
                         qty, activeHours, perHead,
                         hasManpower: !!mp
                     });
@@ -4875,7 +4881,7 @@ function doPost(e) {
                 if (key > scope.endDate) break;
                 computeManpowerRows(key, scope.shiftValue).forEach(r => {
                     if (scope.lineValue && scope.lineValue !== 'All' && r.line !== scope.lineValue) return;
-                    if (r.headcount > 0 || r.qty > 0) rows.push(r);
+                    if (r.totalPeople > 0 || r.qty > 0) rows.push(r);
                 });
                 if (key === scope.endDate) break;
             }
@@ -4889,10 +4895,10 @@ function doPost(e) {
                 pdfHeaderCell('ประกอบ', 'right'),
                 pdfHeaderCell('Feeder', 'right'),
                 pdfHeaderCell('Leader', 'right'),
-                pdfHeaderCell('รวมคน', 'right'),
+                pdfHeaderCell('รวมทั้งหมด', 'right'),
                 pdfHeaderCell('ยอดสแกน', 'right'),
                 pdfHeaderCell('ชม.ผลิต', 'right'),
-                pdfHeaderCell('PCS/คน/ชม.', 'right')
+                pdfHeaderCell('PCS/ประกอบ/ชม.', 'right')
             ]];
 
             rows.forEach(r => {
@@ -4903,7 +4909,7 @@ function doPost(e) {
                     pdfCell(r.assembler ? String(r.assembler) : '-', 'right'),
                     pdfCell(r.feeder ? String(r.feeder) : '-', 'right'),
                     pdfCell(r.leader ? String(r.leader) : '-', 'right'),
-                    pdfCell(r.headcount ? String(r.headcount) : '-', 'right'),
+                    pdfCell(r.totalPeople ? String(r.totalPeople) : '-', 'right'),
                     pdfCell(r.qty.toLocaleString(), 'right'),
                     pdfCell(r.activeHours ? String(r.activeHours) : '-', 'right'),
                     pdfCell(r.perHead > 0 ? r.perHead.toFixed(1) : '-', 'right',
@@ -4917,9 +4923,11 @@ function doPost(e) {
                     table: { headerRows: 1, dontBreakRows: true, widths: [56, 32, 44, 44, 44, 44, 44, 58, 44, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('PCS/คน/ชม. = ยอดสแกน ÷ จำนวนคนรวม ÷ ชั่วโมงที่ไลน์นั้นมีการผลิตจริง · ' +
+                pdfNote('PCS/ประกอบ/ชม. = ยอดสแกน ÷ จำนวนพนักงานประกอบ ÷ ชั่วโมงที่ไลน์นั้นมีการผลิตจริง · ' +
+                    'ตัวหารนับเฉพาะพนักงานประกอบ ส่วน Feeder และ Leader ยังบันทึกไว้ทุกครั้งแต่ถือเป็นกำลังสนับสนุน ' +
+                    'จึงไม่นำมาหาร เพื่อไม่ให้ไลน์ที่มี Leader คุมอยู่ดูประสิทธิภาพต่ำกว่าความจริง · ' +
                     'ใช้ชั่วโมงที่ผลิตจริงแทนชั่วโมงกะเต็ม เพื่อไม่ให้ไลน์ที่หยุดครึ่งกะดูประสิทธิภาพต่ำทั้งที่ตอนเดินงานทำได้ปกติ · ' +
-                    'แถวที่รวมคนเป็น "-" คือไลน์ที่ยังไม่ได้กรอกกำลังคนของวันนั้น')
+                    'คอลัมน์รวมทั้งหมดคือผลรวมทั้ง 3 บทบาท ใช้ดูกำลังพลจริงที่อยู่หน้างาน')
             ];
         }
 
