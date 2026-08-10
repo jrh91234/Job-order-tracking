@@ -492,10 +492,11 @@
                     <p class="text-[10px] text-slate-400 mt-1">ใช้แสดงเส้นเป้าหมาย (Target Line) บนกราฟแนวโน้มรายชั่วโมง</p>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Google Apps Script URL (Sync เหตุการณ์)</label>
-                    <input type="text" id="config-apps-script-url" placeholder="https://script.google.com/macros/s/.../exec" 
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Apps Script URL สำหรับบันทึกเหตุการณ์</label>
+                    <input type="text" id="config-apps-script-url" placeholder="https://script.google.com/macros/s/.../exec"
                         class="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-mono">
-                    <p class="text-[10px] text-slate-400 mt-1">ลิ้งก์สำหรับเชื่อมต่อ Google Apps Script Web App ของตารางชีทบันทึกปัญหา</p>
+                    <p class="text-[10px] text-rose-500 mt-1 font-semibold">ต้องเป็น Web App คนละตัวกับของหน้าลงยอด ถ้าใช้ URL เดียวกัน doPost จะทับกันจนการลงยอดหยุดเข้าแท็บ ยอดผลิต</p>
+                    <p class="text-[10px] text-slate-400 mt-1">กดปุ่มคู่มือด้านล่างเพื่อดูวิธี deploy โปรเจกต์แยกและโค้ดที่ต้องใช้</p>
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-600 mb-1">Google Sheet GID ของแผ่นงานเหตุการณ์ (Incident GID)</label>
@@ -648,24 +649,38 @@
             </div>
 
             <div class="text-xs text-slate-600 space-y-2 max-h-96 overflow-y-auto pr-1">
-                <p class="font-bold text-slate-800">🛠️ วิธีการติดตั้ง:</p>
+                <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 space-y-1">
+                    <p class="font-bold">⚠️ ห้ามวางโค้ดนี้ทับโปรเจกต์เดิมของหน้าลงยอดเด็ดขาด</p>
+                    <p>Apps Script รวมทุกไฟล์ในโปรเจกต์ไว้ใน scope เดียวกัน ถ้ามีฟังก์ชัน <b>doPost</b> ซ้ำกัน
+                       ตัวที่โหลดทีหลังจะทับตัวแรกแบบเงียบ ๆ ไม่มี error — โปรเจกต์ของหน้าลงยอดมี <b>doPost</b>
+                       ที่เขียนแท็บ <b>ยอดผลิต</b> อยู่แล้ว ถ้าเอาโค้ดนี้ไปวางทับ การลงยอดทั้งหมดจะหยุดเข้าแท็บ
+                       ยอดผลิตทันที แล้วกลายเป็นแถวขยะในแท็บ Incidents แทน</p>
+                    <p><b>ให้สร้างเป็นโปรเจกต์แยกต่างหาก</b> ตามขั้นตอนด้านล่าง แล้วใช้ URL คนละตัวกัน</p>
+                </div>
+
+                <p class="font-bold text-slate-800">🛠️ วิธีการติดตั้ง (โปรเจกต์แยกสำหรับบันทึกเหตุการณ์):</p>
                 <ol class="list-decimal pl-4 space-y-1">
-                    <li>เปิด Google Sheet ของพี่ขึ้นมา กดเลือกเมนู <b>"ส่วนขยาย (Extensions)" -> "Apps Script"</b></li>
-                    <li>คัดลอกโค้ดด้านล่างนี้ทั้งหมดไปวางแทนที่โค้ดเดิมในโปรเจกต์</li>
+                    <li>เปิด <b>script.google.com</b> กด <b>"โปรเจกต์ใหม่ (New project)"</b> — <u>ไม่ใช่</u> เมนู "ส่วนขยาย → Apps Script" จากในชีต เพราะนั่นจะเข้าไปที่โปรเจกต์เดิมของหน้าลงยอด</li>
+                    <li>ตั้งชื่อโปรเจกต์ให้ชัด เช่น <b>"Incident Sync"</b> แล้วคัดลอกโค้ดด้านล่างนี้ทั้งหมดไปวาง</li>
+                    <li>แก้บรรทัด <b>SPREADSHEET_ID</b> บนสุดของโค้ด ให้เป็น ID ของชีตที่ต้องการเก็บข้อมูล (ตัวยาว ๆ ใน URL ของชีต ระหว่าง <span class="font-mono">/d/</span> กับ <span class="font-mono">/edit</span>)</li>
                     <li>กดปุ่ม <b>"การทำให้ใช้งานได้ (Deploy)" -> "การทำให้ใช้งานได้ใหม่ (New Deployment)"</b></li>
                     <li>เลือกประเภทเป็น <b>"เว็บแอป (Web App)"</b>, ตั้งค่า <i>"ผู้ดำเนินงานเป็น: ฉัน (Me)"</i> และ <i>"ผู้มีสิทธิ์เข้าถึงเป็น: ทุกคน (Anyone)"</i></li>
-                    <li>กด Deploy คัดลอก URL เว็บแอปที่ได้มาใส่ในช่องตั้งค่าของบอร์ดนี้</li>
+                    <li>กด Deploy คัดลอก URL เว็บแอปที่ได้ มาใส่ในช่อง <b>"Apps Script URL สำหรับบันทึกเหตุการณ์"</b> ในหน้าตั้งค่าของบอร์ดนี้ — ต้องเป็นคนละ URL กับของหน้าลงยอด</li>
                 </ol>
                 
                 <p class="font-bold text-slate-800 mt-3">📋 โค้ดสำหรับคัดลอก (Copy Code):</p>
-                <pre class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[10px] font-mono select-all overflow-x-auto whitespace-pre">function doPost(e) {
+                <pre class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[10px] font-mono select-all overflow-x-auto whitespace-pre">// โปรเจกต์นี้ต้องแยกจากโปรเจกต์ของหน้าลงยอด ห้ามรวมกันเพราะ doPost จะทับกัน
+// โปรเจกต์แยก (standalone) ไม่มี active spreadsheet จึงต้องระบุ ID ของชีตตรงนี้
+var SPREADSHEET_ID = "ใส่ ID ของชีตตรงนี้";
+
+function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000);
   try {
     var data = JSON.parse(e.postData.contents);
     var action = data.action || "SAVE";
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
     if (action === "GET_INCIDENTS") {
       var sheetName = "Incidents";
       var sheet = ss.getSheetByName(sheetName);
@@ -989,7 +1004,20 @@
 
         // Incident Events Pools
         let incidentLogs = {}; // Key: "prodDate_hour_line" -> { id, date, hour, line, category, categoryText, notes }
-        let appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || 'https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec';
+        // Web App ของหน้าลงยอด (index.html) — ที่นี่ใช้เพื่อ "กัน" ไม่ให้ถูกกรอกมาเป็น URL ของบันทึกเหตุการณ์
+        // โปรเจกต์นั้นมี doPost ที่เขียนแท็บ ยอดผลิต ถ้าชี้บันทึกเหตุการณ์มาที่เดียวกัน
+        // การลงยอดจะถูก doPost ของ incident ทับจนหยุดเข้าแท็บ ยอดผลิต แล้วกลายเป็นแถวขยะในแท็บ Incidents
+        const PRODUCTION_ENTRY_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyrPeUTHuQu3urqlhbcZnpuNH0b6unvO2nTpVD7vKrGoVSGFMwDYWGnYszZ8dahks7YSg/exec';
+
+        // ต้องเป็น Web App คนละตัวกับหน้าลงยอด จึงไม่มีค่าเริ่มต้นให้ ผู้ใช้ต้อง deploy แล้วกรอกเอง
+        // เปลี่ยนคีย์ localStorage จาก job_tracker_apps_script_url เป็นคีย์ใหม่โดยตั้งใจ
+        // เพราะค่าที่เครื่องเดิมเก็บไว้คือ URL ของหน้าลงยอดซึ่งใช้ไม่ได้แล้ว
+        let appsScriptUrl = localStorage.getItem('job_tracker_incident_script_url') || '';
+
+        // URL ของบันทึกเหตุการณ์ต้องไม่ใช่ตัวเดียวกับหน้าลงยอด
+        function isProductionEntryScriptUrl(url) {
+            return !!url && url.trim() === PRODUCTION_ENTRY_SCRIPT_URL;
+        }
         let incidentSheetGid = localStorage.getItem('job_tracker_incident_sheet_gid') || '';
         let incidentCategories = [
             { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
@@ -1138,13 +1166,20 @@
                             }
                         }
 
-                        if (config.appsScriptUrl) {
+                        if (config.incidentAppsScriptUrl) {
                             if (!isManual) {
-                                appsScriptUrl = config.appsScriptUrl;
-                                localStorage.setItem('job_tracker_apps_script_url', config.appsScriptUrl);
+                                appsScriptUrl = config.incidentAppsScriptUrl;
+                                localStorage.setItem('job_tracker_incident_script_url', config.incidentAppsScriptUrl);
                             } else {
-                                appsScriptUrl = localStorage.getItem('job_tracker_apps_script_url') || config.appsScriptUrl;
+                                appsScriptUrl = localStorage.getItem('job_tracker_incident_script_url') || config.incidentAppsScriptUrl;
                             }
+                        }
+
+                        // กันไว้อีกชั้นเผื่อมีค่าเก่าค้างอยู่ หรือมีคนกรอก URL ของหน้าลงยอดเข้ามา
+                        if (isProductionEntryScriptUrl(appsScriptUrl)) {
+                            appsScriptUrl = '';
+                            showIncidentToast('warning', 'URL บันทึกเหตุการณ์ชี้ไปที่ Web App ของหน้าลงยอด',
+                                'ระบบปิดการซิงก์เหตุการณ์ไว้ก่อนเพื่อกันข้อมูลลงยอดเสียหาย กรุณา deploy โปรเจกต์แยกแล้วกรอก URL ใหม่ในหน้าตั้งค่า');
                         }
 
                         if (config.incidentSheetGid) {
@@ -4653,7 +4688,15 @@
 
             localStorage.setItem('job_tracker_barcode_sheet_url', url);
             localStorage.setItem('job_tracker_barcode_target_speed', targetVal);
-            localStorage.setItem('job_tracker_apps_script_url', appsScriptVal);
+            if (isProductionEntryScriptUrl(appsScriptVal)) {
+                return Swal.fire({
+                    icon: 'error',
+                    title: 'URL นี้เป็นของหน้าลงยอด',
+                    text: 'บันทึกเหตุการณ์ต้องใช้ Web App คนละตัว ถ้าใช้ URL เดียวกัน doPost จะทับกันจนการลงยอดหยุดเข้าแท็บ ยอดผลิต กรุณา deploy โปรเจกต์แยกแล้วนำ URL ใหม่มากรอก'
+                });
+            }
+
+            localStorage.setItem('job_tracker_incident_script_url', appsScriptVal);
             localStorage.setItem('job_tracker_incident_sheet_gid', incidentGidVal);
             localStorage.setItem('job_tracker_is_manually_configured', 'true');
 
@@ -4680,7 +4723,8 @@
                 if (result.isConfirmed) {
                     localStorage.removeItem('job_tracker_barcode_sheet_url');
                     localStorage.removeItem('job_tracker_barcode_target_speed');
-                    localStorage.removeItem('job_tracker_apps_script_url');
+                    localStorage.removeItem('job_tracker_incident_script_url');
+                    localStorage.removeItem('job_tracker_apps_script_url'); // คีย์เดิมก่อนแยก deployment เก็บกวาดให้ด้วย
                     localStorage.removeItem('job_tracker_incident_sheet_gid');
                     localStorage.removeItem('job_tracker_incident_categories');
                     localStorage.removeItem('job_tracker_incident_logs');

@@ -1,26 +1,40 @@
 /**
  * Google Apps Script for syncing production incidents from Job Order Tracker dashboard to Google Sheets.
- * 
+ *
+ * !! DEPLOY THIS AS ITS OWN STANDALONE PROJECT — NEVER PASTE IT INTO THE PROJECT THAT SERVES
+ * !! THE PRODUCTION-ENTRY PAGE (scr/ลงยอดผ่านแอป.js).
+ *
+ * Apps Script puts every file of a project in one shared scope, so two files each declaring
+ * doPost do not conflict loudly: the one loaded last silently replaces the other. The
+ * production-entry project already declares a doPost that writes the "ยอดผลิต" tab. Merging
+ * this file into it makes every manual production entry hit the incident handler instead,
+ * which appends a row holding only Date/Line/Model to the Incidents tab and drops the rest.
+ *
  * Instructions:
- * 1. Open your Google Sheet
- * 2. Go to Extensions -> Apps Script
- * 3. Replace all code in the editor with this script
- * 4. Click Deploy -> New Deployment
- * 5. Choose "Web App" type
- * 6. Set "Execute as: Me" and "Who has access: Anyone"
- * 7. Click Deploy, authorize permissions, and copy the Web App URL
- * 8. Paste the Web App URL in the Settings panel of the Barcode Dashboard
+ * 1. Go to script.google.com and create a NEW project (do not use Extensions -> Apps Script
+ *    from inside the sheet, that opens the existing production-entry project)
+ * 2. Paste this script and set SPREADSHEET_ID below to the target spreadsheet's ID
+ * 3. Click Deploy -> New Deployment
+ * 4. Choose "Web App" type
+ * 5. Set "Execute as: Me" and "Who has access: Anyone"
+ * 6. Click Deploy, authorize permissions, and copy the Web App URL
+ * 7. Paste that URL into the "Apps Script URL สำหรับบันทึกเหตุการณ์" field of the Barcode
+ *    Dashboard settings — it must differ from the production-entry web app URL
  */
+
+// โปรเจกต์แยก (standalone) ไม่ได้ผูกกับชีตใดชีตหนึ่ง getActiveSpreadsheet() จึงคืนค่า null
+// ต้องระบุ ID ของสเปรดชีตเป้าหมายตรงนี้ (ส่วนที่อยู่ระหว่าง /d/ กับ /edit ใน URL ของชีต)
+var SPREADSHEET_ID = "ใส่ ID ของชีตตรงนี้";
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000); // 10 seconds timeout
-  
+
   try {
     var data = JSON.parse(e.postData.contents);
     var action = data.action || "SAVE";
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
     // --- INCIDENT LOGS READ (GET_INCIDENTS) ---
     if (action === "GET_INCIDENTS") {
       var sheetName = "Incidents";
