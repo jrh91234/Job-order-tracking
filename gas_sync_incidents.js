@@ -228,7 +228,9 @@ function doPost(e) {
       "Category": data.category,
       "CategoryText": data.categoryText,
       "Notes": data.notes,
-      "Time": data.time || ""
+      // นำหน้าด้วย ' เพื่อบังคับให้ Sheets เก็บเป็นข้อความ ไม่แปลง "02:00" เป็นค่าชนิดเวลา
+      // (ค่าชนิดเวลาจะถูกส่งกลับเป็น ISO ฐานปี 1899 แล้วแสดงผลเพี้ยน) getValues() จะไม่คืน ' ออกมา
+      "Time": data.time ? "'" + data.time : ""
     };
 
     var rowData = [];
