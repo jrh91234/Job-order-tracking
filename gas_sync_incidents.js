@@ -163,7 +163,9 @@ function doPost(e) {
     if (action === "GET_MANPOWER" || action === "SAVE_MANPOWER" || action === "DELETE_MANPOWER") {
       var mpName = "Manpower";
       var mpSheet = ss.getSheetByName(mpName);
-      var MP_COLS = ["ID", "Date", "Shift", "Line", "Assembler", "Feeder", "Leader", "Total", "UpdatedAt"];
+      var MP_COLS = ["ID", "Date", "Shift", "Line",
+                     "Assembler", "Feeder", "Leader", "Total",
+                     "OTAssembler", "OTFeeder", "OTLeader", "OTTotal", "UpdatedAt"];
       if (!mpSheet) {
         mpSheet = ss.insertSheet(mpName);
         mpSheet.appendRow(MP_COLS);
@@ -206,14 +208,49 @@ function doPost(e) {
       var fdr = Number(data.feeder) || 0;
       var ldr = Number(data.leader) || 0;
       // นำหน้าค่าที่เป็นข้อความด้วย ' เพื่อไม่ให้ Sheets แปลงชนิดเอง (บทเรียนจากคอลัมน์ Date และ Time)
-      var mpData = [
-        data.id,
-        data.date ? "'" + data.date : "",
-        data.shift ? "'" + data.shift : "",
-        data.line ? "'" + data.line : "",
-        asm, fdr, ldr, asm + fdr + ldr,
-        "'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")
-      ];
+      var otAsm = Number(data.otAssembler) || 0;
+      var otFdr = Number(data.otFeeder) || 0;
+      var otLdr = Number(data.otLeader) || 0;
+
+      // เขียนตามชื่อคอลัมน์ในหัวตารางจริง ไม่ยึดตำแหน่งตายตัว
+      // แท็บที่สร้างไว้ก่อนจะมีคอลัมน์ OT ยังใช้ต่อได้ โค้ดจะเติมหัวคอลัมน์ที่ขาดให้เอง
+      // แถวเก่าจะเว้นว่างในคอลัมน์ใหม่ ไม่ถูกแตะต้อง (วิธีเดียวกับที่แท็บ Incidents ใช้)
+      var mpHeaders = mpValues.length > 0 ? mpValues[0].slice() : [];
+      var mpAdded = false;
+      for (var mc = 0; mc < MP_COLS.length; mc++) {
+        var wanted = MP_COLS[mc];
+        var found = false;
+        for (var mh = 0; mh < mpHeaders.length; mh++) {
+          if (String(mpHeaders[mh]).trim() === wanted) { found = true; break; }
+        }
+        if (!found) { mpHeaders.push(wanted); mpAdded = true; }
+      }
+      if (mpAdded) {
+        mpSheet.getRange(1, 1, 1, mpHeaders.length).setValues([mpHeaders]);
+      }
+
+      // นำหน้าค่าที่เป็นข้อความด้วย ' เพื่อไม่ให้ Sheets แปลงชนิดเอง
+      var mpByCol = {
+        "ID": data.id,
+        "Date": data.date ? "'" + data.date : "",
+        "Shift": data.shift ? "'" + data.shift : "",
+        "Line": data.line ? "'" + data.line : "",
+        "Assembler": asm,
+        "Feeder": fdr,
+        "Leader": ldr,
+        "Total": asm + fdr + ldr,
+        "OTAssembler": otAsm,
+        "OTFeeder": otFdr,
+        "OTLeader": otLdr,
+        "OTTotal": otAsm + otFdr + otLdr,
+        "UpdatedAt": "'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")
+      };
+
+      var mpData = [];
+      for (var mk = 0; mk < mpHeaders.length; mk++) {
+        var mkey = String(mpHeaders[mk]).trim();
+        mpData.push(mpByCol.hasOwnProperty(mkey) ? mpByCol[mkey] : "");
+      }
 
       if (mpRow !== -1) {
         mpSheet.getRange(mpRow, 1, 1, mpData.length).setValues([mpData]);

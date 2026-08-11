@@ -875,7 +875,7 @@ function doPost(e) {
 
     <!-- Manpower Entry Modal -->
     <div id="manpower-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="modal-panel bg-white rounded-2xl max-w-2xl w-full shadow-xl">
+        <div class="modal-panel bg-white rounded-2xl max-w-5xl w-full shadow-xl">
             <div class="modal-body p-6 space-y-4">
                 <div class="flex justify-between items-start border-b border-slate-100 pb-3">
                     <div>
@@ -896,18 +896,26 @@ function doPost(e) {
                         <option value="Day">☀️ กะเช้า (Day Shift)</option>
                         <option value="Night">🌙 กะดึก (Night Shift)</option>
                     </select>
-                    <p class="text-[10px] text-slate-400 mt-1">กำลังคนเก็บแยกตามกะ เปลี่ยนกะแล้วตัวเลขจะสลับตามชุดของกะนั้น</p>
+                    <p class="text-[10px] text-slate-400 mt-1">กำลังคนเก็บแยกตามกะ เปลี่ยนกะแล้วตัวเลขจะสลับตามชุดของกะนั้น · ช่อง OT ใส่จำนวนคนที่อยู่ต่อหลังชั่วโมงที่ 8 ถ้าคนเท่าเดิมก็ใส่เท่ากันได้ ถ้าเว้นว่างระบบจะถือว่าคนเท่าเดิม</p>
                 </div>
 
                 <div class="overflow-x-auto max-h-80 overflow-y-auto pr-1">
                     <table class="w-full text-xs">
                         <thead class="bg-slate-50/80 sticky top-0">
                             <tr class="text-slate-500">
-                                <th class="p-2.5 text-left font-bold">ไลน์<br><span class="font-semibold text-slate-400">(Line)</span></th>
+                                <th rowspan="2" class="p-2.5 text-left font-bold align-bottom">ไลน์<br><span class="font-semibold text-slate-400">(Line)</span></th>
+                                <th colspan="4" class="p-2 text-center font-bold text-indigo-600 border-b border-slate-200">ช่วงปกติ (ไม่เกิน 8 ชม.)</th>
+                                <th colspan="4" class="p-2 text-center font-bold text-amber-600 border-b border-slate-200">ช่วง OT (เกิน 8 ชม.)</th>
+                            </tr>
+                            <tr class="text-slate-500">
                                 <th class="p-2.5 text-center font-bold">ประกอบ<br><span class="font-semibold text-slate-400">(Assembler)</span></th>
                                 <th class="p-2.5 text-center font-bold">ป้อนงาน<br><span class="font-semibold text-slate-400">(Feeder)</span></th>
                                 <th class="p-2.5 text-center font-bold">หัวหน้าไลน์<br><span class="font-semibold text-slate-400">(Leader)</span></th>
-                                <th class="p-2.5 text-right font-bold">รวมทั้งหมด<br><span class="font-semibold text-slate-400">(Total)</span></th>
+                                <th class="p-2.5 text-right font-bold">รวม<br><span class="font-semibold text-slate-400">(Total)</span></th>
+                                <th class="p-2.5 text-center font-bold">ประกอบ<br><span class="font-semibold text-slate-400">(Assembler)</span></th>
+                                <th class="p-2.5 text-center font-bold">ป้อนงาน<br><span class="font-semibold text-slate-400">(Feeder)</span></th>
+                                <th class="p-2.5 text-center font-bold">หัวหน้าไลน์<br><span class="font-semibold text-slate-400">(Leader)</span></th>
+                                <th class="p-2.5 text-right font-bold">รวม<br><span class="font-semibold text-slate-400">(Total)</span></th>
                             </tr>
                         </thead>
                         <tbody id="manpower-form-body" class="divide-y divide-slate-100"></tbody>
@@ -2748,6 +2756,10 @@ function doPost(e) {
             }
 
             const fmt = n => n.toLocaleString();
+            // ตัวเลขช่วงปกติอยู่บน ช่วง OT อยู่ล่างด้วยตัวเล็ก แสดงเฉพาะตอนที่กรอก OT ไว้จริง
+            const roleCell = (normal, ot) =>
+                `${normal || '-'}${ot > 0 ? `<span class="block text-[10px] text-amber-600 font-semibold">OT ${ot}</span>` : ''}`;
+
             let html = '';
             rows.forEach(r => {
                 const shiftLabel = r.shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก';
@@ -2758,14 +2770,19 @@ function doPost(e) {
                     <tr class="hover:bg-slate-50/50 transition-colors ${missing ? 'bg-amber-50/40' : ''}">
                         <td class="p-3 text-center font-semibold text-slate-600">${shiftLabel}</td>
                         <td class="p-3 text-center font-bold text-indigo-600">${escapeHtml(r.line)}</td>
-                        <td class="p-3 text-right font-mono text-slate-700">${r.assembler || '-'}</td>
-                        <td class="p-3 text-right font-mono text-slate-700">${r.feeder || '-'}</td>
-                        <td class="p-3 text-right font-mono text-slate-700">${r.leader || '-'}</td>
-                        <td class="p-3 text-right font-mono font-bold text-slate-800">${r.totalPeople || '-'}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${roleCell(r.assembler, r.otAssembler)}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${roleCell(r.feeder, r.otFeeder)}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${roleCell(r.leader, r.otLeader)}</td>
+                        <td class="p-3 text-right font-mono font-bold text-slate-800">${roleCell(r.totalPeople, r.otTotalPeople)}</td>
                         <td class="p-3 text-right font-mono text-slate-700">${fmt(r.qty)}</td>
-                        <td class="p-3 text-right font-mono text-slate-500">${r.activeHours > 0 ? r.activeHours.toFixed(1) : '-'}</td>
+                        <td class="p-3 text-right font-mono text-slate-500">
+                            ${r.activeHours > 0 ? r.activeHours.toFixed(1) : '-'}
+                            ${r.otHours > 0 ? `<span class="block text-[10px] text-amber-600">OT ${r.otHours.toFixed(1)}</span>` : ''}
+                        </td>
                         <td class="p-3 text-right font-mono font-black ${r.perHead > 0 ? 'text-emerald-600' : 'text-slate-300'}">
-                            ${missing ? '<span class="text-amber-600 font-bold text-[10px]">ยังไม่กรอกพนักงานประกอบ</span>' : perHeadText}
+                            ${missing
+                                ? '<span class="text-amber-600 font-bold text-[10px]">ยังไม่กรอกพนักงานประกอบ</span>'
+                                : perHeadText + (r.otAssemblerAssumed ? '<span class="block text-[10px] text-amber-600 font-semibold">ยังไม่กรอกคน OT</span>' : '')}
                         </td>
                     </tr>
                 `;
@@ -2795,30 +2812,46 @@ function doPost(e) {
             const rows = computeManpowerRows(date, shift);
 
             if (rows.length === 0) {
-                body.innerHTML = `<tr><td colspan="5" class="p-5 text-center text-slate-400 italic">ยังไม่มีไลน์ที่ผลิตในกะนี้</td></tr>`;
+                body.innerHTML = `<tr><td colspan="9" class="p-5 text-center text-slate-400 italic">ยังไม่มีไลน์ที่ผลิตในกะนี้</td></tr>`;
                 return;
             }
 
+            const cell = (role, value) => `
+                <td class="p-1.5">
+                    <input type="number" min="0" step="1" value="${value || 0}" data-role="${role}"
+                        class="mp-input w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-center font-mono font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
+                </td>`;
+
             body.innerHTML = rows.map(r => `
                 <tr data-line="${escapeHtml(r.line)}">
-                    <td class="p-2.5 font-bold text-slate-700">${escapeHtml(r.line)}</td>
-                    ${['assembler', 'feeder', 'leader'].map(role => `
-                        <td class="p-1.5">
-                            <input type="number" min="0" step="1" value="${r[role] || 0}" data-role="${role}"
-                                class="mp-input w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-center font-mono font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none">
-                        </td>
-                    `).join('')}
-                    <td class="p-2.5 text-right font-mono font-black text-indigo-600 mp-total">${r.totalPeople}</td>
+                    <td class="p-2.5 font-bold text-slate-700 whitespace-nowrap">${escapeHtml(r.line)}</td>
+                    ${cell('assembler', r.assembler)}
+                    ${cell('feeder', r.feeder)}
+                    ${cell('leader', r.leader)}
+                    <td class="p-2.5 text-right font-mono font-black text-indigo-600 mp-total" data-group="normal">${r.totalPeople}</td>
+                    ${cell('otAssembler', r.otAssembler)}
+                    ${cell('otFeeder', r.otFeeder)}
+                    ${cell('otLeader', r.otLeader)}
+                    <td class="p-2.5 text-right font-mono font-black text-amber-600 mp-total" data-group="ot">${r.otTotalPeople}</td>
                 </tr>
             `).join('');
 
-            body.querySelectorAll('.mp-input').forEach(input => {
-                input.addEventListener('input', () => {
-                    const tr = input.closest('tr');
-                    const sum = Array.from(tr.querySelectorAll('.mp-input'))
-                        .reduce((acc, el) => acc + (parseInt(el.value, 10) || 0), 0);
-                    tr.querySelector('.mp-total').textContent = sum;
+            // รวมยอดของช่วงปกติกับช่วง OT แยกกัน ไม่รวมเป็นก้อนเดียว เพราะเป็นคนละช่วงเวลา
+            const recalc = tr => {
+                ['normal', 'ot'].forEach(group => {
+                    const roles = group === 'normal'
+                        ? ['assembler', 'feeder', 'leader']
+                        : ['otAssembler', 'otFeeder', 'otLeader'];
+                    const sum = roles.reduce((acc, role) => {
+                        const el = tr.querySelector(`.mp-input[data-role="${role}"]`);
+                        return acc + (parseInt(el.value, 10) || 0);
+                    }, 0);
+                    tr.querySelector(`.mp-total[data-group="${group}"]`).textContent = sum;
                 });
+            };
+
+            body.querySelectorAll('.mp-input').forEach(input => {
+                input.addEventListener('input', () => recalc(input.closest('tr')));
             });
         }
 
@@ -2843,7 +2876,10 @@ function doPost(e) {
                     date, shift, line,
                     assembler: get('assembler'),
                     feeder: get('feeder'),
-                    leader: get('leader')
+                    leader: get('leader'),
+                    otAssembler: get('otAssembler'),
+                    otFeeder: get('otFeeder'),
+                    otLeader: get('otLeader')
                 });
             });
 
@@ -3001,6 +3037,10 @@ function doPost(e) {
         // กะหนึ่ง 12 ชั่วโมงจึงเหลือเวลาทำงานสุทธิ 10.5 ชั่วโมง
         const BREAK_MINUTES_BY_HOUR = { 0: 60, 5: 30, 12: 60, 17: 30 };
 
+        // เกณฑ์ OT ตรงกับ OT_THRESHOLD_NET_HOURS ใน scr/ชั่วโมงทำงาน.js — ชั่วโมงสุทธิเกินค่านี้ถือเป็น OT
+        // กะเต็มมีชั่วโมงสุทธิ 10.5 จึงเป็นช่วงปกติ 8 ชม. และช่วง OT 2.5 ชม.
+        const OT_THRESHOLD_NET_HOURS = 8;
+
         /**
          * นับชั่วโมงทำงานสุทธิจากถังชั่วโมงที่มีการผลิตจริง
          *
@@ -3048,7 +3088,10 @@ function doPost(e) {
                         line: String(row.Line || '').trim(),
                         assembler: parseInt(row.Assembler, 10) || 0,
                         feeder: parseInt(row.Feeder, 10) || 0,
-                        leader: parseInt(row.Leader, 10) || 0
+                        leader: parseInt(row.Leader, 10) || 0,
+                        otAssembler: parseInt(row.OTAssembler, 10) || 0,
+                        otFeeder: parseInt(row.OTFeeder, 10) || 0,
+                        otLeader: parseInt(row.OTLeader, 10) || 0
                     };
                 });
                 // กันข้อมูลหายแบบเดียวกับบันทึกเหตุการณ์: ผลลัพธ์ว่างต้องไม่ทับของที่มีอยู่ในเครื่อง
@@ -3079,7 +3122,10 @@ function doPost(e) {
                     line: record.line,
                     assembler: record.assembler,
                     feeder: record.feeder,
-                    leader: record.leader
+                    leader: record.leader,
+                    otAssembler: record.otAssembler,
+                    otFeeder: record.otFeeder,
+                    otLeader: record.otLeader
                 }),
                 redirect: 'follow'
             })
@@ -3131,23 +3177,43 @@ function doPost(e) {
                     const assembler = mp ? mp.assembler : 0;
                     const feeder = mp ? mp.feeder : 0;
                     const leader = mp ? mp.leader : 0;
+                    const otAssembler = mp ? (mp.otAssembler || 0) : 0;
+                    const otFeeder = mp ? (mp.otFeeder || 0) : 0;
+                    const otLeader = mp ? (mp.otLeader || 0) : 0;
                     // กำลังคนของไลน์นับเฉพาะพนักงานประกอบ
                     // feeder กับ leader ยังต้องกรอกและเก็บไว้ แต่เป็นกำลังสนับสนุน ไม่ใช่คนที่ผลิตชิ้นงานในไลน์
                     // จึงไม่เอามาเป็นตัวหาร ไม่งั้นไลน์ที่มี leader คุมหลายไลน์จะดูประสิทธิภาพต่ำกว่าความจริง
                     const headcount = assembler;
                     const support = feeder + leader;
                     const totalPeople = assembler + support;
+                    const otTotalPeople = otAssembler + otFeeder + otLeader;
 
                     const lineScans = shiftScans.filter(s => s.line === line);
                     const qty = lineScans.reduce((sum, s) => sum + (s.qty || 1), 0);
                     const activeHours = countNetWorkHours(lineScans.map(s => s.hour));
-                    const perHead = headcount > 0 && activeHours > 0 ? qty / headcount / activeHours : 0;
+
+                    // แบ่งชั่วโมงเป็นช่วงปกติกับช่วง OT ด้วยเกณฑ์เดียวกับชีตสรุปชั่วโมงทำงาน (สุทธิเกิน 8 ชม. = OT)
+                    const normalHours = Math.min(activeHours, OT_THRESHOLD_NET_HOURS);
+                    const otHours = Math.max(0, activeHours - OT_THRESHOLD_NET_HOURS);
+
+                    // ถ้ามีชั่วโมง OT แต่ยังไม่ได้กรอกคนช่วง OT ให้ถือว่าคนเท่าเดิมไปก่อน
+                    // เพราะการผลิตในชั่วโมงนั้นเกิดขึ้นจริง จะคิดเป็น 0 คนไม่ได้ ไม่งั้นตัวหารหายไปแล้วอัตราพุ่งผิด ๆ
+                    // (พฤติกรรมนี้ให้ผลเท่าสูตรเดิมทุกประการ ตัวเลขย้อนหลังจึงไม่เพี้ยน)
+                    const otAssemblerAssumed = otHours > 0 && otAssembler === 0 && assembler > 0;
+                    const otAssemblerUsed = otAssemblerAssumed ? assembler : otAssembler;
+
+                    // หารด้วย man-hours จริง ไม่ใช่ คน × ชั่วโมง ก้อนเดียว
+                    // ช่วง OT ที่คนเหลือน้อยลงจะได้ไม่ถูกคิดด้วยจำนวนคนเต็มกะ
+                    const manHours = headcount * normalHours + otAssemblerUsed * otHours;
+                    const perHead = manHours > 0 ? qty / manHours : 0;
 
                     rows.push({
                         date, shift, line,
                         assembler, feeder, leader,
-                        headcount, support, totalPeople,
-                        qty, activeHours, perHead,
+                        otAssembler, otFeeder, otLeader,
+                        headcount, support, totalPeople, otTotalPeople,
+                        qty, activeHours, normalHours, otHours, manHours,
+                        perHead, otAssemblerAssumed,
                         hasManpower: !!mp
                     });
                 });
@@ -4945,17 +5011,25 @@ function doPost(e) {
                 pdfHeaderCell('PCS/คน/ชม.', 'right')
             ]];
 
+            // ตารางนี้แคบอยู่แล้ว จึงเขียนค่า OT ต่อท้ายในเซลล์เดิมแทนการเพิ่มคอลัมน์
+            const cellText = (normal, ot) => {
+                const base = normal ? String(normal) : '-';
+                return ot > 0 ? `${base} / OT ${ot}` : base;
+            };
+
             rows.forEach(r => {
                 body.push([
                     pdfCell(formatThaiDate(r.date), 'center'),
                     pdfCell(r.shift === 'Day' ? 'เช้า' : 'ดึก', 'center'),
                     pdfCell(r.line, 'center'),
-                    pdfCell(r.assembler ? String(r.assembler) : '-', 'right'),
-                    pdfCell(r.feeder ? String(r.feeder) : '-', 'right'),
-                    pdfCell(r.leader ? String(r.leader) : '-', 'right'),
-                    pdfCell(r.totalPeople ? String(r.totalPeople) : '-', 'right'),
+                    pdfCell(cellText(r.assembler, r.otAssembler), 'right'),
+                    pdfCell(cellText(r.feeder, r.otFeeder), 'right'),
+                    pdfCell(cellText(r.leader, r.otLeader), 'right'),
+                    pdfCell(cellText(r.totalPeople, r.otTotalPeople), 'right'),
                     pdfCell(r.qty.toLocaleString(), 'right'),
-                    pdfCell(r.activeHours > 0 ? r.activeHours.toFixed(1) : '-', 'right'),
+                    pdfCell(r.activeHours > 0
+                        ? (r.otHours > 0 ? `${r.activeHours.toFixed(1)} / OT ${r.otHours.toFixed(1)}` : r.activeHours.toFixed(1))
+                        : '-', 'right'),
                     pdfCell(r.perHead > 0 ? r.perHead.toFixed(1) : '-', 'right',
                             r.perHead > 0 ? PDF_COLOR.text : PDF_COLOR.muted)
                 ]);
@@ -4967,7 +5041,11 @@ function doPost(e) {
                     table: { headerRows: 1, dontBreakRows: true, widths: [56, 32, 44, 44, 44, 44, 44, 58, 44, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('PCS/คน/ชม. = ยอดสแกน ÷ จำนวนพนักงานประกอบ ÷ ชั่วโมงที่ไลน์นั้นมีการผลิตจริง · ' +
+                pdfNote('PCS/คน/ชม. = ยอดสแกน ÷ (พนักงานประกอบช่วงปกติ × ชม.ปกติ + พนักงานประกอบช่วง OT × ชม. OT) · ' +
+                    'หารด้วย man-hours จริง ช่วง OT ที่คนเหลือน้อยลงจึงไม่ถูกคิดด้วยจำนวนคนเต็มกะ · ' +
+                    'แบ่งช่วงด้วยเกณฑ์เดียวกับชีตสรุปชั่วโมงทำงาน คือชั่วโมงสุทธิเกิน 8 ชม. ถือเป็น OT · ' +
+                    'ตัวเลขที่เขียนแบบ "10 / OT 3" หมายถึงช่วงปกติ 10 คน และช่วง OT เหลือ 3 คน · ' +
+                    'ถ้ามีชั่วโมง OT แต่ไม่ได้กรอกคนช่วง OT ระบบถือว่าคนเท่าเดิม · ' +
                     'ตัวหารนับเฉพาะพนักงานประกอบ ส่วน Feeder และ Leader ยังบันทึกไว้ทุกครั้งแต่ถือเป็นกำลังสนับสนุน ' +
                     'จึงไม่นำมาหาร เพื่อไม่ให้ไลน์ที่มี Leader คุมอยู่ดูประสิทธิภาพต่ำกว่าความจริง · ' +
                     'ชั่วโมงที่ผลิตนับเฉพาะชั่วโมงที่มีการสแกนจริง แล้วหักเวลาพักออกตามกติกาเดียวกับชีตสรุปชั่วโมงทำงาน ' +
