@@ -21,52 +21,12 @@
         body {
             font-family: 'Prompt', sans-serif;
             -webkit-tap-highlight-color: transparent;
-            position: relative;
         }
         html { scroll-behavior: smooth; }
-
-        /* พื้นหลังไล่สีนุ่ม ๆ ที่ทำให้การ์ดกระจกฝ้ามีอะไรให้เบลอจริง ๆ
-           เดิมพื้นหลังเป็นสีเรียบ backdrop-filter จึงไม่มีผลอะไรให้เห็นเลย เบลอสีเรียบก็ได้สีเรียบ
-           ใช้ pseudo-element แบบ fixed แทนการใส่ background ที่ body เพื่อไม่ให้เลื่อนตามหน้า
-           และ pointer-events: none กันไม่ให้ไปบังการคลิก */
-        body::before {
-            content: '';
-            position: fixed;
-            inset: 0;
-            z-index: -1;
-            pointer-events: none;
-            background:
-                radial-gradient(circle at 12% 8%, rgba(99, 102, 241, 0.22), transparent 45%),
-                radial-gradient(circle at 88% 4%, rgba(56, 189, 248, 0.20), transparent 42%),
-                radial-gradient(circle at 78% 72%, rgba(167, 139, 250, 0.18), transparent 45%),
-                radial-gradient(circle at 20% 88%, rgba(45, 212, 191, 0.14), transparent 42%),
-                linear-gradient(180deg, #f6f8fc 0%, #eef2f9 100%);
-        }
-
         .glass-card {
-            /* โปร่งกว่าเดิมเพื่อให้เห็นสีพื้นหลังลอดขึ้นมา แต่ยังทึบพอให้ตัวเลขในตารางอ่านง่าย
-               saturate ช่วยดึงสีที่ลอดผ่านให้สดขึ้น ไม่งั้นกระจกฝ้าจะดูหม่น */
-            background: rgba(255, 255, 255, 0.72);
-            backdrop-filter: blur(18px) saturate(140%);
-            -webkit-backdrop-filter: blur(18px) saturate(140%);
-            border: 1px solid rgba(255, 255, 255, 0.65);
-            box-shadow: 0 8px 32px -12px rgba(15, 23, 42, 0.14);
-        }
-
-        /* เครื่องเก่าบางรุ่นไม่รองรับ backdrop-filter ถ้าไม่มีตัวสำรองการ์ดจะกลายเป็นโปร่งจนอ่านไม่ออก */
-        @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-            .glass-card { background: rgba(255, 255, 255, 0.94); }
-        }
-
-        /* หน้าต่างที่เปิดทับจอก็ให้เป็นกระจกฝ้าเหมือนกัน จะได้เป็นภาษาเดียวกันทั้งหน้า */
-        .modal-panel {
-            background: rgba(255, 255, 255, 0.88) !important;
-            backdrop-filter: blur(22px) saturate(150%);
-            -webkit-backdrop-filter: blur(22px) saturate(150%);
-            border: 1px solid rgba(255, 255, 255, 0.7);
-        }
-        @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-            .modal-panel { background: #ffffff !important; }
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
         }
         ::-webkit-scrollbar {
             width: 8px;
@@ -133,7 +93,7 @@
 
     </style>
 </head>
-<body class="text-slate-900 pb-12 min-h-screen">
+<body class="bg-slate-50 text-slate-900 pb-12 min-h-screen">
 
     <!-- Header -->
     <header class="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white p-4 shadow-lg sticky top-0 z-30">
