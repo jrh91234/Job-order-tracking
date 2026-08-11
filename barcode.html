@@ -379,9 +379,9 @@
                 <div>
                     <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                         <i data-lucide="users" class="w-5 h-5 text-indigo-500"></i>
-                        กำลังคนรายไลน์วันนี้ (Manpower)
+                        กำลังคนรายไลน์ (Manpower)
                     </h3>
-                    <p class="text-xs text-slate-400">เทียบประสิทธิภาพข้ามไลน์ที่คนไม่เท่ากัน · ตัวหารนับเฉพาะพนักงานประกอบ ส่วน Feeder และ Leader เก็บไว้เป็นข้อมูลอ้างอิง · ชั่วโมงหักเวลาพักแล้ว (กะเต็ม = 10.5 ชม.)</p>
+                    <p class="text-xs text-slate-400">เทียบประสิทธิภาพข้ามไลน์ที่คนไม่เท่ากัน · ตัวหารนับเฉพาะพนักงานประกอบ ส่วน Feeder และ Leader เก็บไว้เป็นข้อมูลอ้างอิง · ชั่วโมงหักเวลาพักแล้ว (กะเต็ม = 10.5 ชม.) · <span id="manpower-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <button onclick="openManpowerModal()" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0">
                     <i data-lucide="user-plus" class="w-4 h-4"></i>
@@ -392,6 +392,7 @@
                 <table class="w-full text-xs">
                     <thead class="bg-slate-50/80">
                         <tr class="text-slate-500">
+                            <th class="p-3 text-center font-bold">วันผลิต<br><span class="font-semibold text-slate-400">(Date)</span></th>
                             <th class="p-3 text-center font-bold">กะ<br><span class="font-semibold text-slate-400">(Shift)</span></th>
                             <th class="p-3 text-center font-bold">ไลน์<br><span class="font-semibold text-slate-400">(Line)</span></th>
                             <th class="p-3 text-right font-bold">ประกอบ<br><span class="font-semibold text-slate-400">(Assembler)</span></th>
@@ -414,9 +415,9 @@
                 <div>
                     <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                         <i data-lucide="list-checks" class="w-5 h-5 text-indigo-500"></i>
-                        บันทึกเหตุการณ์และปัญหาผลิตวันนี้ (Production Incident Log)
+                        บันทึกเหตุการณ์และปัญหาผลิต (Production Incident Log)
                     </h3>
-                    <p class="text-xs text-slate-400">รายการบันทึกปัญหาขัดข้องเพื่อใช้วิเคราะห์สาเหตุชั่วโมงการผลิตตกเป้า</p>
+                    <p class="text-xs text-slate-400">รายการบันทึกปัญหาขัดข้องเพื่อใช้วิเคราะห์สาเหตุชั่วโมงการผลิตตกเป้า · <span id="incident-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <button onclick="openIncidentModalForHour(null)" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm">
                     <i data-lucide="plus" class="w-3.5 h-3.5"></i>
@@ -428,7 +429,8 @@
                 <table class="w-full text-left border-collapse text-xs">
                     <thead>
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
-                            <th class="p-3 text-center w-24">ช่วงเวลา</th>
+                            <th class="p-3 text-center w-24">วันผลิต<br><span class="font-semibold text-slate-400">(Date)</span></th>
+                            <th class="p-3 text-center w-24">ช่วงเวลา<br><span class="font-semibold text-slate-400">(Time)</span></th>
                             <th class="p-3 text-center w-20">ไลน์ (Line)</th>
                             <th class="p-3 w-32">รุ่นสินค้า (Model)</th>
                             <th class="p-3 w-40">Job Order</th>
@@ -2741,14 +2743,19 @@ function doPost(e) {
             const tbody = document.getElementById('manpower-tbody');
             if (!tbody) return;
 
-            const activeDate = els.filterStartDate.value;
-            const rows = computeManpowerRows(activeDate, els.filterShift ? els.filterShift.value : 'All');
+            // ไล่ทุกวันในช่วงที่เลือก ใช้ตัวช่วยตัวเดียวกับรายงาน PDF
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            const shiftValue = els.filterShift ? els.filterShift.value : 'All';
+            const rows = eachDateInRange(startDate, endDate)
+                .flatMap(date => computeManpowerRows(date, shiftValue));
+            setRangeLabel('manpower-range-label', startDate, endDate);
 
             if (rows.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="9" class="text-center p-6 text-slate-400 italic">
-                            ยังไม่มีข้อมูลการผลิตหรือกำลังคนของวันที่เลือก (กดปุ่ม "กรอกกำลังคน" เพื่อเริ่มบันทึกได้เลยครับ)
+                        <td colspan="10" class="text-center p-6 text-slate-400 italic">
+                            ยังไม่มีข้อมูลการผลิตหรือกำลังคนในช่วงวันที่เลือก (กดปุ่ม "กรอกกำลังคน" เพื่อเริ่มบันทึกได้เลยครับ)
                         </td>
                     </tr>
                 `;
@@ -2768,6 +2775,7 @@ function doPost(e) {
                 const missing = r.qty > 0 && r.headcount === 0;
                 html += `
                     <tr class="hover:bg-slate-50/50 transition-colors ${missing ? 'bg-amber-50/40' : ''}">
+                        <td class="p-3 text-center font-semibold text-slate-600 whitespace-nowrap">${formatThaiDate(r.date)}</td>
                         <td class="p-3 text-center font-semibold text-slate-600">${shiftLabel}</td>
                         <td class="p-3 text-center font-bold text-indigo-600">${escapeHtml(r.line)}</td>
                         <td class="p-3 text-right font-mono text-slate-700">${roleCell(r.assembler, r.otAssembler)}</td>
@@ -3027,6 +3035,31 @@ function doPost(e) {
         // ==========================================
         // MANPOWER (กำลังคนรายไลน์ แยกตามกะ)
         // ==========================================
+        // ไล่วันที่ทีละวันในช่วงที่กำหนด สร้าง Date จากส่วนประกอบ
+        // ไม่ใช้ new Date('YYYY-MM-DD') เพราะตัวนั้นตีความเป็น UTC แล้ววันอาจเลื่อน
+        // บอกให้ชัดว่าตารางกำลังแสดงข้อมูลของช่วงไหน ไม่ต้องเดาจากตัวกรองด้านบน
+        function setRangeLabel(elementId, startDate, endDate) {
+            const el = document.getElementById(elementId);
+            if (!el || !startDate) return;
+            el.textContent = startDate === endDate
+                ? formatThaiDate(startDate)
+                : `${formatThaiDate(startDate)} - ${formatThaiDate(endDate)}`;
+        }
+
+        function eachDateInRange(startDate, endDate) {
+            if (!startDate) return [];
+            const last = endDate || startDate;
+            const [y, m, d] = startDate.split('-').map(Number);
+            const keys = [];
+            for (let cur = new Date(y, m - 1, d); ; cur.setDate(cur.getDate() + 1)) {
+                const key = toLocalDateKey(cur);
+                if (key > last) break;
+                keys.push(key);
+                if (key === last) break;
+            }
+            return keys;
+        }
+
         function manpowerKey(date, shift, line) {
             return `${date}_${shift}_${line}`;
         }
@@ -3575,16 +3608,25 @@ function doPost(e) {
             if (!tbody) return;
 
             loadIncidents();
-            const activeDate = els.filterStartDate.value;
-            const dayIncidents = getIncidentsForDate(activeDate);
+            // ใช้ช่วงวันที่จากตัวกรองเหมือนรายงาน PDF ไม่ใช่วันเริ่มต้นวันเดียว
+            // เลือกช่วงหลายวันแล้วเหตุการณ์ของวันอื่นจะได้ไม่หายไป
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            const dayIncidents = getIncidentsInRange(startDate, endDate, 'All');
+            setRangeLabel('incident-range-label', startDate, endDate);
 
-            dayIncidents.sort((a, b) => a.hour - b.hour || String(a.line).localeCompare(String(b.line)) || String(a.model).localeCompare(String(b.model)));
+            dayIncidents.sort((a, b) =>
+                String(a.date).localeCompare(String(b.date)) ||
+                a.hour - b.hour ||
+                String(a.line).localeCompare(String(b.line)) ||
+                String(a.model).localeCompare(String(b.model)));
 
             if (dayIncidents.length === 0) {
+                const rangeLabel = startDate === endDate ? 'วันที่เลือก' : 'ช่วงวันที่เลือก';
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="7" class="text-center p-6 text-slate-400 italic">
-                            วันนี้ยังไม่มีการรายงานปัญหาขัดข้อง (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
+                        <td colspan="8" class="text-center p-6 text-slate-400 italic">
+                            ยังไม่มีการรายงานปัญหาขัดข้องใน${rangeLabel} (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
                         </td>
                     </tr>
                 `;
@@ -3601,6 +3643,7 @@ function doPost(e) {
 
                 html += `
                     <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 text-center font-semibold text-slate-600 whitespace-nowrap">${formatThaiDate(inc.date)}</td>
                         <td class="p-3 text-center font-bold text-slate-700">${timeLabel}</td>
                         <td class="p-3 text-center text-indigo-600 font-bold">${lineName}</td>
                         <td class="p-3 text-slate-700 font-semibold">${modelName}</td>
@@ -4985,16 +5028,12 @@ function doPost(e) {
         function buildReportManpowerContent(scope) {
             // ไล่ทีละวันในช่วงที่เลือก เพราะกำลังคนบันทึกเป็นรายวัน+รายกะ ไม่ใช่ค่าคงที่
             const rows = [];
-            const [sy, sm, sd] = scope.startDate.split('-').map(Number);
-            for (let d = new Date(sy, sm - 1, sd); ; d.setDate(d.getDate() + 1)) {
-                const key = toLocalDateKey(d);
-                if (key > scope.endDate) break;
+            eachDateInRange(scope.startDate, scope.endDate).forEach(key => {
                 computeManpowerRows(key, scope.shiftValue).forEach(r => {
                     if (scope.lineValue && scope.lineValue !== 'All' && r.line !== scope.lineValue) return;
                     if (r.totalPeople > 0 || r.qty > 0) rows.push(r);
                 });
-                if (key === scope.endDate) break;
-            }
+            });
 
             if (rows.length === 0) return [];
 
