@@ -1898,15 +1898,42 @@ function doPost(e) {
 
             // --- 1. Hourly Stacked Bar Chart with Dynamic Target Line ---
             const activeShiftVal = els.filterShift.value;
-            let hourSequence = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7];
-            if (activeShiftVal === 'Day') {
-                hourSequence = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-            } else if (activeShiftVal === 'Night') {
-                hourSequence = [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7];
-            }
+
+            // ลำดับชั่วโมงครบ 24 ชั่วโมงโดยเริ่มจากชั่วโมงเข้ากะ ใช้เป็นลำดับอ้างอิงเวลาต้องต่อชั่วโมงเพิ่ม
+            const DAY_CYCLE = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7];
+            const NIGHT_CYCLE = [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+            const cycle = activeShiftVal === 'Night' ? NIGHT_CYCLE : DAY_CYCLE;
+            const baseWindow = new Set(
+                activeShiftVal === 'Day' ? [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+                : activeShiftVal === 'Night' ? [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7]
+                : DAY_CYCLE
+            );
+
+            // ชั่วโมงที่โอนเข้ากะนี้ ต้องมีช่องของตัวเองในกราฟและตาราง
+            // เดิมแกนชั่วโมงฮาร์ดโค้ดตามกะ ยอดที่โอนเข้ามาจึงถูกนับใน KPI แต่ไม่มีที่ให้แสดงในรายการ
+            const hourlyStart = els.filterStartDate.value;
+            const hourlyEnd = els.filterEndDate.value || hourlyStart;
+            const transferredHours = new Set();
+            Object.values(shiftTransfers).forEach(t => {
+                if (!t || !t.date || t.date < hourlyStart || t.date > hourlyEnd) return;
+                if (activeShiftVal !== 'All' && t.targetShift !== activeShiftVal) return;
+                // ไล่จาก fromHour ถึง toHour แบบไม่รวมปลาย รองรับช่วงที่ข้ามเที่ยงคืน
+                // guard กันลูปไม่รู้จบเผื่อข้อมูลเสียจนสองค่าเท่ากัน
+                for (let h = t.fromHour, guard = 0; h !== t.toHour && guard < 24; h = (h + 1) % 24, guard++) {
+                    transferredHours.add(h);
+                }
+            });
+
+            // ต่อชั่วโมงที่มีการสแกนจริงเข้าไปด้วย เผื่อมีการโอนที่ทำให้ข้อมูลไปโผล่นอกกรอบกะ
+            const scannedHours = new Set(
+                filteredScans.filter(s => s.status.toUpperCase() === 'OK').map(s => s.hour)
+            );
+            const hourSequence = cycle.filter(hr =>
+                baseWindow.has(hr) || transferredHours.has(hr) || scannedHours.has(hr));
 
             const hourLabels = hourSequence.map(hr => {
-                return `${String(hr).padStart(2, '0')}:00`;
+                const base = `${String(hr).padStart(2, '0')}:00`;
+                return transferredHours.has(hr) ? `${base} ⤵` : base;
             });
 
             // Filter for OK status only for KPIs and charts calculations
@@ -2066,6 +2093,7 @@ function doPost(e) {
             lastHourlySummary = {
                 hourSequence: hourSequence.slice(),
                 hourLabels: hourLabels.slice(),
+                transferredHours: Array.from(transferredHours),
                 targets: hourlyTargets.slice(),
                 actuals: hourSequence.map(hr =>
                     okScans.filter(s => s.hour === hr).reduce((sum, s) => sum + (s.qty || 1), 0)
@@ -5074,7 +5102,11 @@ function doPost(e) {
                     : models.map(([name, qty]) => `${name} (${qty.toLocaleString()})`).join('\n');
 
                 body.push([
-                    pdfCell(s.hourLabels[idx], 'center'),
+                    pdfCell(
+                        (s.transferredHours || []).includes(hr)
+                            ? `${String(hr).padStart(2, '0')}:00 (โอนเข้า)`
+                            : `${String(hr).padStart(2, '0')}:00`,
+                        'center'),
                     pdfCell(actual.toLocaleString(), 'right'),
                     pdfCell(target.toLocaleString(), 'right'),
                     pdfCell((diff >= 0 ? '+' : '') + diff.toLocaleString(), 'right', diff >= 0 ? PDF_COLOR.good : PDF_COLOR.bad),
