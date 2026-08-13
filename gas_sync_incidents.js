@@ -44,19 +44,38 @@ var SPREADSHEET_ID = "1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U";
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var incidents = ss.getSheetByName("Incidents");
-    var categories = ss.getSheetByName("IncidentCategories");
+
+    // รายชื่อ action ที่โค้ดชุดนี้รองรับ เอาไว้ตอบคำถาม "deploy เวอร์ชันใหม่ขึ้นหรือยัง"
+    // ถ้าเปิด URL แล้วไม่เห็น SAVE_SHIFT_TRANSFER แปลว่า URL นี้ยังเสิร์ฟโค้ดเก่าอยู่
+    // (มักเกิดจากกด "การทำให้ใช้งานได้ใหม่" ซึ่งได้ URL ใหม่ ส่วน URL เดิมยังเป็นเวอร์ชันเก่า)
+    var SUPPORTED_ACTIONS = [
+      "GET_INCIDENTS", "SAVE", "DELETE",
+      "GET_CATEGORIES", "SAVE_CATEGORY", "DELETE_CATEGORY",
+      "GET_MANPOWER", "SAVE_MANPOWER", "DELETE_MANPOWER",
+      "GET_SHIFT_TRANSFERS", "SAVE_SHIFT_TRANSFER", "DELETE_SHIFT_TRANSFER"
+    ];
+
+    var rowsOf = function (name) {
+      var sh = ss.getSheetByName(name);
+      return sh ? Math.max(0, sh.getLastRow() - 1) : null;   // null = ยังไม่มีแท็บนี้
+    };
+
     return ContentService.createTextOutput(JSON.stringify({
       result: "ok",
       project: "Incident Sync (บันทึกเหตุการณ์และปัญหาผลิต)",
-      purpose: "รับข้อมูลบันทึกเหตุการณ์จากหน้า barcode dashboard เขียนลงแท็บ Incidents",
+      purpose: "รับข้อมูลจากหน้า barcode dashboard เขียนลงแท็บ Incidents, Manpower และ ShiftTransfers",
       note: "นี่ไม่ใช่ Web App ของหน้าลงยอด ตัวนั้นเขียนแท็บ ยอดผลิต และเป็นคนละโปรเจกต์",
       docs: "docs/apps-script-map.md ในรีโป Job-order-tracking",
       spreadsheet: ss.getName(),
       spreadsheetId: SPREADSHEET_ID,
-      incidentsSheetFound: !!incidents,
-      incidentRows: incidents ? Math.max(0, incidents.getLastRow() - 1) : null,
-      categoriesSheetFound: !!categories,
+      supportedActions: SUPPORTED_ACTIONS,
+      // null = ยังไม่มีแท็บ (ปกติ ถ้ายังไม่เคยบันทึกอะไรลงไป) · ตัวเลข = จำนวนแถวข้อมูล
+      rows: {
+        Incidents: rowsOf("Incidents"),
+        IncidentCategories: rowsOf("IncidentCategories"),
+        Manpower: rowsOf("Manpower"),
+        ShiftTransfers: rowsOf("ShiftTransfers")
+      },
       allSheets: ss.getSheets().map(function (s) { return s.getName(); })
     }, null, 2)).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
