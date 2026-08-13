@@ -373,6 +373,42 @@
             </div>
         </div>
 
+        <!-- Shift Transfer Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100 gap-3">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="arrow-left-right" class="w-5 h-5 text-indigo-500"></i>
+                        โอนยอดเข้ากะ (Shift Transfer)
+                    </h3>
+                    <p class="text-xs text-slate-400">
+                        ใช้ตอนกะหนึ่งทำ OT ลากยาวข้ามเวลาเข้ากะถัดไป เช่นกะเช้าเดินถึง 22:00 ยอดชั่วโมง 20:00-22:00 จะถูกนับเป็นกะดึกโดยอัตโนมัติ
+                        ระบุตรงนี้เพื่อโอนกลับเข้ากะที่ทำจริง · <span id="shift-transfer-range-label" class="font-semibold text-slate-500"></span>
+                    </p>
+                </div>
+                <button onclick="openShiftTransferModal()" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0">
+                    <i data-lucide="plus" class="w-4 h-4"></i>
+                    เพิ่มการโอนยอด
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50/80">
+                        <tr class="text-slate-500">
+                            <th class="p-3 text-center font-bold">วันผลิต<br><span class="font-semibold text-slate-400">(Date)</span></th>
+                            <th class="p-3 text-center font-bold">ไลน์<br><span class="font-semibold text-slate-400">(Line)</span></th>
+                            <th class="p-3 text-center font-bold">ช่วงเวลา<br><span class="font-semibold text-slate-400">(Time Range)</span></th>
+                            <th class="p-3 text-center font-bold">โอนเข้ากะ<br><span class="font-semibold text-slate-400">(Target Shift)</span></th>
+                            <th class="p-3 text-right font-bold">ยอดที่โอน<br><span class="font-semibold text-slate-400">(Qty Moved)</span></th>
+                            <th class="p-3 font-bold">หมายเหตุ<br><span class="font-semibold text-slate-400">(Note)</span></th>
+                            <th class="p-3 text-center font-bold">การจัดการ<br><span class="font-semibold text-slate-400">(Action)</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="shift-transfer-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Manpower Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100 gap-3">
@@ -875,6 +911,64 @@ function doPost(e) {
         </div>
     </div>
 
+    <!-- Shift Transfer Modal -->
+    <div id="shift-transfer-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="modal-panel bg-white rounded-2xl max-w-lg w-full shadow-xl">
+            <div class="modal-body p-6 space-y-4">
+                <div class="flex justify-between items-start border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="arrow-left-right" class="w-5 h-5 text-indigo-600"></i>
+                            โอนยอดเข้ากะ
+                        </h3>
+                        <p id="shift-transfer-modal-date" class="text-xs text-slate-400 mt-0.5"></p>
+                    </div>
+                    <button onclick="closeShiftTransferModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">ไลน์การผลิต (Line)</label>
+                    <select id="shift-transfer-line" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700"></select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">ตั้งแต่เวลา (From)</label>
+                        <select id="shift-transfer-from" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700 font-mono"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">ถึงเวลา (To)</label>
+                        <select id="shift-transfer-to" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700 font-mono"></select>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-400 -mt-1">ช่วงเวลาแบบไม่นับชั่วโมงปลาย เช่น 20:00 ถึง 22:00 หมายถึงชั่วโมง 20:00-21:00 และ 21:00-22:00 · ข้ามเที่ยงคืนได้</p>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">โอนเข้ากะ (Target Shift)</label>
+                    <select id="shift-transfer-target" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                        <option value="Day">☀️ กะเช้า (Day Shift)</option>
+                        <option value="Night">🌙 กะดึก (Night Shift)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">หมายเหตุ (ไม่บังคับ)</label>
+                    <input type="text" id="shift-transfer-note" placeholder="เช่น กะเช้า OT ถึง 22:00"
+                        class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-700">
+                </div>
+
+                <div id="shift-transfer-preview" class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700 font-semibold"></div>
+
+                <div class="flex justify-end gap-3 pt-3 border-t border-slate-100 text-xs">
+                    <button onclick="closeShiftTransferModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">ยกเลิก</button>
+                    <button onclick="saveShiftTransfer()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">บันทึกการโอน</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Manpower Entry Modal -->
     <div id="manpower-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="modal-panel bg-white rounded-2xl max-w-5xl w-full shadow-xl">
@@ -1142,6 +1236,12 @@ function doPost(e) {
         // Key เป็นรูปแบบ "YYYY-MM-DD_กะ_ไลน์" เช่น "2026-08-10_Day_Line 5"
         // ขึ้นต้นด้วยวันที่เหมือนคีย์ของบันทึกเหตุการณ์ จึงใช้ normalizeIncidentDate ร่วมกันได้
         let manpowerLogs = {};
+
+        // การโอนยอดเข้ากะ: ผู้ใช้ระบุเองว่าช่วงชั่วโมงไหนของไลน์ไหน ต้องนับเข้ากะอะไร
+        // จำเป็นเพราะระบบตัดกะจากเลขชั่วโมงล้วน ๆ (20:00 เป็นต้นไป = กะดึกเสมอ)
+        // กะเช้าที่ทำ OT ลากยาวถึง 22:00 จึงถูกโยนยอดไปกะดึกทั้งที่คนกะเช้าเป็นคนทำ
+        // Key เป็นรูปแบบ "YYYY-MM-DD_ไลน์_ชั่วโมงเริ่ม_ชั่วโมงจบ"
+        let shiftTransfers = {};
         let incidentCategories = [
             { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
             { code: "Material", text: "📦 วัตถุดิบขาดแคลน (Material Shortage)" },
@@ -1329,6 +1429,10 @@ function doPost(e) {
                     loadManpower();
                     renderManpowerTable();
                     fetchManpowerFromAppsScript();
+                    loadShiftTransfers();
+                    applyShiftTransfers();
+                    renderShiftTransferTable();
+                    fetchShiftTransfersFromAppsScript();
 
                     // Load Data
                     if (barcodeSheetUrl) {
@@ -1486,6 +1590,9 @@ function doPost(e) {
             // เรียงลำดับเวลาใหม่จากใหม่ไปเก่า (Latest first) เพื่อนำไปใช้งานด้านหน้าตาราง Feed
             filteredScansTemp.sort((a, b) => b.ts - a.ts);
             processedScans = filteredScansTemp;
+
+            // เขียนทับกะตามที่ผู้ใช้สั่งโอนไว้ ก่อนที่ส่วนอื่นจะหยิบข้อมูลไปใช้
+            applyShiftTransfers();
         }
 
         // ==========================================
@@ -1602,6 +1709,7 @@ function doPost(e) {
 
             // กำลังคนขึ้นกับทั้งวันที่และกะที่เลือก จึงต้องวาดใหม่ทุกครั้งที่ตัวกรองเปลี่ยน
             renderManpowerTable();
+            renderShiftTransferTable();
         }
 
         // ==========================================
@@ -3058,6 +3166,302 @@ function doPost(e) {
                 if (key === last) break;
             }
             return keys;
+        }
+
+        // ==========================================
+        // SHIFT TRANSFER (โอนยอดช่วงเวลาของไลน์เข้ากะที่ต้องการ)
+        // ==========================================
+        function shiftTransferKey(date, line, fromHour, toHour) {
+            return `${date}_${line}_${fromHour}_${toHour}`;
+        }
+
+        /**
+         * แตกช่วงเวลาออกเป็นรายชั่วโมง รองรับช่วงที่ข้ามเที่ยงคืน
+         * ถังชั่วโมง h ครอบคลุม h:00 ถึง h+1:00 ดังนั้น "20:00 ถึง 22:00" คือถัง 20 กับ 21
+         * toHour จึงเป็นขอบขวาแบบไม่นับรวม
+         */
+        function hoursInRange(fromHour, toHour) {
+            const from = ((parseInt(fromHour, 10) % 24) + 24) % 24;
+            const to = ((parseInt(toHour, 10) % 24) + 24) % 24;
+            const hours = [];
+            for (let i = 0, h = from; i < 24 && h !== to; i++, h = (h + 1) % 24) hours.push(h);
+            return hours;
+        }
+
+        function loadShiftTransfers() {
+            try {
+                const data = localStorage.getItem('job_tracker_shift_transfers');
+                shiftTransfers = data ? JSON.parse(data) : {};
+            } catch (e) {
+                shiftTransfers = {};
+            }
+        }
+
+        function saveShiftTransfersLocal() {
+            localStorage.setItem('job_tracker_shift_transfers', JSON.stringify(shiftTransfers));
+        }
+
+        function fetchShiftTransfersFromAppsScript() {
+            if (!appsScriptUrl) return Promise.resolve();
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'GET_SHIFT_TRANSFERS' }),
+                redirect: 'follow'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data || data.result !== 'success' || !data.transfers) return;
+                const cloud = {};
+                data.transfers.forEach(row => {
+                    if (!row.ID) return;
+                    cloud[row.ID] = {
+                        id: row.ID,
+                        date: normalizeIncidentDate(row.Date, row.ID),
+                        line: String(row.Line || '').trim(),
+                        fromHour: parseInt(row.FromHour, 10) || 0,
+                        toHour: parseInt(row.ToHour, 10) || 0,
+                        targetShift: String(row.TargetShift || '').trim() === 'Night' ? 'Night' : 'Day',
+                        note: String(row.Note || '').trim()
+                    };
+                });
+                // กันข้อมูลหายแบบเดียวกับแท็บอื่น ผลลัพธ์ว่างต้องไม่ทับของที่มีอยู่ในเครื่อง
+                if (Object.keys(cloud).length === 0 && Object.keys(shiftTransfers).length > 0) return;
+                shiftTransfers = cloud;
+                saveShiftTransfersLocal();
+                applyShiftTransfers();
+                applyFilters();
+            })
+            .catch(err => {
+                console.warn('Failed to load shift transfers from cloud:', err);
+            });
+        }
+
+        function syncShiftTransferToGoogleSheets(record) {
+            if (!appsScriptUrl) {
+                showIncidentToast('warning', 'บันทึกการโอนยอดลงเครื่องนี้แล้ว (ยังไม่ขึ้น Google Sheet)',
+                    'ยังไม่ได้ตั้งค่า Apps Script URL ในหน้าตั้งค่า');
+                return Promise.resolve(false);
+            }
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: record.action || 'SAVE_SHIFT_TRANSFER',
+                    id: record.id,
+                    date: record.date,
+                    line: record.line,
+                    fromHour: record.fromHour,
+                    toHour: record.toHour,
+                    targetShift: record.targetShift,
+                    note: record.note || ''
+                }),
+                redirect: 'follow'
+            })
+            .then(res => {
+                if (!res.ok) throw new Error(`Apps Script ตอบกลับ HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(data => {
+                if (!data || data.result !== 'success') {
+                    throw new Error((data && data.message) || 'Apps Script ตอบกลับไม่สำเร็จ');
+                }
+                return true;
+            })
+            .catch(err => {
+                console.error('Error syncing shift transfer:', err);
+                return err.message;
+            });
+        }
+
+        /**
+         * เขียนทับกะของรายการสแกนตามที่ผู้ใช้สั่งโอนไว้
+         *
+         * ทำที่ processedScans จุดเดียวหลังแปลงข้อมูลดิบเสร็จ ทุกอย่างที่อยู่ถัดจากนี้
+         * (ตัวกรองกะ, การ์ด KPI, กราฟ, ตารางกำลังคน, รายงาน PDF) จึงเห็นกะเดียวกันหมด
+         * ไม่ต้องไล่แก้ทีละที่ และไม่มีทางที่บางส่วนจะใช้กะเก่าบางส่วนใช้กะใหม่
+         *
+         * เก็บกะเดิมไว้ที่ originalShift เพื่อให้เรียกซ้ำได้โดยไม่สะสมผลจากรอบก่อน
+         */
+        function applyShiftTransfers() {
+            if (!Array.isArray(processedScans) || processedScans.length === 0) return;
+
+            const byDateLine = {};
+            Object.values(shiftTransfers).forEach(t => {
+                if (!t || !t.date || !t.line) return;
+                hoursInRange(t.fromHour, t.toHour).forEach(h => {
+                    byDateLine[`${t.date}_${t.line}_${h}`] = t.targetShift;
+                });
+            });
+
+            processedScans.forEach(scan => {
+                if (scan.originalShift === undefined) scan.originalShift = scan.shift;
+                const target = byDateLine[`${scan.prodDate}_${scan.line}_${scan.hour}`];
+                scan.shift = target || scan.originalShift;
+            });
+        }
+
+        /** นับยอดที่จะถูกโอนจริงตามเงื่อนไขที่เลือก ใช้ทั้งตอนพรีวิวในหน้าต่างและตอนแสดงในตาราง */
+        function countTransferQty(date, line, fromHour, toHour) {
+            const hours = new Set(hoursInRange(fromHour, toHour));
+            return processedScans
+                .filter(sc => sc.prodDate === date && sc.line === line && hours.has(sc.hour)
+                    && String(sc.status).toUpperCase() === 'OK')
+                .reduce((sum, sc) => sum + (sc.qty || 1), 0);
+        }
+
+        function renderShiftTransferTable() {
+            const tbody = document.getElementById('shift-transfer-tbody');
+            if (!tbody) return;
+
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            setRangeLabel('shift-transfer-range-label', startDate, endDate);
+
+            const rows = Object.values(shiftTransfers)
+                .filter(t => t && t.date >= startDate && t.date <= endDate)
+                .sort((a, b) => String(a.date).localeCompare(String(b.date))
+                    || String(a.line).localeCompare(String(b.line))
+                    || a.fromHour - b.fromHour);
+
+            if (rows.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center p-6 text-slate-400 italic">
+                            ยังไม่มีการโอนยอดในช่วงวันที่เลือก (ปกติไม่ต้องใช้ ใช้เฉพาะวันที่มี OT ลากยาวข้ามเวลาเข้ากะถัดไป)
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            const hh = h => String(h).padStart(2, '0') + ':00';
+            tbody.innerHTML = rows.map(t => {
+                const qty = countTransferQty(t.date, t.line, t.fromHour, t.toHour);
+                const shiftLabel = t.targetShift === 'Day' ? '☀️ กะเช้า' : '🌙 กะดึก';
+                const idAttr = t.id.replace(/'/g, "\\'");
+                return `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 text-center font-semibold text-slate-600 whitespace-nowrap">${formatThaiDate(t.date)}</td>
+                        <td class="p-3 text-center font-bold text-indigo-600">${escapeHtml(t.line)}</td>
+                        <td class="p-3 text-center font-mono font-bold text-slate-700 whitespace-nowrap">${hh(t.fromHour)} - ${hh(t.toHour)}</td>
+                        <td class="p-3 text-center font-semibold text-slate-700 whitespace-nowrap">${shiftLabel}</td>
+                        <td class="p-3 text-right font-mono font-bold ${qty > 0 ? 'text-emerald-600' : 'text-slate-300'}">${qty.toLocaleString()}</td>
+                        <td class="p-3 text-slate-500">${t.note ? escapeHtml(t.note) : '-'}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="deleteShiftTransfer('${idAttr}')" class="text-rose-600 hover:text-rose-800 font-bold">ลบ</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function openShiftTransferModal() {
+            loadShiftTransfers();
+            const activeDate = els.filterStartDate.value;
+            if (!activeDate) return;
+
+            document.getElementById('shift-transfer-modal-date').textContent = `วันผลิต ${formatThaiDate(activeDate)}`;
+
+            // ไลน์ที่เลือกได้คือไลน์ที่มีการผลิตจริงในวันนั้น จะได้ไม่ต้องพิมพ์เองและไม่พิมพ์ผิด
+            const lineSelect = document.getElementById('shift-transfer-line');
+            const lines = Array.from(new Set(
+                processedScans.filter(sc => sc.prodDate === activeDate).map(sc => sc.line).filter(Boolean)
+            )).sort();
+            lineSelect.innerHTML = lines.length
+                ? lines.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('')
+                : '<option value="">ไม่มีไลน์ที่ผลิตในวันนี้</option>';
+
+            const hourOptions = Array.from({ length: 24 }, (_, h) =>
+                `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+            const fromSelect = document.getElementById('shift-transfer-from');
+            const toSelect = document.getElementById('shift-transfer-to');
+            fromSelect.innerHTML = hourOptions;
+            toSelect.innerHTML = hourOptions;
+            // ค่าเริ่มต้นเป็นเคสที่พบบ่อยที่สุด คือกะเช้าทำ OT ต่อจาก 20:00
+            fromSelect.value = '20';
+            toSelect.value = '22';
+            document.getElementById('shift-transfer-target').value = 'Day';
+            document.getElementById('shift-transfer-note').value = '';
+
+            const updatePreview = () => {
+                const line = lineSelect.value;
+                const from = parseInt(fromSelect.value, 10);
+                const to = parseInt(toSelect.value, 10);
+                const box = document.getElementById('shift-transfer-preview');
+                if (!line) { box.textContent = 'ยังไม่มีไลน์ให้เลือก'; return; }
+                if (from === to) { box.textContent = 'ช่วงเวลาต้องไม่เริ่มและจบที่ชั่วโมงเดียวกัน'; return; }
+                const hours = hoursInRange(from, to);
+                const qty = countTransferQty(activeDate, line, from, to);
+                box.textContent = `ครอบคลุม ${hours.length} ชั่วโมง · ยอดที่จะโอน ${qty.toLocaleString()} ชิ้น`;
+            };
+            [lineSelect, fromSelect, toSelect].forEach(el => { el.onchange = updatePreview; });
+            updatePreview();
+
+            document.getElementById('shift-transfer-modal').classList.remove('hidden');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeShiftTransferModal() {
+            document.getElementById('shift-transfer-modal').classList.add('hidden');
+        }
+
+        function saveShiftTransfer() {
+            const date = els.filterStartDate.value;
+            const line = document.getElementById('shift-transfer-line').value;
+            const fromHour = parseInt(document.getElementById('shift-transfer-from').value, 10);
+            const toHour = parseInt(document.getElementById('shift-transfer-to').value, 10);
+            const targetShift = document.getElementById('shift-transfer-target').value;
+            const note = document.getElementById('shift-transfer-note').value.trim();
+
+            if (!date || !line) return;
+            if (fromHour === toHour) {
+                showIncidentToast('warning', 'ช่วงเวลาไม่ถูกต้อง', 'ชั่วโมงเริ่มกับชั่วโมงจบต้องไม่ใช่ค่าเดียวกัน');
+                return;
+            }
+
+            const record = {
+                id: shiftTransferKey(date, line, fromHour, toHour),
+                date, line, fromHour, toHour, targetShift, note
+            };
+            shiftTransfers[record.id] = record;
+            saveShiftTransfersLocal();
+            closeShiftTransferModal();
+            applyShiftTransfers();
+            applyFilters();
+
+            Promise.resolve(syncShiftTransferToGoogleSheets(record)).then(ok => {
+                if (ok === true) {
+                    showIncidentToast('success', 'บันทึกการโอนยอดขึ้น Google Sheet เรียบร้อย',
+                        'แท็บ ShiftTransfers ถูกอัปเดตแล้ว');
+                } else {
+                    showIncidentToast('warning', 'ส่งการโอนยอดขึ้น Google Sheet ไม่สำเร็จ',
+                        String(ok) + ' (ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว)');
+                }
+            });
+        }
+
+        function deleteShiftTransfer(id) {
+            const record = shiftTransfers[id];
+            if (!record) return;
+
+            delete shiftTransfers[id];
+            saveShiftTransfersLocal();
+            applyShiftTransfers();
+            applyFilters();
+
+            // ลบบนชีตไม่สำเร็จต้องคืนค่ากลับ ไม่งั้นโหลดหน้าใหม่แล้วรายการจะกลับมาเองโดยไม่มีคำอธิบาย
+            Promise.resolve(syncShiftTransferToGoogleSheets({ ...record, action: 'DELETE_SHIFT_TRANSFER' })).then(ok => {
+                if (ok === true) {
+                    showIncidentToast('success', 'ลบการโอนยอดเรียบร้อย', 'แท็บ ShiftTransfers ถูกอัปเดตแล้ว');
+                } else {
+                    shiftTransfers[id] = record;
+                    saveShiftTransfersLocal();
+                    applyShiftTransfers();
+                    applyFilters();
+                    showIncidentToast('warning', 'ลบการโอนยอดบน Google Sheet ไม่สำเร็จ', String(ok));
+                }
+            });
         }
 
         function manpowerKey(date, shift, line) {

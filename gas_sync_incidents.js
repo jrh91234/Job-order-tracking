@@ -261,6 +261,90 @@ function doPost(e) {
                            .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // --- SHIFT TRANSFER OPERATIONS (โอนยอดช่วงเวลาหนึ่งของไลน์เข้ากะที่ต้องการ) ---
+    // ระบบตัดกะจากเลขชั่วโมงล้วน ๆ (20:00 เป็นต้นไป = กะดึกเสมอ) พอกะเช้าทำ OT ลากยาวถึง 22:00
+    // ยอดชั่วโมง 20-21 จะถูกโยนไปกะดึกทั้งที่คนกะเช้าเป็นคนทำ แถวนี้ให้ผู้ใช้ระบุเองว่าช่วงไหนของไลน์ไหน
+    // ต้องนับเข้ากะอะไร 1 แถว = 1 วัน + 1 ไลน์ + 1 ช่วงชั่วโมง
+    if (action === "GET_SHIFT_TRANSFERS" || action === "SAVE_SHIFT_TRANSFER" || action === "DELETE_SHIFT_TRANSFER") {
+      var stName = "ShiftTransfers";
+      var stSheet = ss.getSheetByName(stName);
+      var ST_COLS = ["ID", "Date", "Line", "FromHour", "ToHour", "TargetShift", "Note", "UpdatedAt"];
+      if (!stSheet) {
+        stSheet = ss.insertSheet(stName);
+        stSheet.appendRow(ST_COLS);
+      }
+
+      var stValues = stSheet.getDataRange().getValues();
+
+      if (action === "GET_SHIFT_TRANSFERS") {
+        var stList = [];
+        if (stValues.length > 1) {
+          var stHeaders = stValues[0];
+          for (var sr = 1; sr < stValues.length; sr++) {
+            var stRec = {};
+            for (var sc = 0; sc < stHeaders.length; sc++) stRec[stHeaders[sc]] = stValues[sr][sc];
+            stList.push(stRec);
+          }
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success", transfers: stList}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (!data.id) {
+        return ContentService.createTextOutput(JSON.stringify({
+          result: "ignored", message: "คำขอโอนยอดเข้ากะต้องมี id"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var stRow = -1;
+      for (var sr2 = 1; sr2 < stValues.length; sr2++) {
+        if (stValues[sr2][0] == data.id) { stRow = sr2 + 1; break; }
+      }
+
+      if (action === "DELETE_SHIFT_TRANSFER") {
+        if (stRow !== -1) stSheet.deleteRow(stRow);
+        return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Deleted"}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var stHeadersNow = stValues.length > 0 ? stValues[0].slice() : [];
+      var stAdded = false;
+      for (var stc = 0; stc < ST_COLS.length; stc++) {
+        var stWanted = ST_COLS[stc];
+        var stFound = false;
+        for (var sth = 0; sth < stHeadersNow.length; sth++) {
+          if (String(stHeadersNow[sth]).trim() === stWanted) { stFound = true; break; }
+        }
+        if (!stFound) { stHeadersNow.push(stWanted); stAdded = true; }
+      }
+      if (stAdded) stSheet.getRange(1, 1, 1, stHeadersNow.length).setValues([stHeadersNow]);
+
+      var stByCol = {
+        "ID": data.id,
+        "Date": data.date ? "'" + data.date : "",
+        "Line": data.line ? "'" + data.line : "",
+        "FromHour": Number(data.fromHour) || 0,
+        "ToHour": Number(data.toHour) || 0,
+        "TargetShift": data.targetShift ? "'" + data.targetShift : "",
+        "Note": data.note || "",
+        "UpdatedAt": "'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")
+      };
+
+      var stData = [];
+      for (var stk = 0; stk < stHeadersNow.length; stk++) {
+        var stKey = String(stHeadersNow[stk]).trim();
+        stData.push(stByCol.hasOwnProperty(stKey) ? stByCol[stKey] : "");
+      }
+
+      if (stRow !== -1) {
+        stSheet.getRange(stRow, 1, 1, stData.length).setValues([stData]);
+      } else {
+        stSheet.appendRow(stData);
+      }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Saved"}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- INCIDENT LOGS OPERATIONS (WRITE/DELETE) ---
     // รับเฉพาะคำขอที่เป็นของบันทึกเหตุการณ์จริง ๆ เท่านั้น
     // การโพสต์จากหน้าลงยอด (index.html) ส่ง payload ที่ไม่มีฟิลด์ action มาด้วย

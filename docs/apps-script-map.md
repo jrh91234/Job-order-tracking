@@ -35,10 +35,10 @@ Apps Script รวมทุกไฟล์ในโปรเจกต์เด�
 | ชื่อโปรเจกต์ใน Apps Script | ตั้งชื่อให้สื่อ เช่น `Incident Sync` |
 | ประเภท | แยกอิสระ (standalone) เปิดจาก script.google.com เท่านั้น ไม่อยู่ในเมนูของชีต |
 | ไฟล์ต้นฉบับในรีโป | `gas_sync_incidents.js` |
-| เขียนลงแท็บ | `Incidents`, `IncidentCategories` และ `Manpower` |
+| เขียนลงแท็บ | `Incidents`, `IncidentCategories`, `Manpower` และ `ShiftTransfers` |
 | Web App URL | `https://script.google.com/macros/s/AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf/exec` |
 | ใครเรียก | `barcode.html` ผ่านค่า `incidentAppsScriptUrl` ใน `config.json` |
-| รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY`, `GET_MANPOWER`, `SAVE_MANPOWER`, `DELETE_MANPOWER` |
+| รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY`, `GET_MANPOWER`, `SAVE_MANPOWER`, `DELETE_MANPOWER`, `GET_SHIFT_TRANSFERS`, `SAVE_SHIFT_TRANSFER`, `DELETE_SHIFT_TRANSFER` |
 | ตรวจสุขภาพ | เปิด URL ตรง ๆ ในเบราว์เซอร์ จะได้ JSON บอกว่าผูกกับชีตไหน |
 
 ทั้งสองโปรเจกต์เขียนลง **สเปรดชีตเดียวกัน** คือ `ลงยอด H9`
@@ -82,6 +82,26 @@ PCS/คน/ชม. = ยอดสแกน ÷ (ประกอบช่วงป
 ตัวหารนับเฉพาะ `Assembler` ส่วน `Feeder` และ `Leader` ยังต้องกรอกและเก็บไว้ทุกครั้ง
 แต่ถือเป็นกำลังสนับสนุน ไม่ใช่คนที่ผลิตชิ้นงานในไลน์ จึงไม่นำมาหาร
 คอลัมน์ `Total` ในชีตยังเป็นผลรวมทั้ง 3 บทบาทตามเดิม ใช้ดูกำลังพลจริงหน้างาน
+
+## แท็บ `ShiftTransfers`
+
+การโอนยอดช่วงเวลาหนึ่งของไลน์เข้ากะที่ต้องการ 1 แถว = 1 วัน + 1 ไลน์ + 1 ช่วงชั่วโมง
+
+```
+ID = "2026-08-11_Line 5_20_22"
+คอลัมน์: ID | Date | Line | FromHour | ToHour | TargetShift | Note | UpdatedAt
+```
+
+**ทำไมต้องมี** — ระบบตัดกะจากเลขชั่วโมงล้วน ๆ (`barcode.html` ราวบรรทัด 1383)
+ตั้งแต่ 20:00 ถือเป็นกะดึกเสมอ พอกะเช้าทำ OT ลากยาวถึง 22:00 ยอดชั่วโมง 20:00-22:00
+จะถูกนับเป็นกะดึกทั้งที่คนกะเช้าเป็นคนทำ และโผล่เป็นแถวกะดึกที่ไม่มีใครกรอกกำลังคน
+
+แถวนี้ให้ผู้ใช้ระบุเองว่าช่วงไหนของไลน์ไหนต้องนับเข้ากะอะไร `FromHour` นับรวม
+`ToHour` ไม่นับรวม (20 ถึง 22 คือถังชั่วโมง 20 กับ 21) และข้ามเที่ยงคืนได้
+
+หน้าจอเขียนทับกะที่ `processedScans` จุดเดียวหลังแปลงข้อมูลดิบเสร็จ
+ทุกอย่างที่อยู่ถัดจากนั้น (ตัวกรองกะ, KPI, กราฟ, ตารางกำลังคน, รายงาน PDF) จึงเห็นกะเดียวกันหมด
+**ไม่กระทบชีต `ยอดผลิต` และ `ชั่วโมงทำงาน`** ซึ่ง Apps Script อีกโปรเจกต์คำนวณแยกของตัวเอง
 
 ## หาโปรเจกต์ไม่เจอ ทำอย่างไร
 
