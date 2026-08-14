@@ -850,7 +850,7 @@ function doPost(e) {
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"]);
+      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time", "Shift"]);
     }
     var id = data.id;
     var range = sheet.getDataRange();
@@ -863,8 +863,8 @@ function doPost(e) {
       if (rowIndex !== -1) sheet.deleteRow(rowIndex);
       return ContentService.createTextOutput(JSON.stringify({result: "success"})).setMimeType(ContentService.MimeType.JSON);
     }
-    // เขียนค่าโดยอิงชื่อคอลัมน์ในหัวตารางจริง และเติมหัวคอลัมน์ที่ขาดให้เอง (JobOrder / Time)
-    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"];
+    // เขียนค่าโดยอิงชื่อคอลัมน์ในหัวตารางจริง และเติมหัวคอลัมน์ที่ขาดให้เอง (JobOrder / Time / Shift)
+    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time", "Shift"];
     var headers = values.length > 0 ? values[0].slice() : [];
     var added = false;
     for (var c = 0; c &lt; REQUIRED_COLS.length; c++) {
@@ -880,7 +880,8 @@ function doPost(e) {
       "ID": data.id, "Date": data.date, "Hour": data.hour, "Line": data.line,
       "Model": data.model || "All", "JobOrder": data.jobOrder || "",
       "Category": data.category, "CategoryText": data.categoryText,
-      "Notes": data.notes, "Time": data.time ? "'" + data.time : ""
+      "Notes": data.notes, "Time": data.time ? "'" + data.time : "",
+      "Shift": data.shift === "Night" ? "Night" : data.shift === "Day" ? "Day" : ""
     };
     var rowData = [];
     for (var k = 0; k &lt; headers.length; k++) {
@@ -3133,6 +3134,9 @@ function doPost(e) {
                                 date: normalizeIncidentDate(row.Date, row.ID),
                                 hour: parseInt(row.Hour) || 0,
                                 time: normalizeIncidentTime(row.Time, row.Hour),
+                                // แถวเก่าในชีตยังไม่มีคอลัมน์ Shift ปล่อยว่างไว้ให้ getIncidentShift อนุมานเอง
+                                shift: String(row.Shift || '').trim() === 'Night' ? 'Night'
+                                     : String(row.Shift || '').trim() === 'Day' ? 'Day' : '',
                                 line: row.Line,
                                 model: row.Model || 'All',
                                 jobOrder: row.JobOrder || row['Job Order'] || '',
@@ -3983,6 +3987,9 @@ function doPost(e) {
                 date: activeDate,
                 hour: hour,
                 time: timeValue,
+                // เก็บกะไว้ตั้งแต่ตอนบันทึก จะได้ไม่ต้องอนุมานย้อนหลังทุกครั้งที่อ่าน
+                // (ยังอนุมานเป็นค่าสำรองอยู่ สำหรับบันทึกเก่าที่บันทึกไว้ก่อนมีคอลัมน์นี้)
+                shift: shiftFromHour(hour),
                 line: line,
                 model: model,
                 jobOrder: jobOrder,
@@ -4044,7 +4051,11 @@ function doPost(e) {
             // เลือกช่วงหลายวันแล้วเหตุการณ์ของวันอื่นจะได้ไม่หายไป
             const startDate = els.filterStartDate.value;
             const endDate = els.filterEndDate.value || startDate;
-            const dayIncidents = getIncidentsInRange(startDate, endDate, 'All');
+            // เคารพตัวกรองไลน์กับกะเหมือนที่รายงาน PDF ทำ ก่อนหน้านี้ตรงนี้ส่ง 'All' ตายตัว
+            // ตารางจึงโชว์ทุกไลน์ทุกกะแม้เลือกกรองไว้ ทำให้ตัวเลขบนหน้าจอกับในรายงานไม่ตรงกัน
+            const activeLine = els.filterLine ? els.filterLine.value : 'All';
+            const activeShift = els.filterShift ? els.filterShift.value : 'All';
+            const dayIncidents = getIncidentsInRange(startDate, endDate, activeLine, activeShift);
             setRangeLabel('incident-range-label', startDate, endDate);
 
             dayIncidents.sort((a, b) =>
@@ -4055,10 +4066,18 @@ function doPost(e) {
 
             if (dayIncidents.length === 0) {
                 const rangeLabel = startDate === endDate ? 'วันที่เลือก' : 'ช่วงวันที่เลือก';
+                // ตอนนี้ตารางกรองไลน์กับกะด้วยแล้ว ถ้าไม่บอกว่ากรองอะไรอยู่
+                // ตารางว่างจะดูเหมือนข้อมูลหาย ทั้งที่จริงแค่ถูกกรองออก
+                const narrowed = [];
+                if (activeLine && activeLine !== 'All') narrowed.push(`Line ${activeLine}`);
+                if (activeShift && activeShift !== 'All') narrowed.push(activeShift === 'Night' ? 'กะดึก' : 'กะเช้า');
+                const narrowNote = narrowed.length
+                    ? ` เฉพาะ${narrowed.join(' · ')} (ลองเปลี่ยนตัวกรองด้านบนเป็นทุกไลน์/ทุกกะเพื่อดูรายการทั้งหมด)`
+                    : ' (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)';
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="8" class="text-center p-6 text-slate-400 italic">
-                            ยังไม่มีการรายงานปัญหาขัดข้องใน${rangeLabel} (คลิกแท่งกราฟเพื่อเริ่มบันทึกปัญหาของแต่ละชั่วโมงได้เลยครับ)
+                            ยังไม่มีการรายงานปัญหาขัดข้องใน${rangeLabel}${narrowNote}
                         </td>
                     </tr>
                 `;
@@ -4132,6 +4151,7 @@ function doPost(e) {
                 line: incident.line,
                 model: incident.model || 'All',
                 jobOrder: incident.jobOrder || '',
+                shift: incident.shift || shiftFromHour(incident.hour),
                 category: incident.category,
                 categoryText: incident.categoryText,
                 notes: incident.notes
@@ -4497,6 +4517,9 @@ function doPost(e) {
                                         model: row.Model || 'All',
                                         jobOrder: row.JobOrder || row['Job Order'] || '',
                                         time: normalizeIncidentTime(row.Time, row.Hour),
+                                        // แถวเก่าในชีตยังไม่มีคอลัมน์ Shift ปล่อยว่างไว้ให้ getIncidentShift อนุมานเอง
+                                        shift: String(row.Shift || '').trim() === 'Night' ? 'Night'
+                                             : String(row.Shift || '').trim() === 'Day' ? 'Day' : '',
                                         category: row.Category,
                                         categoryText: row.CategoryText,
                                         notes: row.Notes
@@ -4792,7 +4815,45 @@ function doPost(e) {
             };
         }
 
-        function getIncidentsInRange(startDate, endDate, activeLine) {
+        /**
+         * อนุมานกะจากชั่วโมงด้วยกติกาเดียวกับตอนอ่านบาร์โค้ด (00:00-07:59 และ 20:00-23:59 คือกะดึก)
+         * ต่างกันตรงที่ไม่ต้องเลื่อนวัน เพราะวันที่ของเหตุการณ์เป็นวันผลิตอยู่แล้ว
+         * (มาจากวันที่ที่เลือกบนกราฟ ไม่ใช่เวลานาฬิกาดิบเหมือนแถวสแกน)
+         */
+        function shiftFromHour(hour) {
+            const h = parseInt(hour, 10);
+            if (!Number.isFinite(h)) return 'Day';
+            return (h < 8 || h >= 20) ? 'Night' : 'Day';
+        }
+
+        /** หากะปลายทางของการโอนยอดที่ครอบ วัน/ไลน์/ชั่วโมง นี้ ถ้าไม่มีคืน null */
+        function shiftTransferTargetFor(date, line, hour) {
+            const h = parseInt(hour, 10);
+            if (!date || !Number.isFinite(h)) return null;
+            let target = null;
+            Object.values(shiftTransfers).forEach(t => {
+                if (!t || t.date !== date || String(t.line) !== String(line)) return;
+                if (hoursInRange(t.fromHour, t.toHour).indexOf(h) === -1) return;
+                target = t.targetShift;
+            });
+            return target;
+        }
+
+        /**
+         * กะของเหตุการณ์หนึ่งรายการ
+         * ใช้ค่าที่บันทึกไว้ก่อน ถ้าไม่มี (บันทึกเก่าที่ยังไม่มีคอลัมน์นี้) จึงอนุมานจากชั่วโมง
+         * แล้วให้การโอนยอดข้ามกะทับอีกชั้น เหตุการณ์ตอน 21:00 ที่โอนเข้ากะเช้าแล้วจะได้ไม่ค้างอยู่ในกะดึก
+         * ต้องอนุมานทับค่าที่บันทึกไว้ด้วย เพราะการโอนอาจเกิดขึ้นทีหลังจากวันที่บันทึกเหตุการณ์
+         */
+        function getIncidentShift(inc) {
+            if (!inc) return 'Day';
+            const base = (inc.shift === 'Day' || inc.shift === 'Night') ? inc.shift : shiftFromHour(inc.hour);
+            // เหตุการณ์ที่บันทึกว่ากระทบทุกไลน์ ไม่ได้ผูกกับไลน์ใดไลน์หนึ่ง จึงไม่ถูกโอนตามไลน์
+            if (!inc.line || inc.line === 'All') return base;
+            return shiftTransferTargetFor(inc.date, inc.line, inc.hour) || base;
+        }
+
+        function getIncidentsInRange(startDate, endDate, activeLine, activeShift) {
             loadIncidents();
             const list = [];
             Object.keys(incidentLogs).forEach(key => {
@@ -4803,7 +4864,10 @@ function doPost(e) {
                 if (incDate < startDate || incDate > endDate) return;
                 // ถ้าเลือกไลน์เจาะจง ให้เอาเฉพาะเหตุการณ์ของไลน์นั้นกับเหตุการณ์ที่บันทึกไว้ว่ากระทบทุกไลน์
                 if (activeLine && activeLine !== 'All' && inc.line !== 'All' && String(inc.line) !== String(activeLine)) return;
-                list.push({ ...inc, date: incDate });
+                // กะคิดจากวันผลิตที่แปลงแล้ว ไม่ใช่ inc.date ดิบ เพราะคีย์ของการโอนยอดใช้วันผลิตเหมือนกัน
+                const incShift = getIncidentShift({ ...inc, date: incDate });
+                if (activeShift && activeShift !== 'All' && incShift !== activeShift) return;
+                list.push({ ...inc, date: incDate, shift: incShift });
             });
             list.sort((a, b) =>
                 String(a.date).localeCompare(String(b.date)) ||
@@ -5327,7 +5391,7 @@ function doPost(e) {
             );
 
             // เหตุการณ์ในช่วงและไลน์เดียวกับรายงาน ใช้อธิบายว่า Job ค้างเพราะอะไร
-            const incidentsInScope = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
+            const incidentsInScope = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
 
             const body = [[
                 pdfHeaderCell('Job Order'),
@@ -5531,11 +5595,11 @@ function doPost(e) {
         }
 
         function buildReportIncidentsContent(scope) {
-            const incidents = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue);
+            const incidents = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
             const heading = pdfHeading('บันทึกเหตุการณ์และปัญหาผลิต (Incident Log)');
 
             if (incidents.length === 0) {
-                return [...heading, pdfNote('ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่และไลน์ที่เลือก')];
+                return [...heading, pdfNote('ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่ ไลน์ และกะที่เลือก')];
             }
 
             const body = [[

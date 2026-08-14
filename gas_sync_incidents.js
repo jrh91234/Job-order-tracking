@@ -381,7 +381,7 @@ function doPost(e) {
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"]);
+      sheet.appendRow(["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time", "Shift"]);
     }
     
     var id = data.id;
@@ -409,7 +409,7 @@ function doPost(e) {
     // เขียนค่าโดยอิงชื่อคอลัมน์ในหัวตารางจริง ไม่ใช่ตำแหน่งตายตัว
     // ชีตเดิมมีแค่ 8 คอลัมน์ (ไม่มี JobOrder กับ Time) โค้ดนี้จะเติมหัวคอลัมน์ที่ขาดให้เอง
     // แถวเก่าที่มีอยู่แล้วจะเว้นว่างในคอลัมน์ใหม่ ไม่ถูกแตะต้อง
-    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time"];
+    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time", "Shift"];
     var headers = values.length > 0 ? values[0].slice() : [];
     var added = false;
     for (var c = 0; c < REQUIRED_COLS.length; c++) {
@@ -436,7 +436,10 @@ function doPost(e) {
       "Notes": data.notes,
       // นำหน้าด้วย ' เพื่อบังคับให้ Sheets เก็บเป็นข้อความ ไม่แปลง "02:00" เป็นค่าชนิดเวลา
       // (ค่าชนิดเวลาจะถูกส่งกลับเป็น ISO ฐานปี 1899 แล้วแสดงผลเพี้ยน) getValues() จะไม่คืน ' ออกมา
-      "Time": data.time ? "'" + data.time : ""
+      "Time": data.time ? "'" + data.time : "",
+      // กะที่หน้าจอคำนวณไว้แล้ว เก็บไว้เพื่อให้ดูจากในชีตตรง ๆ ได้ว่าแถวไหนอยู่กะไหน
+      // แถวเก่าที่ยังว่างอยู่ ฝั่งหน้าจอจะอนุมานจากคอลัมน์ Hour ให้เอง
+      "Shift": data.shift === "Night" ? "Night" : data.shift === "Day" ? "Day" : ""
     };
 
     var rowData = [];
