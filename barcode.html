@@ -3877,6 +3877,22 @@ function doPost(e) {
                 selectTimeMinute.value = m;
             };
 
+            const captureIncidentDraft = () => ({
+                line: selectLine.value,
+                model: selectModel.value,
+                jobOrder: document.getElementById('incident-job').value,
+                category: selectCat.value,
+                notes: textareaNotes.value
+            });
+
+            const restoreIncidentDraft = (draft) => {
+                selectLine.value = draft.line;
+                selectModel.value = draft.model;
+                populateIncidentJobOptions(draft.jobOrder);
+                selectCat.value = draft.category;
+                textareaNotes.value = draft.notes;
+            };
+
             const activeDate = els.filterStartDate.value;
 
             // Populate model select dropdown dynamically based on models produced on this activeDate
@@ -3923,8 +3939,15 @@ function doPost(e) {
                 }
             };
 
-            selectTimeHour.onchange = updateExistingFields;
-            selectTimeMinute.onchange = updateExistingFields;
+            const preserveIncidentDraftOnTimeChange = () => {
+                const draft = captureIncidentDraft();
+                editingIncidentId = null;
+                btnDelete.classList.add('hidden');
+                restoreIncidentDraft(draft);
+            };
+
+            selectTimeHour.onchange = preserveIncidentDraftOnTimeChange;
+            selectTimeMinute.onchange = preserveIncidentDraftOnTimeChange;
             selectLine.onchange = updateExistingFields;
             selectModel.onchange = updateExistingFields;
 
