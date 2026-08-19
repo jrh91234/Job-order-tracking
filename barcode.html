@@ -1505,6 +1505,10 @@ function doPost(e) {
             };
         }
 
+        // เดิมใช้ฮาร์ดโค้ดนี้เดาจำนวนชิ้นต่อ 1 แถว เพราะไม่มีทางรู้จาก Log ว่าแถวที่ barcode+เวลา
+        // ตรงกันเป๊ะคือการสแกนตั้งใจนับหลายชิ้น (Multiply) หรือสแกนซ้ำโดยไม่ตั้งใจ ตอนนี้ H9
+        // ส่งคอลัมน์ ScanGroupID มาผูกแถวที่มาจากการสแกนครั้งเดียวกันแล้ว (ดู parseRawLogs)
+        // ฟังก์ชันนี้เหลือไว้เป็น fallback สำหรับแถวเก่าก่อนมีคอลัมน์นี้เท่านั้น
         function getScanQuantity(model) {
             if (!model) return 1;
             const normModel = model.trim().toUpperCase();
@@ -1516,38 +1520,33 @@ function doPost(e) {
 
         function parseRawLogs() {
             processedScans = [];
-            const seen = new Set();
             const tempScans = [];
-            
+            const byGroupId = new Map();   // ScanGroupID -> แถวดิบทั้งหมดในกลุ่ม (แถวจาก H9 รุ่นใหม่)
+            const legacySeen = new Set();  // barcode_dateTimeRaw -> ใช้กับแถวเก่าที่ไม่มี ScanGroupID เท่านั้น
+
             rawBarcodeLogs.forEach(row => {
                 const dateTimeRaw = String(row['Date/Time'] || '').trim();
                 if (!dateTimeRaw || dateTimeRaw.toLowerCase() === 'date/time') return; // Skip headers
 
                 const parts = dateTimeRaw.split(' ');
                 if (parts.length < 2) return;
-                
+
                 const beDateStr = parts[0]; // D/M/BE e.g. "7/7/2569"
                 const timeStr = parts[1];   // H:M:S e.g. "08:19:39"
                 const barcode = String(row['Barcode'] || '-').trim();
                 const status = String(row['Status'] || 'OK').trim();
-
-                // 1. คัดกรองข้อมูลสแกนซ้ำซ้อนในวินาทีเดียวกัน (Duplicate Row)
-                const duplicateKey = `${barcode}_${dateTimeRaw}`;
-                if (seen.has(duplicateKey)) {
-                    return;
-                }
-                seen.add(duplicateKey);
+                const scanGroupId = String(row['ScanGroupID'] || '').trim();
 
                 // Apply day splitting rules
                 const mapping = getProductionDateAndShift(beDateStr, timeStr);
-                
+
                 // คำนวณหา timestamp ดิบเพื่อใช้เรียงลำดับเวลา
                 const pDate = mapping.prodDateStr.split('-').map(Number);
                 const pTime = timeStr.split(':').map(Number);
                 const ts = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
 
                 const modelName = String(row['Model'] || '-').trim();
-                tempScans.push({
+                const scan = {
                     rawDateTime: dateTimeRaw,
                     prodDate: mapping.prodDateStr,
                     displayDate: mapping.displayDateStr,
@@ -1559,38 +1558,42 @@ function doPost(e) {
                     barcode: barcode,
                     status: status,
                     line: String(row['Line'] || '-').trim(),
-                    ts: ts,
-                    qty: getScanQuantity(modelName)
-                });
-            });
+                    ts: ts
+                };
 
-            // เรียงลำดับเวลาจากเก่าไปใหม่ เพื่อนำมาตรวจจับแสกนเบิ้ล (Double-Scan) ที่เวลาตรงกันเป๊ะ
-            tempScans.sort((a, b) => a.ts - b.ts);
-
-            const lastScanByLineAndBarcode = {};
-            const filteredScansTemp = [];
-
-            tempScans.forEach(s => {
-                const lineKey = s.line || 'DEFAULT';
-                const barcode = s.barcode;
-
-                if (s.status.toUpperCase() === 'OK' && barcode && barcode !== '-') {
-                    const trackingKey = `${lineKey}_${barcode}`;
-                    const prevScan = lastScanByLineAndBarcode[trackingKey];
-                    if (prevScan) {
-                        if (s.ts === prevScan.ts) {
-                            // สแกนบาร์โค้ดเดิมในไลน์เดิมที่เวลาตรงกันเป๊ะ -> ถือว่าซ้ำ ข้ามไม่นำมาบันทึก
-                            return;
-                        }
-                    }
-                    lastScanByLineAndBarcode[trackingKey] = s;
+                if (scanGroupId) {
+                    // แถวจาก H9 รุ่นใหม่: ScanGroupID ตรงกัน = มาจากการสแกนครั้งเดียวกันแน่นอน
+                    // (ไม่ว่าจะ 1 หรือหลายแถว) เก็บทุกแถวไว้ก่อนเพื่อนับจำนวนจริงทีหลัง
+                    if (!byGroupId.has(scanGroupId)) byGroupId.set(scanGroupId, []);
+                    byGroupId.get(scanGroupId).push(scan);
+                } else {
+                    // แถวเก่าก่อนมีคอลัมน์ ScanGroupID: ไม่มีทางรู้เจตนา ใช้กติกาเดิม
+                    // (barcode+เวลาตรงกันเป๊ะ = ถือว่าซ้ำ) เพื่อไม่ให้พฤติกรรมข้อมูลเก่าเปลี่ยนไป
+                    const legacyKey = `${barcode}_${dateTimeRaw}`;
+                    if (legacySeen.has(legacyKey)) return;
+                    legacySeen.add(legacyKey);
+                    scan.qty = getScanQuantity(modelName);
+                    tempScans.push(scan);
                 }
-                filteredScansTemp.push(s);
             });
+
+            // แถวรุ่นใหม่: 1 กลุ่ม (ScanGroupID เดียวกัน) = 1 การสแกนจริงเสมอ จำนวนแถวในกลุ่ม
+            // *คือ* qty จริงโดยตรง ไม่ต้องเดาจาก getScanQuantity อีกต่อไป
+            byGroupId.forEach(groupRows => {
+                const rep = groupRows[0];
+                rep.qty = groupRows.length;
+                tempScans.push(rep);
+            });
+
+            // หมายเหตุ: เดิมมีตัวกรอง "แสกนเบิ้ลที่เวลาตรงกันเป๊ะ" อีกชั้นตรงนี้ (เทียบ line+barcode+ts)
+            // แต่เอาออกแล้ว เพราะ tempScans ตอนนี้ถูกยุบซ้ำจนเหลือ 1 แถวต่อ 1 การสแกนจริงเรียบร้อย
+            // ตั้งแต่ขั้นตอนด้านบน (กลุ่มตาม ScanGroupID สำหรับแถวใหม่ / barcode+เวลา สำหรับแถวเก่า)
+            // ตัวกรองชั้นนี้จึงไม่มีอะไรให้จับซ้ำอีกอยู่แล้วในทางปฏิบัติ และถ้าปล่อยไว้จะกลับกลาย
+            // เป็นยุบการสแกนที่ตั้งใจแยกกันจริงๆ แต่บังเอิญเวลาตรงกันเป๊ะ (คนละ ScanGroupID) ทิ้งไปผิดๆ
 
             // เรียงลำดับเวลาใหม่จากใหม่ไปเก่า (Latest first) เพื่อนำไปใช้งานด้านหน้าตาราง Feed
-            filteredScansTemp.sort((a, b) => b.ts - a.ts);
-            processedScans = filteredScansTemp;
+            tempScans.sort((a, b) => b.ts - a.ts);
+            processedScans = tempScans;
 
             // เขียนทับกะตามที่ผู้ใช้สั่งโอนไว้ ก่อนที่ส่วนอื่นจะหยิบข้อมูลไปใช้
             applyShiftTransfers();
