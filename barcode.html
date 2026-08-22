@@ -356,7 +356,12 @@
                 <table class="w-full text-left border-collapse text-xs">
                     <thead>
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
-                            <th class="p-3">รุ่นสินค้า (Model)</th>
+                            <th class="p-3 cursor-pointer select-none hover:text-indigo-600 transition-colors" onclick="toggleCapacityAuditorSort()">
+                                <span class="inline-flex items-center gap-1">
+                                    รุ่นสินค้า (Model)
+                                    <span id="capacity-auditor-sort-icon-wrap"><i data-lucide="arrow-up-down" class="w-3.5 h-3.5 text-slate-400"></i></span>
+                                </span>
+                            </th>
                             <th class="p-3 text-center">กำลังผลิต 100% (Max)</th>
                             <th class="p-3 text-center">เฉลี่ยจริงรวม downtime (Actual Avg)</th>
                             <th class="p-3 text-center">ความเร็วสูงสุดที่เคยทำได้ (Peak Cap)</th>
@@ -1209,6 +1214,7 @@ function doPost(e) {
         let prevHourlyLabels = []; // To track if hourly labels changed
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
         let showChartValues = true;  // Toggle state to show/hide value labels on horizontal chart
+        let capacityAuditorSort = null; // null = ลำดับตามที่พบข้อมูล, 'asc'/'desc' = เรียงตามชื่อรุ่นสินค้า
         let isDemoMode = false;
 
         // Incident Events Pools
@@ -2847,14 +2853,35 @@ function doPost(e) {
             });
         }
 
+        function toggleCapacityAuditorSort() {
+            // สลับสถานะ: ยังไม่เรียง -> เรียง A-Z -> เรียง Z-A -> กลับไปยังไม่เรียง
+            capacityAuditorSort = capacityAuditorSort === 'asc' ? 'desc' : capacityAuditorSort === 'desc' ? null : 'asc';
+            renderCapacityAuditor();
+        }
+
         function renderCapacityAuditor() {
             const tbody = document.getElementById('capacity-auditor-tbody');
             if (!tbody) return;
 
-            const rows = computeCapacityRows();
+            const sortIconWrap = document.getElementById('capacity-auditor-sort-icon-wrap');
+            if (sortIconWrap) {
+                const iconName = capacityAuditorSort === 'asc' ? 'arrow-up' : capacityAuditorSort === 'desc' ? 'arrow-down' : 'arrow-up-down';
+                const colorClass = capacityAuditorSort ? 'text-indigo-600' : 'text-slate-400';
+                sortIconWrap.innerHTML = `<i data-lucide="${iconName}" class="w-3.5 h-3.5 ${colorClass}"></i>`;
+            }
+
+            let rows = computeCapacityRows();
             if (rows.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="text-center p-4 text-slate-400">ไม่มีข้อมูลการผลิต</td></tr>`;
+                if (window.lucide) lucide.createIcons();
                 return;
+            }
+
+            if (capacityAuditorSort) {
+                rows = [...rows].sort((a, b) => {
+                    const cmp = a.modelName.localeCompare(b.modelName, undefined, { numeric: true, sensitivity: 'base' });
+                    return capacityAuditorSort === 'asc' ? cmp : -cmp;
+                });
             }
 
             let html = '';
@@ -2877,6 +2904,7 @@ function doPost(e) {
             });
 
             tbody.innerHTML = html;
+            if (window.lucide) lucide.createIcons();
         }
 
         function renderManpowerTable() {
