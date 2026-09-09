@@ -4948,7 +4948,8 @@ function doPost(e) {
                 if (!inc || !inc.date) return;
                 // ข้อมูลเก่าใน localStorage อาจเก็บวันที่มาเป็น ISO จากชีต จึงแปลงก่อนเทียบช่วงวันที่ทุกครั้ง
                 const incDate = normalizeIncidentDate(inc.date, inc.id || key);
-                if (incDate < startDate || incDate > endDate) return;
+                if (startDate && incDate < startDate) return;
+                if (endDate && incDate > endDate) return;
                 // ถ้าเลือกไลน์เจาะจง ให้เอาเฉพาะเหตุการณ์ของไลน์นั้นกับเหตุการณ์ที่บันทึกไว้ว่ากระทบทุกไลน์
                 if (activeLine && activeLine !== 'All' && inc.line !== 'All' && String(inc.line) !== String(activeLine)) return;
                 // กะคิดจากวันผลิตที่แปลงแล้ว ไม่ใช่ inc.date ดิบ เพราะคีย์ของการโอนยอดใช้วันผลิตเหมือนกัน
@@ -4962,6 +4963,12 @@ function doPost(e) {
                 String(a.line).localeCompare(String(b.line))
             );
             return list;
+        }
+
+        // เหตุการณ์ทั้งหมดของไลน์ที่เลือก โดยไม่จำกัดช่วงวันที่และกะ
+        // ใช้กับ Job ที่ "หยุดค้าง" ซึ่งสาเหตุมักถูกแจ้งไว้ก่อนช่วงของรายงานฉบับนี้
+        function getIncidentsForLine(activeLine) {
+            return getIncidentsInRange('', '', activeLine, 'All');
         }
 
         function rptEffColor(eff) {
@@ -5452,6 +5459,36 @@ function doPost(e) {
             return summarizeIncidentCategories(exact.concat(byModel));
         }
 
+        // เหตุการณ์ล่าสุดที่แจ้งไว้ของ Job นี้ ใช้วิธีจับคู่เดียวกับ summarizeIncidentsForJob
+        // (ระบุ Job order ไว้ = ตรงตัว, ไม่ได้ระบุ = เดาจากรุ่นสินค้า)
+        function findLatestIncidentForJob(incidents, job, model) {
+            const targetJob = String(job || '').trim();
+            const targetModel = String(model || '').trim();
+
+            const matched = incidents.filter(inc => {
+                const incJob = String(inc.jobOrder || '').trim();
+                if (incJob) return targetJob && incJob === targetJob;
+                return inc.model !== 'All' && targetModel && String(inc.model || '').trim() === targetModel;
+            });
+            if (matched.length === 0) return null;
+
+            return matched.reduce((latest, inc) => {
+                const cmp = String(inc.date).localeCompare(String(latest.date)) || ((inc.hour || 0) - (latest.hour || 0));
+                return cmp > 0 ? inc : latest;
+            });
+        }
+
+        // ข้อความสาเหตุล่าสุดสำหรับคอลัมน์หมายเหตุ บอกวันเวลาที่แจ้งไว้ด้วย
+        // เพราะเป็นเหตุการณ์นอกช่วงของรายงาน คนอ่านต้องรู้ว่าเก่าแค่ไหน
+        function formatLatestIncidentNote(inc) {
+            const label = inc.categoryText || inc.category || 'อื่น ๆ';
+            const timeText = normalizeIncidentTime(inc.time, inc.hour) || `${String(inc.hour || 0).padStart(2, '0')}:00`;
+            const lines = [`แจ้งล่าสุด ${formatThaiDate(inc.date)} ${timeText} น. · ${label}`];
+            const notes = String(inc.notes || '').trim();
+            if (notes) lines.push(notes);
+            return lines.join('\n');
+        }
+
         function buildReportJobStatusContent(scope) {
             if (!planJobs || planJobs.length === 0) return [];
 
@@ -5479,6 +5516,10 @@ function doPost(e) {
 
             // เหตุการณ์ในช่วงและไลน์เดียวกับรายงาน ใช้อธิบายว่า Job ค้างเพราะอะไร
             const incidentsInScope = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
+
+            // Job ที่หยุดค้างมักหยุดไปตั้งแต่ก่อนช่วงของรายงาน สาเหตุจึงไม่อยู่ใน incidentsInScope
+            // จึงเก็บเหตุการณ์ทั้งหมดของไลน์นี้ไว้อีกชุด สำหรับถอยไปหาการแจ้งครั้งล่าสุดของ Job นั้น
+            const incidentsAllTime = getIncidentsForLine(scope.lineValue);
 
             const body = [[
                 pdfHeaderCell('Job Order'),
@@ -5521,12 +5562,21 @@ function doPost(e) {
                 // เตือนเฉพาะงานที่ "เคยเดินแล้วหยุด" ซึ่งควรมีคนอธิบายได้ว่าติดอะไร
                 // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
                 const isStalled = inPeriod === 0 && j.actual > 0;
-                const noteText = noteParts.length > 0
-                    ? noteParts.join('\n')
-                    : (isStalled ? 'ยังไม่มีบันทึกสาเหตุ' : '-');
-                const noteColor = noteParts.length > 0
-                    ? PDF_COLOR.text
-                    : (isStalled ? PDF_COLOR.warn : PDF_COLOR.muted);
+
+                // ยังไม่มีสาเหตุในช่วงรายงาน + งานหยุดค้าง ให้ถอยไปดึงเหตุการณ์ที่แจ้งไว้ล่าสุดของ Job นี้มาแสดงแทน
+                // ดีกว่าปล่อยให้ขึ้นว่า "ยังไม่มีบันทึกสาเหตุ" ทั้งที่เคยมีคนแจ้งไว้แล้วแค่คนละช่วงเวลา
+                let noteText, noteColor;
+                if (noteParts.length > 0) {
+                    noteText = noteParts.join('\n');
+                    noteColor = PDF_COLOR.text;
+                } else if (isStalled) {
+                    const latestIncident = findLatestIncidentForJob(incidentsAllTime, j.job, j.model);
+                    noteText = latestIncident ? formatLatestIncidentNote(latestIncident) : 'ยังไม่มีบันทึกสาเหตุ';
+                    noteColor = PDF_COLOR.warn;
+                } else {
+                    noteText = '-';
+                    noteColor = PDF_COLOR.muted;
+                }
 
                 body.push([
                     pdfCell(j.job),
@@ -5570,7 +5620,8 @@ function doPost(e) {
                 pdfNote('คอลัมน์หมายเหตุ: รวมข้อความจากช่อง Remark ในชีต Plan เข้ากับเหตุการณ์ที่บันทึกไว้ในช่วงของรายงานนี้ · ' +
                     'เหตุการณ์ที่ระบุ Job order ไว้จะจับคู่ตรงตัว ส่วนเหตุการณ์เก่าที่ยังไม่มี Job order จะเดาจากรุ่นสินค้าแทน ' +
                     'ซึ่งถ้ามีหลาย Job ผลิตรุ่นเดียวกันก็จะขึ้นให้ทุก Job นั้น · ' +
-                    'แถวที่ขึ้นว่า "ยังไม่มีบันทึกสาเหตุ" คือ Job ที่เคยเดินแล้วหยุดโดยไม่มีใครรายงานว่าติดอะไร เป็นจุดที่ควรตามก่อน')
+                    'Job ที่หยุดค้างและไม่มีเหตุการณ์ในช่วงนี้ จะถอยไปแสดงเหตุการณ์ที่แจ้งไว้ล่าสุดของ Job นั้นพร้อมวันเวลาที่แจ้ง (ขึ้นต้นว่า "แจ้งล่าสุด") · ' +
+                    'แถวที่ขึ้นว่า "ยังไม่มีบันทึกสาเหตุ" คือ Job ที่เคยเดินแล้วหยุดโดยไม่เคยมีใครรายงานว่าติดอะไรเลย เป็นจุดที่ควรตามก่อน')
             ].filter(Boolean); // allModelNote เป็น null ได้เมื่อไม่มีเหตุการณ์ที่กระทบทุกรุ่น
         }
 
