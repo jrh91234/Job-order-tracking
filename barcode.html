@@ -336,8 +336,10 @@
                     </label>
                 </div>
                 <div id="live-running-container" class="mt-2 flex flex-wrap gap-2 text-xs border-b border-slate-100 pb-3"></div>
-                <div class="relative h-72 w-full">
-                    <canvas id="modelChart"></canvas>
+                <div id="model-chart-scroll" class="relative h-72 w-full overflow-y-auto overflow-x-hidden pr-1">
+                    <div id="model-chart-holder" class="relative w-full h-full">
+                        <canvas id="modelChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2556,12 +2558,40 @@ function doPost(e) {
                 liveRunningContainer.innerHTML = html;
             }
 
-            // Sort models by quantity descending
+            // เรียงรุ่นตามยอดผลิตมากไปน้อย โดยตรึงรุ่นที่กำลัง RUNNING ไว้ด้านบนสุดเสมอ
+            // เพื่อไม่ให้รุ่นที่กำลังเดินไลน์อยู่หลุดหายไปจากกราฟตอนยอดสะสมยังน้อย
             const sortedModels = Object.entries(modelGroups).sort((a, b) => b[1] - a[1]);
-            const topModels = sortedModels.slice(0, 10); // Display top 10
+            const runningEntries = sortedModels.filter(m => runningModels[m[0]]);
+            const otherEntries = sortedModels.filter(m => !runningModels[m[0]]);
 
-            const modelLabels = topModels.map(m => m[0]);
-            const modelCounts = topModels.map(m => m[1]);
+            // รุ่นที่ RUNNING อยู่แต่ยังไม่มียอดสแกน OK ในช่วงที่กรอง ก็ยังต้องมีแถวของตัวเองในกราฟ
+            Object.keys(runningModels).forEach(modelName => {
+                if (!(modelName in modelGroups)) {
+                    runningEntries.push([modelName, 0]);
+                }
+            });
+
+            // แสดงครบทุกรุ่น (เลื่อนดูได้ในกราฟ) ไม่ตัดเหลือแค่ Top 10 อีกต่อไป
+            const displayModels = [...runningEntries, ...otherEntries];
+
+            const modelLabels = displayModels.map(m => m[0]);
+            const modelCounts = displayModels.map(m => m[1]);
+
+            // ปรับความสูงของพื้นที่กราฟตามจำนวนรุ่น แล้วให้กล่องครอบเลื่อนแนวตั้งแทน
+            const modelChartScroll = document.getElementById('model-chart-scroll');
+            const modelChartHolder = document.getElementById('model-chart-holder');
+            let modelChartHeightChanged = false;
+            if (modelChartHolder && modelChartScroll) {
+                const MODEL_ROW_HEIGHT = 30;   // ความสูงต่อ 1 แถวรุ่น
+                const MODEL_AXIS_SPACE = 46;   // เผื่อพื้นที่แกน X ด้านล่าง
+                const visibleHeight = modelChartScroll.clientHeight || 288;
+                const neededHeight = Math.max(visibleHeight, modelLabels.length * MODEL_ROW_HEIGHT + MODEL_AXIS_SPACE);
+                const newHeight = neededHeight + 'px';
+                if (modelChartHolder.style.height !== newHeight) {
+                    modelChartHolder.style.height = newHeight;
+                    modelChartHeightChanged = true;
+                }
+            }
 
             // บันทึกตัวแปรขอบเขตระดับบนสุด
             activeRunningModels = runningModels;
@@ -2677,6 +2707,9 @@ function doPost(e) {
             };
 
             if (modelChartObj) {
+                // จำนวนรุ่นเปลี่ยน = ความสูงพื้นที่กราฟเปลี่ยน ต้องสั่ง resize ก่อนอัปเดตข้อมูล
+                if (modelChartHeightChanged) modelChartObj.resize();
+
                 const prevCounts = modelChartObj.prevCounts || [];
                 const prevLabels = modelChartObj.prevLabels || [];
 
