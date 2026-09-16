@@ -344,6 +344,23 @@
             </div>
         </div>
 
+        <!-- Chart 3: Daily Output by Model (Stacked) -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตามรุ่น (Daily Output)</h3>
+                    <p class="text-xs text-slate-400">แท่งละ 1 วัน สแตกทุกรุ่นเข้าด้วยกัน · เลือกช่วงวันที่ด้านบนเพื่อดูยอดรายวันทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
+                </div>
+                <div id="daily-model-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
+            </div>
+            <div id="daily-model-chart-scroll" class="relative h-80 w-full overflow-x-auto overflow-y-hidden">
+                <div id="daily-model-chart-holder" class="relative h-full w-full">
+                    <canvas id="dailyModelChart"></canvas>
+                </div>
+            </div>
+            <p id="daily-model-empty" class="hidden text-center text-xs text-slate-400 py-6">ไม่มีข้อมูลการผลิตในช่วงวันที่ที่เลือก</p>
+        </div>
+
         <!-- Actual Capacity Auditor Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div>
@@ -1272,6 +1289,7 @@ function doPost(e) {
         // Charts
         let hourlyChartObj = null;
         let modelChartObj = null;
+        let dailyModelChartObj = null;
 
         // สรุปตัวเลขรายชั่วโมงที่ renderCharts() คำนวณไว้ล่าสุด ใช้ต่อในรายงาน PDF โดยไม่ต้องคำนวณซ้ำ
         let lastHourlySummary = null;
@@ -1366,6 +1384,10 @@ function doPost(e) {
                     if (hourlyChartObj) {
                         hourlyChartObj.options.plugins.hourlyChartValuePlugin.enabled = showChartValues;
                         hourlyChartObj.update();
+                    }
+                    if (dailyModelChartObj) {
+                        dailyModelChartObj.options.plugins.dailyChartValuePlugin.enabled = showChartValues;
+                        dailyModelChartObj.update();
                     }
                 });
             }
@@ -1801,6 +1823,214 @@ function doPost(e) {
         // ==========================================
         // CHARTS RENDERING
         // ==========================================
+        // ==========================================
+        // DAILY OUTPUT CHART (ยอดผลิตรายวัน สแตกทุกรุ่นเข้าด้วยกัน)
+        // ==========================================
+        // ช่วงวันที่สั้นกว่านี้จะแสดงครบทุกวันในช่วง เพื่อให้เห็นวันที่ไม่มียอดด้วย
+        // ถ้ายาวกว่านี้จะเหลือเฉพาะวันที่มีการสแกนจริง ไม่งั้นแท่งว่างจะท่วมกราฟจนอ่านไม่ออก
+        const DAILY_CHART_FULL_RANGE_LIMIT = 31;
+        // ความกว้างขั้นต่ำต่อหนึ่งวัน ถ้าเกินความกว้างการ์ดให้เลื่อนแนวนอนแทนการบีบแท่งจนอ่านตัวเลขไม่ออก
+        const DAILY_CHART_MIN_BAR_WIDTH = 56;
+        const THAI_SHORT_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+
+        // ป้ายแกน X สองบรรทัด: วันที่ไทยแบบสั้น และชื่อวันในสัปดาห์
+        function formatDailyChartLabel(isoDate) {
+            const [y, m, d] = String(isoDate).split('-').map(Number);
+            if (!y || !m || !d) return isoDate;
+            const dayName = THAI_SHORT_DAYS[new Date(y, m - 1, d).getDay()];
+            return [`${d} ${THAI_SHORT_MONTHS[m - 1]}`, dayName];
+        }
+
+        // วาดตัวเลขในแต่ละช่วงสแตก และยอดรวมของวันบนหัวแท่ง (ใช้สวิตช์ "แสดงตัวเลข" ตัวเดียวกับกราฟอื่น)
+        const dailyChartValuePlugin = {
+            id: 'dailyChartValuePlugin',
+            afterDatasetsDraw(chart, args, options) {
+                if (!options.enabled) return;
+                const { ctx } = chart;
+                ctx.save();
+                ctx.font = 'bold 10px Prompt';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                const totals = {};
+                const barPositions = {};
+
+                chart.data.datasets.forEach((dataset, datasetIndex) => {
+                    const meta = chart.getDatasetMeta(datasetIndex);
+                    if (meta.hidden) return;
+                    meta.data.forEach((bar, index) => {
+                        const value = dataset.data[index];
+                        if (!value || value <= 0) return;
+                        totals[index] = (totals[index] || 0) + value;
+                        if (!barPositions[index]) barPositions[index] = [];
+                        barPositions[index].push({ x: bar.x, y: bar.y, base: bar.base, value });
+                    });
+                });
+
+                Object.keys(barPositions).forEach(indexKey => {
+                    const segments = barPositions[indexKey];
+                    if (segments.length > 1) {
+                        segments.forEach(seg => {
+                            if (seg.base - seg.y > 14) {
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillText(seg.value.toLocaleString(), seg.x, (seg.y + seg.base) / 2);
+                            }
+                        });
+                    }
+                    ctx.fillStyle = '#475569';
+                    const topY = Math.min(...segments.map(s => s.y));
+                    ctx.fillText(totals[indexKey].toLocaleString(), segments[0].x, topY - 8);
+                });
+
+                ctx.restore();
+            }
+        };
+
+        function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate) {
+            const canvasEl = document.getElementById('dailyModelChart');
+            if (!canvasEl) return;
+
+            const rangeEnd = endDate || startDate;
+            setRangeLabel('daily-model-range-label', startDate, rangeEnd);
+
+            // รวมยอดชิ้นแยกตามรุ่นและวันผลิตในรอบเดียว ไม่ไล่ filter ซ้ำทีละคู่ (รุ่น × วัน)
+            const qtyByModelDate = {};
+            const qtyByDate = {};
+            okScans.forEach(s => {
+                const qty = s.qty || 1;
+                if (!qtyByModelDate[s.model]) qtyByModelDate[s.model] = {};
+                qtyByModelDate[s.model][s.prodDate] = (qtyByModelDate[s.model][s.prodDate] || 0) + qty;
+                qtyByDate[s.prodDate] = (qtyByDate[s.prodDate] || 0) + qty;
+            });
+
+            const rangeDates = eachDateInRange(startDate, rangeEnd);
+            const datesWithScans = rangeDates.filter(d => qtyByDate[d]);
+            const dateSequence = rangeDates.length <= DAILY_CHART_FULL_RANGE_LIMIT ? rangeDates : datesWithScans;
+
+            const scrollEl = document.getElementById('daily-model-chart-scroll');
+            const holderEl = document.getElementById('daily-model-chart-holder');
+            const summaryEl = document.getElementById('daily-model-summary');
+            const emptyEl = document.getElementById('daily-model-empty');
+
+            const hasData = datesWithScans.length > 0 && dateSequence.length > 0;
+            if (emptyEl) emptyEl.classList.toggle('hidden', hasData);
+            if (scrollEl) scrollEl.classList.toggle('hidden', !hasData);
+            if (!hasData) {
+                if (summaryEl) summaryEl.textContent = '';
+                if (dailyModelChartObj) {
+                    dailyModelChartObj.destroy();
+                    dailyModelChartObj = null;
+                }
+                return;
+            }
+
+            const grandTotal = datesWithScans.reduce((sum, d) => sum + qtyByDate[d], 0);
+            const avgPerDay = Math.round(grandTotal / datesWithScans.length);
+            if (summaryEl) {
+                summaryEl.innerHTML = `รวม <span class="font-mono text-indigo-600">${grandTotal.toLocaleString()}</span> PCS · เฉลี่ย <span class="font-mono text-indigo-600">${avgPerDay.toLocaleString()}</span> PCS/วัน<span class="block text-[10px] font-normal text-slate-400">${datesWithScans.length} วันที่มีการสแกน</span>`;
+            }
+
+            const labels = dateSequence.map(formatDailyChartLabel);
+            const datasets = uniqueModels
+                .filter(modelName => dateSequence.some(d => (qtyByModelDate[modelName] || {})[d]))
+                .map(modelName => ({
+                    type: 'bar',
+                    label: modelName,
+                    data: dateSequence.map(d => (qtyByModelDate[modelName] || {})[d] || 0),
+                    backgroundColor: getModelColor(modelName),
+                    stack: 'daily',
+                    borderRadius: 4,
+                    borderWidth: 0
+                }));
+
+            // กว้างพออ่านได้เสมอ ส่วนที่เกินให้เลื่อนแนวนอนในการ์ด
+            if (holderEl && scrollEl) {
+                const neededWidth = dateSequence.length * DAILY_CHART_MIN_BAR_WIDTH;
+                const newWidth = neededWidth > scrollEl.clientWidth ? `${neededWidth}px` : '100%';
+                if (holderEl.style.width !== newWidth) holderEl.style.width = newWidth;
+            }
+
+            const labelsJson = JSON.stringify(labels);
+            const dataJson = JSON.stringify(datasets.map(d => ({ label: d.label, data: d.data })));
+
+            if (dailyModelChartObj) {
+                if (dailyModelChartObj.prevLabelsJson !== labelsJson || dailyModelChartObj.prevDataJson !== dataJson) {
+                    dailyModelChartObj.data.labels = labels;
+
+                    // อัปเดตชุดข้อมูลเดิมในที่ ไม่สร้างใหม่ทั้งชุด กราฟจะได้ไม่กระพริบทุกครั้งที่รีเฟรชอัตโนมัติ
+                    const existingDatasets = dailyModelChartObj.data.datasets;
+                    const newDatasetsMap = {};
+                    datasets.forEach(d => { newDatasetsMap[d.label] = d; });
+
+                    for (let i = existingDatasets.length - 1; i >= 0; i--) {
+                        const ds = existingDatasets[i];
+                        if (newDatasetsMap[ds.label]) {
+                            ds.data = newDatasetsMap[ds.label].data;
+                            ds.backgroundColor = newDatasetsMap[ds.label].backgroundColor;
+                            delete newDatasetsMap[ds.label];
+                        } else {
+                            existingDatasets.splice(i, 1);
+                        }
+                    }
+                    Object.values(newDatasetsMap).forEach(d => existingDatasets.push(d));
+
+                    dailyModelChartObj.options.plugins.dailyChartValuePlugin.enabled = showChartValues;
+                    dailyModelChartObj.update();
+                    dailyModelChartObj.prevLabelsJson = labelsJson;
+                    dailyModelChartObj.prevDataJson = dataJson;
+                }
+                return;
+            }
+
+            dailyModelChartObj = new Chart(canvasEl.getContext('2d'), {
+                type: 'bar',
+                plugins: [dailyChartValuePlugin],
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { font: { family: 'Prompt', size: 10 }, usePointStyle: true, boxWidth: 8 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString()} PCS`,
+                                footer: (items) => {
+                                    const total = items.reduce((sum, it) => sum + (it.parsed.y || 0), 0);
+                                    return `รวมทั้งวัน: ${total.toLocaleString()} PCS`;
+                                }
+                            },
+                            itemSort: (a, b) => b.parsed.y - a.parsed.y,
+                            filter: (item) => (item.parsed.y || 0) > 0,
+                            bodyFont: { family: 'Prompt', size: 10 },
+                            titleFont: { family: 'Prompt', size: 11 },
+                            footerFont: { family: 'Prompt', size: 10 }
+                        },
+                        dailyChartValuePlugin: { enabled: showChartValues }
+                    },
+                    scales: {
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            ticks: { font: { family: 'Prompt', size: 10 } }
+                        },
+                        x: {
+                            stacked: true,
+                            grid: { display: false },
+                            ticks: { font: { family: 'Prompt', size: 10 }, autoSkip: false }
+                        }
+                    }
+                }
+            });
+            dailyModelChartObj.prevLabelsJson = labelsJson;
+            dailyModelChartObj.prevDataJson = dataJson;
+        }
+
         function renderCharts() {
             // Nice color palette for model stacking & bar colors
             const modelColors = [
@@ -2486,6 +2716,9 @@ function doPost(e) {
                 hourlyChartObj.prevLabels = [...hourLabels];
                 hourlyChartObj.prevDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
             }
+
+            // --- 3. Daily Output Stacked Bar Chart (ยอดรายวัน สแตกทุกรุ่นเข้าด้วยกัน) ---
+            renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd);
 
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
