@@ -1832,6 +1832,7 @@ function doPost(e) {
         // ความกว้างขั้นต่ำต่อหนึ่งวัน ถ้าเกินความกว้างการ์ดให้เลื่อนแนวนอนแทนการบีบแท่งจนอ่านตัวเลขไม่ออก
         const DAILY_CHART_MIN_BAR_WIDTH = 56;
         const THAI_SHORT_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+        const DAILY_TARGET_LABEL = 'เป้าหมาย (Target)';
 
         // ป้ายแกน X สองบรรทัด: วันที่ไทยแบบสั้น และชื่อวันในสัปดาห์
         function formatDailyChartLabel(isoDate) {
@@ -1856,6 +1857,8 @@ function doPost(e) {
                 const barPositions = {};
 
                 chart.data.datasets.forEach((dataset, datasetIndex) => {
+                    // ข้ามเส้นเป้าหมาย พล็อตเป็นเส้นไม่มีฐานแท่งให้วางตัวเลข
+                    if (dataset.type === 'line') return;
                     const meta = chart.getDatasetMeta(datasetIndex);
                     if (meta.hidden) return;
                     meta.data.forEach((bar, index) => {
@@ -1886,7 +1889,7 @@ function doPost(e) {
             }
         };
 
-        function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate) {
+        function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate, targetByDate) {
             const canvasEl = document.getElementById('dailyModelChart');
             if (!canvasEl) return;
 
@@ -1931,17 +1934,37 @@ function doPost(e) {
             }
 
             const labels = dateSequence.map(formatDailyChartLabel);
-            const datasets = uniqueModels
+            const dailyTargets = dateSequence.map(d => Math.round((targetByDate || {})[d] || 0));
+
+            // เส้นเป้าหมายมาก่อนเสมอ (order 0) จะได้วาดทับแท่งไม่ถูกบัง เหมือนกราฟรายชั่วโมง
+            const datasets = [{
+                type: 'line',
+                label: DAILY_TARGET_LABEL,
+                data: dailyTargets,
+                borderColor: '#ef4444',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointRadius: 3,
+                pointBackgroundColor: '#ef4444',
+                fill: false,
+                tension: 0,
+                order: 0
+            }];
+
+            uniqueModels
                 .filter(modelName => dateSequence.some(d => (qtyByModelDate[modelName] || {})[d]))
-                .map(modelName => ({
-                    type: 'bar',
-                    label: modelName,
-                    data: dateSequence.map(d => (qtyByModelDate[modelName] || {})[d] || 0),
-                    backgroundColor: getModelColor(modelName),
-                    stack: 'daily',
-                    borderRadius: 4,
-                    borderWidth: 0
-                }));
+                .forEach(modelName => {
+                    datasets.push({
+                        type: 'bar',
+                        label: modelName,
+                        data: dateSequence.map(d => (qtyByModelDate[modelName] || {})[d] || 0),
+                        backgroundColor: getModelColor(modelName),
+                        stack: 'daily',
+                        borderRadius: 4,
+                        borderWidth: 0,
+                        order: 1
+                    });
+                });
 
             // กว้างพออ่านได้เสมอ ส่วนที่เกินให้เลื่อนแนวนอนในการ์ด
             if (holderEl && scrollEl) {
@@ -1966,7 +1989,9 @@ function doPost(e) {
                         const ds = existingDatasets[i];
                         if (newDatasetsMap[ds.label]) {
                             ds.data = newDatasetsMap[ds.label].data;
-                            ds.backgroundColor = newDatasetsMap[ds.label].backgroundColor;
+                            if (newDatasetsMap[ds.label].backgroundColor) {
+                                ds.backgroundColor = newDatasetsMap[ds.label].backgroundColor;
+                            }
                             delete newDatasetsMap[ds.label];
                         } else {
                             existingDatasets.splice(i, 1);
@@ -2000,12 +2025,23 @@ function doPost(e) {
                             callbacks: {
                                 label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString()} PCS`,
                                 footer: (items) => {
-                                    const total = items.reduce((sum, it) => sum + (it.parsed.y || 0), 0);
-                                    return `รวมทั้งวัน: ${total.toLocaleString()} PCS`;
+                                    const actualItems = items.filter(it => it.dataset.label !== DAILY_TARGET_LABEL);
+                                    const total = actualItems.reduce((sum, it) => sum + (it.parsed.y || 0), 0);
+                                    const targetItem = items.find(it => it.dataset.label === DAILY_TARGET_LABEL);
+                                    const targetVal = targetItem ? (targetItem.parsed.y || 0) : 0;
+                                    const lines = [`รวมทั้งวัน: ${total.toLocaleString()} PCS`];
+                                    if (targetVal > 0) {
+                                        lines.push(`เทียบเป้า: ${Math.round((total / targetVal) * 100)}%`);
+                                    }
+                                    return lines;
                                 }
                             },
-                            itemSort: (a, b) => b.parsed.y - a.parsed.y,
-                            filter: (item) => (item.parsed.y || 0) > 0,
+                            itemSort: (a, b) => {
+                                if (a.dataset.label === DAILY_TARGET_LABEL) return 1;
+                                if (b.dataset.label === DAILY_TARGET_LABEL) return -1;
+                                return b.parsed.y - a.parsed.y;
+                            },
+                            filter: (item) => item.dataset.label === DAILY_TARGET_LABEL || (item.parsed.y || 0) > 0,
                             bodyFont: { family: 'Prompt', size: 10 },
                             titleFont: { family: 'Prompt', size: 11 },
                             footerFont: { family: 'Prompt', size: 10 }
@@ -2221,6 +2257,12 @@ function doPost(e) {
             // ใช้แปลงส่วนต่างจากเป้าให้กลายเป็นเวลาที่สูญเสียไป ตามหลักที่ว่าถ้าเดินอยู่ก็ควรได้เท่ากำลังผลิต
             const availableMinutesByHour = [];
 
+            // เป้าหมายแยกรายวัน สำหรับเส้น Target บนกราฟยอดผลิตรายวัน
+            // สะสมจากสูตรเดียวกับเป้ารายชั่วโมงด้านล่างเป๊ะ ๆ ผลรวมของทุกวันจึงเท่ากับผลรวมเป้าบนกราฟรายชั่วโมง
+            const activeProdDates = Array.from(new Set(okScans.map(s => s.prodDate)));
+            const targetByDate = {};
+            activeProdDates.forEach(d => { targetByDate[d] = 0; });
+
             // คำนวณเป้าหมายรายชั่วโมงสะสมตามจริง (โดยนับวันผลิตเฉพาะชั่วโมงที่มีการสแกนจริงเพื่อไม่ให้เป้าหมายเพี้ยน)
             const hourlyTargets = hourSequence.map((hr, hrIdx) => {
                 const lineTargets = {};
@@ -2230,8 +2272,10 @@ function doPost(e) {
                 const hourScans = okScans.filter(s => s.hour === hr);
                 if (hourScans.length === 0) {
                     // สำหรับชั่วโมงที่ไม่มีการสแกนเลย (เช่น ชั่วโมงในอนาคต) ให้คำนวณเป้าหมายอ้างอิงจากกำลังผลิตเฉลี่ยของวันคูณตัวคูณพักเบรค
-                    const numDates = new Set(okScans.map(s => s.prodDate)).size || 1;
-                    return Math.round(dailyAvgCapacity * getDowntimeMultiplier(hr) * numDates);
+                    const numDates = activeProdDates.length || 1;
+                    const fallbackPerDate = dailyAvgCapacity * getDowntimeMultiplier(hr);
+                    activeProdDates.forEach(d => { targetByDate[d] += fallbackPerDate; });
+                    return Math.round(fallbackPerDate * numDates);
                 }
                 
                 // แยกกลุ่มข้อมูลสแกนในชั่วโมงนี้ตามวันผลิตจริง
@@ -2244,7 +2288,7 @@ function doPost(e) {
                 let totalTargetForHour = 0;
                 
                 // คำนวณเป้าหมายถ่วงน้ำหนักของแต่ละวันที่มีการแสกนจริง แล้วนำมารวมกัน
-                Object.values(scansByDate).forEach(dateScans => {
+                Object.entries(scansByDate).forEach(([scanDate, dateScans]) => {
                     const scansByLine = {};
                     dateScans.forEach(s => {
                         const lineKey = s.line || 'DEFAULT';
@@ -2275,6 +2319,7 @@ function doPost(e) {
                         availableMinutesByHour[hrIdx] += 60 * getDowntimeMultiplier(hr);
                     });
                     totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
+                    targetByDate[scanDate] = (targetByDate[scanDate] || 0) + sumOfLineTargets * getDowntimeMultiplier(hr);
                 });
                 
                 return Math.round(totalTargetForHour);
@@ -2718,7 +2763,7 @@ function doPost(e) {
             }
 
             // --- 3. Daily Output Stacked Bar Chart (ยอดรายวัน สแตกทุกรุ่นเข้าด้วยกัน) ---
-            renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd);
+            renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd, targetByDate);
 
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
