@@ -76,6 +76,21 @@
         .blink-running {
             animation: blink-text 1.2s infinite;
         }
+        /* ไอคอนเครื่องหมายตกใจ เมื่อไลน์ไม่มีการสแกนเกินเกณฑ์ */
+        .line-stall-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border-radius: 9999px;
+            background: #e11d48;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1;
+            flex-shrink: 0;
+        }
 
         /* ==========================================
            กล่อง Modal บนจอมือถือ
@@ -1650,10 +1665,12 @@ function doPost(e) {
                 // Apply day splitting rules
                 const mapping = getProductionDateAndShift(beDateStr, timeStr);
 
-                // คำนวณหา timestamp ดิบเพื่อใช้เรียงลำดับเวลา
-                const pDate = mapping.prodDateStr.split('-').map(Number);
+                // คำนวณหา timestamp ดิบเพื่อใช้เรียงลำดับเวลา ใช้วันที่ตามปฏิทินจริง ไม่ใช่วันผลิต
+                // เดิมใช้วันผลิต สแกนกะดึกหลังเที่ยงคืน (00:00-07:59) จึงได้เวลาย้อนไป 1 วันเต็ม
+                // ทำให้เรียงลำดับข้ามเที่ยงคืนผิด และสถานะ Running ของกะดึกไม่ขึ้นเลย
+                const [cDay, cMonth, cYearBE] = beDateStr.split('/').map(Number);
                 const pTime = timeStr.split(':').map(Number);
-                const ts = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
+                const ts = new Date(cYearBE - 543, cMonth - 1, cDay, pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
 
                 const modelName = String(row['Model'] || '-').trim();
                 const scan = {
@@ -1809,6 +1826,10 @@ function doPost(e) {
             // Repopulate dynamic drop-downs based on date range
             populateFilters();
 
+            // Cycle Time รายรุ่น ใช้ตั้งเกณฑ์เตือนไลน์หยุดนิ่งให้รุ่นที่ประกอบช้า
+            modelCycleSecondsCache = {};
+            computeCapacityRows().forEach(r => { if (r.avgCycleTime > 0) modelCycleSecondsCache[r.modelName] = r.avgCycleTime; });
+
             // Compute KPIs
             calculateKPIs();
 
@@ -1849,11 +1870,8 @@ function doPost(e) {
             // Last Scan and Elapsed Time (แยกตามไลน์การผลิต)
             const formatElapsed = (item) => {
                 // Calculate elapsed time from current clock
-                const pDate = item.prodDate.split('-').map(Number);
-                const pTime = item.time.split(':').map(Number);
-                // Convert BE back to Gregorian year for exact math
-                const scanMs = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
-                const nowMs = new Date().getTime();
+                const scanMs = item.ts;
+                const nowMs = Date.now();
                 const elapsedMin = Math.round((nowMs - scanMs) / 60000);
 
                 if (isNaN(elapsedMin) || elapsedMin < 0) return 'บันทึกเรียลไทม์';
@@ -1875,11 +1893,14 @@ function doPost(e) {
                     els.kpiLastScanLines.innerHTML = lineNames.map(lineName => {
                         const s = lineLastScans[lineName];
                         const label = lineName === '-' ? 'ไม่ระบุไลน์' : `Line ${lineName}`;
+                        const live = lineName === '-' ? null : getLineLiveStatus(s);
+                        const stalled = live && live.state === 'stalled';
+                        const elapsedCls = stalled ? 'text-rose-600 font-bold' : 'text-indigo-500 font-semibold';
                         return `
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] font-bold text-slate-500 shrink-0">${label}</span>
+                                <span class="text-[11px] font-bold ${stalled ? 'text-rose-600' : 'text-slate-500'} shrink-0 inline-flex items-center gap-1">${stalled ? '<span class="line-stall-icon">!</span>' : ''}${label}</span>
                                 <span class="text-xs font-bold text-slate-700 font-mono">${s.time}</span>
-                                <span class="text-[9px] text-indigo-500 font-semibold whitespace-nowrap shrink-0">${formatElapsed(s)}</span>
+                                <span class="text-[9px] ${elapsedCls} whitespace-nowrap shrink-0">${formatElapsed(s)}</span>
                             </div>
                         `;
                     }).join('');
@@ -2877,24 +2898,18 @@ function doPost(e) {
                 modelGroups[s.model] = (modelGroups[s.model] || 0) + (s.qty || 1);
             });
 
-            // หาข้อมูลโมเดลล่าสุดของแต่ละไลน์เพื่อแสดงสถานะ Running
+            // หาข้อมูลโมเดลล่าสุดของแต่ละไลน์เพื่อแสดงสถานะ Running / หยุดนิ่ง / พัก / Idle
             const latestScanByLine = {};
             okScans.forEach(s => {
                 const lineName = s.line;
                 if (lineName && lineName !== '-' && !latestScanByLine[lineName]) {
-                    const parseToTime = (item) => {
-                        const pDate = item.prodDate.split('-').map(Number);
-                        const pTime = item.time.split(':').map(Number);
-                        return new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
-                    };
-                    const scanTime = parseToTime(s);
-                    // ตรวจสอบว่าแสกนล่าสุดภายใน 30 นาทีหรือไม่
-                    const isRecent = (Date.now() - scanTime) < 30 * 60 * 1000;
-                    
+                    const live = getLineLiveStatus(s);
                     latestScanByLine[lineName] = {
                         model: s.model,
                         time: s.time,
-                        isRecent: isRecent
+                        state: live.state,
+                        idleMin: live.idleMin,
+                        isRecent: live.state !== 'idle'
                     };
                 }
             });
@@ -2904,7 +2919,8 @@ function doPost(e) {
                 if (info.isRecent) {
                     if (!runningModels[info.model]) runningModels[info.model] = [];
                     runningModels[info.model].push({
-                        line: lineName
+                        line: lineName,
+                        state: info.state
                     });
                 }
             });
@@ -2917,7 +2933,25 @@ function doPost(e) {
                 if (sortedLines.length > 0) {
                     sortedLines.forEach(lineName => {
                         const info = latestScanByLine[lineName];
-                        if (info.isRecent) {
+                        if (info.state === 'stalled') {
+                            html += `
+                                <div class="flex items-center gap-1.5 bg-rose-50 text-rose-700 px-2.5 py-1 rounded-full border border-rose-300 font-medium shadow-sm" title="ไม่มีการสแกนมา ${info.idleMin} นาที (ไม่นับเวลาพัก)">
+                                    <span class="line-stall-icon blink-running">!</span>
+                                    <span class="font-bold text-[9px] uppercase tracking-wider text-rose-600">หยุด ${info.idleMin} นาที</span>
+                                    <span class="text-slate-600">Line ${lineName}:</span>
+                                    <span class="font-bold text-slate-800">${info.model}</span>
+                                </div>
+                            `;
+                        } else if (info.state === 'break') {
+                            html += `
+                                <div class="flex items-center gap-1.5 bg-sky-50 text-sky-700 px-2.5 py-1 rounded-full border border-sky-200 font-medium">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                                    <span class="font-bold text-[9px] uppercase tracking-wider text-sky-600">พัก</span>
+                                    <span class="text-slate-600">Line ${lineName}:</span>
+                                    <span class="font-bold text-slate-800">${info.model}</span>
+                                </div>
+                            `;
+                        } else if (info.isRecent) {
                             html += `
                                 <div class="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 font-medium shadow-sm">
                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-green-dot"></span>
@@ -3047,14 +3081,37 @@ function doPost(e) {
                     const pulseScale = 0.6 + 0.4 * Math.sin((now / 150) * Math.PI);
                     
                     chart.data.labels.forEach((modelName, index) => {
-                        const isRunning = activeRunningModels && activeRunningModels[modelName];
-                        if (isRunning) {
+                        const lineStates = activeRunningModels && activeRunningModels[modelName];
+                        if (lineStates) {
                             const y = yScale.getPixelForTick(index);
                             ctx.font = '10px Prompt';
                             const textWidth = ctx.measureText(modelName).width;
                             
                             // Center coordinates for the pulsing dot in front of the label
                             const dotX = chart.chartArea.left - 10 - textWidth - 12;
+
+                            // ไลน์ไหนเดินรุ่นนี้อยู่ปกติก็ยังเป็นไฟเขียว ถ้าไม่มีไลน์ไหนเดินเลยค่อยเตือน/แสดงพัก
+                            const states = lineStates.map(l => l.state);
+                            if (!states.includes('running')) {
+                                if (states.includes('stalled')) {
+                                    // วงแดงมีเครื่องหมายตกใจ กะพริบตามจังหวะเดียวกับจุดเขียว
+                                    ctx.beginPath();
+                                    ctx.arc(dotX, y, 6, 0, 2 * Math.PI);
+                                    ctx.fillStyle = `rgba(225, 29, 72, ${0.55 + 0.45 * pulseScale})`;
+                                    ctx.fill();
+                                    ctx.fillStyle = '#ffffff';
+                                    ctx.font = 'bold 9px Prompt';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'middle';
+                                    ctx.fillText('!', dotX, y + 0.5);
+                                } else {
+                                    ctx.beginPath();
+                                    ctx.arc(dotX, y, 3, 0, 2 * Math.PI);
+                                    ctx.fillStyle = '#38bdf8';
+                                    ctx.fill();
+                                }
+                                return;
+                            }
                             
                             // Outer glowing pulse ring
                             ctx.beginPath();
@@ -4142,6 +4199,59 @@ function doPost(e) {
         //   12:00-13:00 (60) · 17:00-17:30 (30) · 00:00-01:00 (60) · 05:00-05:30 (30)
         // กะหนึ่ง 12 ชั่วโมงจึงเหลือเวลาทำงานสุทธิ 10.5 ชั่วโมง
         const BREAK_MINUTES_BY_HOUR = { 0: 60, 5: 30, 12: 60, 17: 30 };
+
+        // ==========================================
+        // สถานะไลน์แบบเรียลไทม์ (Running / หยุดนิ่ง / พัก / Idle)
+        // ==========================================
+        const LINE_STALL_MINUTES = 5;        // ไม่มีสแกนเกินนี้ (ไม่นับเวลาพัก) = เตือนเครื่องหมายตกใจ
+        const LINE_STALL_CYCLE_MULTIPLIER = 3; // รุ่นที่ประกอบช้า ใช้ 3 เท่าของ Cycle Time ถ้ามากกว่า 5 นาที
+        const LINE_IDLE_MINUTES = 30;        // ไม่มีสแกนเกินนี้ = ถือว่าไลน์ไม่ได้เดินแล้ว (Idle สีเทา)
+        let modelCycleSecondsCache = {};
+
+        // ช่วงพักเริ่มต้นชั่วโมงตาม BREAK_MINUTES_BY_HOUR เช่น 12:00-13:00, 17:00-17:30
+        function breakOverlapMs(fromMs, toMs) {
+            if (!(toMs > fromMs)) return 0;
+            let overlap = 0;
+            const day = new Date(fromMs);
+            day.setHours(0, 0, 0, 0);
+            for (let d = day.getTime(); d < toMs; ) {
+                Object.entries(BREAK_MINUTES_BY_HOUR).forEach(([h, mins]) => {
+                    const bStart = new Date(d);
+                    bStart.setHours(Number(h), 0, 0, 0);
+                    const bEnd = bStart.getTime() + mins * 60000;
+                    const lo = Math.max(fromMs, bStart.getTime());
+                    const hi = Math.min(toMs, bEnd);
+                    if (hi > lo) overlap += hi - lo;
+                });
+                const next = new Date(d);
+                next.setDate(next.getDate() + 1);
+                d = next.getTime();
+            }
+            return overlap;
+        }
+
+        function isBreakTime(ms) {
+            const t = new Date(ms);
+            const mins = BREAK_MINUTES_BY_HOUR[t.getHours()];
+            return !!mins && t.getMinutes() < mins;
+        }
+
+        function getLineStallThresholdMinutes(model) {
+            const cycleSec = modelCycleSecondsCache[model] || 0;
+            return Math.max(LINE_STALL_MINUTES, (cycleSec * LINE_STALL_CYCLE_MULTIPLIER) / 60);
+        }
+
+        // lastScan = สแกน OK ล่าสุดของไลน์นั้น
+        function getLineLiveStatus(lastScan) {
+            const nowMs = Date.now();
+            if (!lastScan || !lastScan.ts || lastScan.ts > nowMs + 60000) return { state: 'running', idleMin: 0 };
+            const idleMs = Math.max(0, nowMs - lastScan.ts - breakOverlapMs(lastScan.ts, nowMs));
+            const idleMin = Math.floor(idleMs / 60000);
+            if (idleMin >= LINE_IDLE_MINUTES) return { state: 'idle', idleMin };
+            if (isBreakTime(nowMs) && nowMs - lastScan.ts >= LINE_STALL_MINUTES * 60000) return { state: 'break', idleMin };
+            if (idleMs >= getLineStallThresholdMinutes(lastScan.model) * 60000) return { state: 'stalled', idleMin };
+            return { state: 'running', idleMin };
+        }
 
         // เกณฑ์ OT ตรงกับ OT_THRESHOLD_NET_HOURS ใน scr/ชั่วโมงทำงาน.js — ชั่วโมงสุทธิเกินค่านี้ถือเป็น OT
         // กะเต็มมีชั่วโมงสุทธิ 10.5 จึงเป็นช่วงปกติ 8 ชม. และช่วง OT 2.5 ชม.
