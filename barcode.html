@@ -474,12 +474,15 @@
                             <th class="p-3 text-right font-bold">ยอดในช่วง</th>
                             <th class="p-3 font-bold min-w-[180px]">ความคืบหน้า</th>
                             <th class="p-3 text-center font-bold">สแกนล่าสุด</th>
+                            <th class="p-3 text-left font-bold min-w-[220px]">เหตุผลที่ยังค้าง / หมายเหตุ</th>
                             <th class="p-3 text-center font-bold">สถานะ</th>
                         </tr>
                     </thead>
                     <tbody id="job-progress-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
                 </table>
             </div>
+            <p id="job-progress-allmodel-note" class="hidden text-[11px] text-slate-500"></p>
+            <p class="text-[10px] text-slate-400 leading-relaxed">เหตุผลที่ยังค้าง: ใช้หลักเดียวกับรายงาน PDF · รวม Remark จากชีต Plan กับเหตุการณ์ที่บันทึกไว้ในช่วงวันที่ที่เลือก (ระบุ Job ไว้ = จับคู่ตรงตัว, ไม่ได้ระบุ = เดาจากรุ่น) · Job ที่เคยเดินแล้วหยุดและไม่มีเหตุการณ์ในช่วงนี้ จะแสดงเหตุการณ์ที่แจ้งไว้ล่าสุด (ขึ้นต้นว่า "แจ้งล่าสุด") · <span class="text-rose-500 font-semibold">ยังไม่มีบันทึกสาเหตุ</span> = หยุดค้างโดยยังไม่มีใครแจ้งว่าติดอะไร ควรตามก่อน</p>
         </div>
 
         <!-- Shift Transfer Panel -->
@@ -3928,13 +3931,14 @@ function doPost(e) {
                     actual,
                     closed: !!j.closed,
                     inPlan: true,
+                    remark: j.remark || '',
                     info
                 });
             });
             // Job ที่มีสแกนแต่ไม่อยู่ในชีต Plan ก็ยังแสดง เพื่อไม่ให้ยอดหายไปเฉยๆ
             Object.entries(scanInfo).forEach(([job, info]) => {
                 if (seen.has(job)) return;
-                rows.push({ job, model: info.model || '-', plan: 0, actual: info.total, closed: false, inPlan: false, info });
+                rows.push({ job, model: info.model || '-', plan: 0, actual: info.total, closed: false, inPlan: false, remark: '', info });
             });
 
             rows.forEach(r => {
@@ -3988,6 +3992,7 @@ function doPost(e) {
                 btn.classList.toggle('text-slate-500', !active);
             });
 
+            const allModelNoteEl = document.getElementById('job-progress-allmodel-note');
             const allRows = buildJobProgressRows();
 
             // สรุปด้านบนนับจากทุก Job ที่ผ่านตัวกรองหลัก ไม่ขึ้นกับแท็บ/คำค้น
@@ -4037,11 +4042,36 @@ function doPost(e) {
                 const msg = (planJobs || []).length === 0 && allRows.length === 0
                     ? 'ยังไม่มีข้อมูล Job order (ไม่พบชีต Plan และไม่มียอดสแกนที่ระบุ Job)'
                     : 'ไม่มี Job order ที่ตรงกับตัวกรอง';
-                tbody.innerHTML = `<tr><td colspan="10" class="text-center p-6 text-slate-400 italic">${msg}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="11" class="text-center p-6 text-slate-400 italic">${msg}</td></tr>`;
+                if (allModelNoteEl) allModelNoteEl.classList.add('hidden');
                 return;
             }
 
+            // เหตุผลที่ยังค้าง ใช้หลักเดียวกับหัวข้อ Job ค้างในรายงาน PDF (describeJobPendingReason)
+            const reasonShift = els.filterShift ? els.filterShift.value : 'All';
+            const reasonLine = els.filterLine ? els.filterLine.value : 'All';
+            const incidentsInScope = getIncidentsInRange(startDate, endDate, reasonLine, reasonShift);
+            const incidentsAllTime = getIncidentsForLine(reasonLine);
+
+            // เหตุการณ์ที่บันทึกว่ากระทบทุกรุ่น กระทบทุก Job เท่ากัน จึงบอกครั้งเดียวใต้ตารางเหมือนในรายงาน
+            if (allModelNoteEl) {
+                const allModelText = summarizeIncidentCategories(incidentsInScope.filter(inc => inc.model === 'All'));
+                allModelNoteEl.classList.toggle('hidden', !allModelText);
+                allModelNoteEl.textContent = allModelText
+                    ? 'เหตุการณ์ที่กระทบทุกรุ่นในช่วงนี้ (มีผลกับทุก Job): ' + allModelText.split('\n').join(' · ')
+                    : '';
+            }
+
             tbody.innerHTML = rows.map(r => {
+                // Job ที่ครบ/ปิดแล้วไม่ต้องอธิบายว่าค้าง ยกเว้นยังมี Remark ที่คนเขียนไว้
+                const reason = r.done && !r.live
+                    ? { text: r.remark || '-', tone: r.remark ? 'text' : 'muted', missing: false }
+                    : describeJobPendingReason(r.job, r.model, r.remark, r.period, r.actual, incidentsInScope, incidentsAllTime);
+                const reasonCls = reason.missing ? 'text-rose-600 font-semibold'
+                    : reason.tone === 'warn' ? 'text-amber-700'
+                    : reason.tone === 'muted' ? 'text-slate-300'
+                    : 'text-slate-700';
+                const reasonHtml = escapeHtml(reason.text).replace(/\n/g, '<br>');
                 const pct = r.progress === null ? null : r.progress;
                 const barPct = pct === null ? 0 : Math.min(pct, 100);
                 const barColor = pct === null ? 'bg-slate-300'
@@ -4077,6 +4107,7 @@ function doPost(e) {
                             </div>
                         </td>
                         <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${formatJobLastScan(r.lastTs)}</td>
+                        <td class="p-3 text-[11px] leading-snug ${reasonCls}">${reason.missing ? '<span class="inline-flex items-center gap-1"><span class="line-stall-icon">!</span>' + reasonHtml + '</span>' : reasonHtml}</td>
                         <td class="p-3 text-center"><span class="inline-block px-2 py-0.5 rounded-full border text-[11px] font-bold whitespace-nowrap ${badge.cls}">${badgeText}</span></td>
                     </tr>`;
             }).join('');
@@ -6218,6 +6249,31 @@ function doPost(e) {
             return lines.join('\n');
         }
 
+        // เหตุผลที่ Job ยังค้าง ใช้ร่วมกันทั้งตาราง Job Progress บนหน้าจอและรายงาน PDF ให้ตรงกันเสมอ
+        //   1) Remark จากชีต Plan + เหตุการณ์ในช่วงที่ดูอยู่ของ Job/รุ่นนี้
+        //   2) ถ้าไม่มี และเป็นงานที่ "เคยเดินแล้วหยุด" ถอยไปหาเหตุการณ์ที่แจ้งไว้ล่าสุดของ Job นี้
+        //   3) ถ้ายังไม่มีอีก = ยังไม่มีบันทึกสาเหตุ (จุดที่ควรตามก่อน)
+        // tone: 'text' = มีข้อมูลในช่วงนี้, 'warn' = งานหยุดค้าง, 'muted' = ไม่มีอะไรต้องอธิบาย
+        function describeJobPendingReason(job, model, remark, inPeriod, actual, incidentsInScope, incidentsAllTime) {
+            const noteParts = [];
+            if (remark) noteParts.push(remark);
+            const incidentText = summarizeIncidentsForJob(incidentsInScope, job, model);
+            if (incidentText) noteParts.push(incidentText);
+
+            // เตือนเฉพาะงานที่ "เคยเดินแล้วหยุด" ซึ่งควรมีคนอธิบายได้ว่าติดอะไร
+            // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
+            const isStalled = inPeriod === 0 && actual > 0;
+
+            if (noteParts.length > 0) return { text: noteParts.join('\n'), tone: 'text', missing: false };
+            if (isStalled) {
+                const latestIncident = findLatestIncidentForJob(incidentsAllTime, job, model);
+                return latestIncident
+                    ? { text: formatLatestIncidentNote(latestIncident), tone: 'warn', missing: false }
+                    : { text: 'ยังไม่มีบันทึกสาเหตุ', tone: 'warn', missing: true };
+            }
+            return { text: '-', tone: 'muted', missing: false };
+        }
+
         function buildReportJobStatusContent(scope) {
             if (!planJobs || planJobs.length === 0) return [];
 
@@ -6282,30 +6338,10 @@ function doPost(e) {
                     statusColor = PDF_COLOR.warn;
                 }
 
-                // หมายเหตุ = ข้อความที่คนกรอกไว้ในชีต Plan + เหตุการณ์ที่บันทึกไว้ของรุ่นนี้
-                const noteParts = [];
-                if (j.remark) noteParts.push(j.remark);
-                const incidentText = summarizeIncidentsForJob(incidentsInScope, j.job, j.model);
-                if (incidentText) noteParts.push(incidentText);
-
-                // เตือนเฉพาะงานที่ "เคยเดินแล้วหยุด" ซึ่งควรมีคนอธิบายได้ว่าติดอะไร
-                // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
-                const isStalled = inPeriod === 0 && j.actual > 0;
-
-                // ยังไม่มีสาเหตุในช่วงรายงาน + งานหยุดค้าง ให้ถอยไปดึงเหตุการณ์ที่แจ้งไว้ล่าสุดของ Job นี้มาแสดงแทน
-                // ดีกว่าปล่อยให้ขึ้นว่า "ยังไม่มีบันทึกสาเหตุ" ทั้งที่เคยมีคนแจ้งไว้แล้วแค่คนละช่วงเวลา
-                let noteText, noteColor;
-                if (noteParts.length > 0) {
-                    noteText = noteParts.join('\n');
-                    noteColor = PDF_COLOR.text;
-                } else if (isStalled) {
-                    const latestIncident = findLatestIncidentForJob(incidentsAllTime, j.job, j.model);
-                    noteText = latestIncident ? formatLatestIncidentNote(latestIncident) : 'ยังไม่มีบันทึกสาเหตุ';
-                    noteColor = PDF_COLOR.warn;
-                } else {
-                    noteText = '-';
-                    noteColor = PDF_COLOR.muted;
-                }
+                // หมายเหตุ = Remark ในชีต Plan + เหตุการณ์ของ Job/รุ่นนี้ (หลักเดียวกับตาราง Job Progress บนหน้าจอ)
+                const reason = describeJobPendingReason(j.job, j.model, j.remark, inPeriod, j.actual, incidentsInScope, incidentsAllTime);
+                const noteText = reason.text;
+                const noteColor = PDF_COLOR[reason.tone];
 
                 body.push([
                     pdfCell(j.job),
