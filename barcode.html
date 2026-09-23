@@ -1483,7 +1483,14 @@ function doPost(e) {
         // ==========================================
 
         // คืนค่าตัวคูณเป้าหมายตามช่วงเวลาพักเบรคมาตรฐาน (Downtime Multiplier)
+        function isShiftFirstHour(hour) {
+            return hour === 8 || hour === 20;
+        }
+
         function getDowntimeMultiplier(hour) {
+            // ชั่วโมงแรกของกะเสียเวลาเตรียมไลน์ 40 นาที (รัน 20 นาที)
+            if (isShiftFirstHour(hour)) return 20 / 60;
+
             // กะกลางวัน (Day Shift)
             if (hour === 10) return 50 / 60; // 10:00 - 10:10 (รัน 50 นาที)
             if (hour === 12) return 0;       // 12:00 - 13:00 (รัน 0 นาที)
@@ -2565,7 +2572,8 @@ function doPost(e) {
                         breakText = ` (พักเที่ยง/พักเที่ยงคืน)`;
                     } else if (multiplier < 1) {
                         const runMins = Math.round(multiplier * 60);
-                        breakText = ` (หักพักเบรค, รัน ${runMins} นาที)`;
+                        const reason = isShiftFirstHour(hr) ? 'ชั่วโมงแรกเสีย 40 นาที' : 'หักพักเบรค';
+                        breakText = ` (${reason}, รัน ${runMins} นาที)`;
                     }
                     
                     lineCalculationsHtml += `
@@ -2581,6 +2589,8 @@ function doPost(e) {
                 let hourBreakText = '';
                 if (multiplier === 0) {
                     hourBreakText = ' (พักกลางวัน/กะดึก)';
+                } else if (isShiftFirstHour(hr)) {
+                    hourBreakText = ' (ชั่วโมงแรกของกะ เสีย 40 นาที)';
                 } else if (multiplier < 1) {
                     hourBreakText = ' (มีช่วงพักเบรค)';
                 }
