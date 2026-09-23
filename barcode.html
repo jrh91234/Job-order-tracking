@@ -3994,16 +3994,22 @@ function doPost(e) {
             const openRows = allRows.filter(r => !r.done && r.inPlan);
             const summaryEl = document.getElementById('job-progress-summary');
             if (summaryEl) {
-                const tile = (label, value, cls) => `
+                const tile = (label, value, cls, note) => `
                     <div class="rounded-xl border border-slate-100 bg-white/70 px-4 py-3">
                         <p class="text-[11px] text-slate-400 font-semibold">${label}</p>
                         <p class="text-lg font-bold ${cls}">${value}</p>
+                        ${note ? `<p class="text-[10px] text-slate-400">${note}</p>` : ''}
                     </div>`;
+                // นับเฉพาะ Job ที่สถานะในชีต Plan เป็น Closed/Archive (สะสมทั้งชีต ไม่ขึ้นกับช่วงวันที่)
+                // ส่วน Job ที่ผลิตครบแผนแล้วแต่ยังไม่กดปิด แยกบอกไว้ใต้ตัวเลข
+                const closedCount = allRows.filter(r => r.closed).length;
+                const awaitingClose = allRows.filter(r => !r.closed && r.inPlan && r.progress !== null && r.progress >= 100).length;
                 summaryEl.innerHTML =
                     tile('Job ค้าง', openRows.length.toLocaleString(), 'text-slate-800') +
                     tile('เดินในช่วงนี้', allRows.filter(r => r.period > 0).length.toLocaleString(), 'text-emerald-600') +
                     tile('ยอดคงเหลือรวม (PCS)', openRows.reduce((s, r) => s + r.remaining, 0).toLocaleString(), 'text-amber-600') +
-                    tile('ครบ/ปิดแล้ว', allRows.filter(r => r.done).length.toLocaleString(), 'text-indigo-600');
+                    tile('Job ที่ปิดแล้ว', closedCount.toLocaleString(), 'text-indigo-600',
+                        'สะสมทั้งหมดในชีต Plan' + (awaitingClose > 0 ? ` · ครบแผนรอปิดอีก ${awaitingClose.toLocaleString()}` : ''));
             }
 
             const q = (document.getElementById('job-progress-search')?.value || '').trim().toLowerCase();
