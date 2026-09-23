@@ -358,10 +358,16 @@
 
             <!-- Chart 2: Production by Model -->
             <div id="model-chart-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
-                <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
                     <div>
                         <h3 class="text-base font-bold text-slate-800">สัดส่วนและยอดผลิตรายรุ่นวันนี้</h3>
                         <p class="text-xs text-slate-400">เปรียบเทียบยอดสแกนบาร์โค้ดสะสมแยกตามรุ่น (PCS)</p>
+                    </div>
+                    <div class="flex items-center gap-3 ml-auto">
+                    <!-- เลือกวิธีเรียงรุ่นในกราฟ -->
+                    <div id="model-sort-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold" title="วิธีเรียงรุ่นในกราฟ">
+                        <button type="button" data-sort="qty" onclick="setModelChartSort('qty')" class="px-2 py-1 rounded-md">ยอดมาก→น้อย</button>
+                        <button type="button" data-sort="sequence" onclick="setModelChartSort('sequence')" class="px-2 py-1 rounded-md">ลำดับที่ผลิต</button>
                     </div>
                     <!-- Toggle Switch for Chart Values -->
                     <label class="relative inline-flex items-center cursor-pointer select-none">
@@ -369,6 +375,7 @@
                         <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                         <span class="ml-2 text-xs font-semibold text-slate-600">แสดงตัวเลข</span>
                     </label>
+                    </div>
                     <button type="button" onclick="toggleChartFullscreen('model')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
                 </div>
                 <div id="live-running-container" class="mt-2 flex flex-wrap gap-2 text-xs border-b border-slate-100 pb-3"></div>
@@ -1317,6 +1324,11 @@ function doPost(e) {
         let prevModelCounts = []; // To track production increases for energy surge animation
         let activeRunningModels = {};
         let activeModelLabels = [];
+        // วิธีเรียงรุ่นในกราฟ "สัดส่วนและยอดผลิตรายรุ่น" จำไว้ในเครื่องผู้ใช้
+        let modelChartSortMode = (() => {
+            try { return localStorage.getItem('barcode_model_chart_sort') === 'sequence' ? 'sequence' : 'qty'; }
+            catch (e) { return 'qty'; }
+        })();
         let prevModelLabels = []; // To track if model list or order changed
         let prevHourlyLabels = []; // To track if hourly labels changed
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
@@ -2979,21 +2991,27 @@ function doPost(e) {
                 liveRunningContainer.innerHTML = html;
             }
 
-            // เรียงรุ่นตามยอดผลิตมากไปน้อย โดยตรึงรุ่นที่กำลัง RUNNING ไว้ด้านบนสุดเสมอ
-            // เพื่อไม่ให้รุ่นที่กำลังเดินไลน์อยู่หลุดหายไปจากกราฟตอนยอดสะสมยังน้อย
-            const sortedModels = Object.entries(modelGroups).sort((a, b) => b[1] - a[1]);
-            const runningEntries = sortedModels.filter(m => runningModels[m[0]]);
-            const otherEntries = sortedModels.filter(m => !runningModels[m[0]]);
-
+            // เรียงรุ่นตามที่ผู้ใช้เลือก (ปุ่มด้านบนกราฟ)
+            //   qty      = ยอดผลิตมากไปน้อย
+            //   sequence = ลำดับที่ผลิตจริง ดูจากเวลาสแกนชิ้นแรกของแต่ละรุ่นในช่วงที่กรอง (รุ่นแรกอยู่บนสุด)
+            // กราฟแสดงครบทุกรุ่นแล้ว (เลื่อนดูได้) จึงไม่ต้องตรึงรุ่นที่ RUNNING ไว้บนสุดอีก จุดไฟหน้าชื่อรุ่นยังบอกอยู่
+            const firstScanTsByModel = {};
+            okScans.forEach(s => {
+                if (!(s.model in firstScanTsByModel) || s.ts < firstScanTsByModel[s.model]) firstScanTsByModel[s.model] = s.ts;
+            });
+            const displayModels = Object.entries(modelGroups);
             // รุ่นที่ RUNNING อยู่แต่ยังไม่มียอดสแกน OK ในช่วงที่กรอง ก็ยังต้องมีแถวของตัวเองในกราฟ
             Object.keys(runningModels).forEach(modelName => {
-                if (!(modelName in modelGroups)) {
-                    runningEntries.push([modelName, 0]);
-                }
+                if (!(modelName in modelGroups)) displayModels.push([modelName, 0]);
             });
-
-            // แสดงครบทุกรุ่น (เลื่อนดูได้ในกราฟ) ไม่ตัดเหลือแค่ Top 10 อีกต่อไป
-            const displayModels = [...runningEntries, ...otherEntries];
+            if (modelChartSortMode === 'sequence') {
+                displayModels.sort((a, b) =>
+                    (firstScanTsByModel[a[0]] ?? Infinity) - (firstScanTsByModel[b[0]] ?? Infinity) ||
+                    b[1] - a[1]);
+            } else {
+                displayModels.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+            }
+            renderModelSortTabs();
 
             const modelLabels = displayModels.map(m => m[0]);
             const modelCounts = displayModels.map(m => m[1]);
@@ -6929,6 +6947,24 @@ function doPost(e) {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && activeChartFsKey) exitChartFullscreen();
         });
+
+        function renderModelSortTabs() {
+            document.querySelectorAll('#model-sort-tabs button').forEach(btn => {
+                const active = btn.dataset.sort === modelChartSortMode;
+                btn.classList.toggle('bg-white', active);
+                btn.classList.toggle('shadow-sm', active);
+                btn.classList.toggle('text-indigo-600', active);
+                btn.classList.toggle('text-slate-500', !active);
+            });
+        }
+
+        function setModelChartSort(mode) {
+            if (mode === modelChartSortMode) return;
+            modelChartSortMode = mode;
+            try { localStorage.setItem('barcode_model_chart_sort', mode); } catch (e) {}
+            renderModelSortTabs();
+            renderCharts();
+        }
 
         function toggleTargetCalcPanel() {
             const panel = document.getElementById('target-calc-content');
