@@ -270,15 +270,16 @@
                 </div>
             </div>
 
-            <!-- Card 4: Last Scan Time -->
-            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between col-span-1">
-                <div>
-                    <span class="text-xs font-bold text-slate-400 block mb-1">เวลาสแกนชิ้นล่าสุด</span>
-                    <span id="kpi-last-scan" class="text-base font-bold text-slate-700 block font-mono">-</span>
-                    <span id="kpi-last-elapsed" class="text-[10px] text-indigo-500 font-semibold block mt-1">-</span>
+            <!-- Card 4: Last Scan Time (per line) -->
+            <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden col-span-1">
+                <div class="flex items-start justify-between gap-2 mb-1.5">
+                    <span class="text-xs font-bold text-slate-400">เวลาสแกนชิ้นล่าสุด (แยกไลน์)</span>
+                    <div class="w-9 h-9 shrink-0 bg-rose-50 rounded-xl flex items-center justify-center text-rose-500">
+                        <i data-lucide="clock" class="w-5 h-5"></i>
+                    </div>
                 </div>
-                <div class="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-500">
-                    <i data-lucide="clock" class="w-6 h-6"></i>
+                <div id="kpi-last-scan-lines" class="space-y-1 max-h-24 overflow-y-auto pr-1">
+                    <span class="text-base font-bold text-slate-700 block font-mono">-</span>
                 </div>
             </div>
 
@@ -1294,6 +1295,10 @@ function doPost(e) {
         // สรุปตัวเลขรายชั่วโมงที่ renderCharts() คำนวณไว้ล่าสุด ใช้ต่อในรายงาน PDF โดยไม่ต้องคำนวณซ้ำ
         let lastHourlySummary = null;
 
+        // สรุปเวลาสแกนล่าสุดโดยรวม (ไม่แยกไลน์) เก็บไว้ใช้ในรายงาน PDF ที่มีพื้นที่จำกัด
+        let kpiLastScanOverallText = '-';
+        let kpiLastScanOverallElapsed = '-';
+
         // Auto Refresh
         let refreshIntervalId = null;
         let refreshSecondsLeft = 15;
@@ -1310,8 +1315,7 @@ function doPost(e) {
             kpiTotalScans: document.getElementById('kpi-total-scans'),
             kpiAvgSpeed: document.getElementById('kpi-avg-speed'),
             kpiActiveModels: document.getElementById('kpi-active-models'),
-            kpiLastScan: document.getElementById('kpi-last-scan'),
-            kpiLastElapsed: document.getElementById('kpi-last-elapsed'),
+            kpiLastScanLines: document.getElementById('kpi-last-scan-lines'),
             scanTableBody: document.getElementById('scanTableBody'),
             tableSearch: document.getElementById('table-search'),
             tableEmptyState: document.getElementById('table-empty-state'),
@@ -1765,34 +1769,56 @@ function doPost(e) {
             const modelsSet = new Set(okScans.map(s => s.model));
             els.kpiActiveModels.textContent = modelsSet.size.toString();
 
-            // Last Scan and Elapsed Time
-            if (okScans.length > 0) {
-                // Raw sorted scans has the latest first
-                const latest = okScans[0];
-                els.kpiLastScan.textContent = `${latest.time} (${latest.shift})`;
-
+            // Last Scan and Elapsed Time (แยกตามไลน์การผลิต)
+            const formatElapsed = (item) => {
                 // Calculate elapsed time from current clock
-                const pDate = latest.prodDate.split('-').map(Number);
-                const pTime = latest.time.split(':').map(Number);
+                const pDate = item.prodDate.split('-').map(Number);
+                const pTime = item.time.split(':').map(Number);
                 // Convert BE back to Gregorian year for exact math
-                const lastScanMs = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
-                
+                const scanMs = new Date(pDate[0], pDate[1] - 1, pDate[2], pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
                 const nowMs = new Date().getTime();
-                const elapsedMin = Math.round((nowMs - lastScanMs) / 60000);
+                const elapsedMin = Math.round((nowMs - scanMs) / 60000);
 
-                if (isNaN(elapsedMin) || elapsedMin < 0) {
-                    els.kpiLastElapsed.textContent = 'บันทึกเรียลไทม์';
-                } else if (elapsedMin < 1) {
-                    els.kpiLastElapsed.textContent = 'เมื่อไม่กี่วินาทีที่แล้ว';
-                } else if (elapsedMin < 60) {
-                    els.kpiLastElapsed.textContent = `เมื่อ ${elapsedMin} นาทีที่แล้ว`;
+                if (isNaN(elapsedMin) || elapsedMin < 0) return 'บันทึกเรียลไทม์';
+                if (elapsedMin < 1) return 'เมื่อไม่กี่วินาทีที่แล้ว';
+                if (elapsedMin < 60) return `เมื่อ ${elapsedMin} นาทีที่แล้ว`;
+                return `เมื่อ ${Math.floor(elapsedMin / 60)} ชั่วโมงที่แล้ว`;
+            };
+
+            // okScans เรียงล่าสุดมาก่อนอยู่แล้ว ดังนั้นตัวแรกที่เจอของแต่ละไลน์คือสแกนล่าสุดของไลน์นั้น
+            const lineLastScans = {};
+            okScans.forEach(s => {
+                const lineName = s.line || '-';
+                if (!lineLastScans[lineName]) lineLastScans[lineName] = s;
+            });
+
+            if (els.kpiLastScanLines) {
+                const lineNames = Object.keys(lineLastScans).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }));
+                if (lineNames.length > 0) {
+                    els.kpiLastScanLines.innerHTML = lineNames.map(lineName => {
+                        const s = lineLastScans[lineName];
+                        const label = lineName === '-' ? 'ไม่ระบุไลน์' : `Line ${lineName}`;
+                        return `
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] font-bold text-slate-500 shrink-0">${label}</span>
+                                <span class="text-xs font-bold text-slate-700 font-mono">${s.time}</span>
+                                <span class="text-[9px] text-indigo-500 font-semibold whitespace-nowrap shrink-0">${formatElapsed(s)}</span>
+                            </div>
+                        `;
+                    }).join('');
                 } else {
-                    const elapsedHours = Math.floor(elapsedMin / 60);
-                    els.kpiLastElapsed.textContent = `เมื่อ ${elapsedHours} ชั่วโมงที่แล้ว`;
+                    els.kpiLastScanLines.innerHTML = '<span class="text-base font-bold text-slate-700 block font-mono">-</span>';
                 }
+            }
+
+            // เก็บสรุปโดยรวม (ไม่แยกไลน์) ไว้ใช้ในรายงาน PDF ที่มีพื้นที่จำกัด
+            if (okScans.length > 0) {
+                const latest = okScans[0];
+                kpiLastScanOverallText = `${latest.time} (${latest.shift})`;
+                kpiLastScanOverallElapsed = formatElapsed(latest);
             } else {
-                els.kpiLastScan.textContent = '-';
-                els.kpiLastElapsed.textContent = '-';
+                kpiLastScanOverallText = '-';
+                kpiLastScanOverallElapsed = '-';
             }
         }
 
@@ -5448,7 +5474,7 @@ function doPost(e) {
                             card('ยอดสแกนสะสม', els.kpiTotalScans.textContent, '#4338ca', 'ชิ้น (PCS)'),
                             card('ความเร็วเฉลี่ย', els.kpiAvgSpeed.textContent, PDF_COLOR.good, 'ชิ้น / ชั่วโมง'),
                             card('รุ่นสินค้าที่สแกน', els.kpiActiveModels.textContent, PDF_COLOR.warn, 'โมเดล'),
-                            card('เวลาสแกนล่าสุด', els.kpiLastScan.textContent, '#334155', els.kpiLastElapsed.textContent),
+                            card('เวลาสแกนล่าสุด', kpiLastScanOverallText, '#334155', kpiLastScanOverallElapsed),
                             card('ประสิทธิภาพผลิต', eff === null ? '-' : eff + '%', rptEffColor(eff), `เป้าหมาย ${REPORT_EFF_TARGET}%`)
                         ]]
                     },
