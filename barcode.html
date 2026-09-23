@@ -23,6 +23,25 @@
             -webkit-tap-highlight-color: transparent;
         }
         html { scroll-behavior: smooth; }
+        /* โหมดขยายกราฟเต็มจอ */
+        .chart-fs-active {
+            position: fixed !important;
+            inset: 0;
+            z-index: 9999;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            background: #ffffff !important;
+            display: flex;
+            flex-direction: column;
+            overflow: auto;
+            padding: 1.25rem 1.5rem !important;
+        }
+        .chart-fs-active .chart-fs-area {
+            flex: 1 1 auto;
+            height: auto !important;
+            min-height: 240px;
+        }
+        body.chart-fs-open { overflow: hidden; }
         .glass-card {
             background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(10px);
@@ -296,12 +315,15 @@
         <!-- Charts Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Chart 1: Hourly Production Rate -->
-            <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
-                <div>
-                    <h3 class="text-base font-bold text-slate-800">แนวโน้มการสแกนรายชั่วโมง (PCS/Hour)</h3>
-                    <p class="text-xs text-slate-400">แสดงลำดับตามชั่วโมงการเข้ากะจริง (Day & Night)</p>
+            <div id="hourly-chart-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">แนวโน้มการสแกนรายชั่วโมง (PCS/Hour)</h3>
+                        <p class="text-xs text-slate-400">แสดงลำดับตามชั่วโมงการเข้ากะจริง (Day & Night)</p>
+                    </div>
+                    <button type="button" onclick="toggleChartFullscreen('hourly')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
                 </div>
-                <div class="relative h-72 w-full">
+                <div class="chart-fs-area relative h-72 w-full">
                     <canvas id="hourlyChart"></canvas>
                 </div>
                 <!-- Target Calculation Details Panel -->
@@ -320,8 +342,8 @@
             </div>
 
             <!-- Chart 2: Production by Model -->
-            <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
+            <div id="model-chart-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between gap-3">
                     <div>
                         <h3 class="text-base font-bold text-slate-800">สัดส่วนและยอดผลิตรายรุ่นวันนี้</h3>
                         <p class="text-xs text-slate-400">เปรียบเทียบยอดสแกนบาร์โค้ดสะสมแยกตามรุ่น (PCS)</p>
@@ -332,9 +354,10 @@
                         <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                         <span class="ml-2 text-xs font-semibold text-slate-600">แสดงตัวเลข</span>
                     </label>
+                    <button type="button" onclick="toggleChartFullscreen('model')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
                 </div>
                 <div id="live-running-container" class="mt-2 flex flex-wrap gap-2 text-xs border-b border-slate-100 pb-3"></div>
-                <div id="model-chart-scroll" class="relative h-72 w-full overflow-y-auto overflow-x-hidden pr-1">
+                <div id="model-chart-scroll" class="chart-fs-area relative h-72 w-full overflow-y-auto overflow-x-hidden pr-1">
                     <div id="model-chart-holder" class="relative w-full h-full">
                         <canvas id="modelChart"></canvas>
                     </div>
@@ -343,15 +366,18 @@
         </div>
 
         <!-- Chart 3: Daily Output by Model (Stacked) -->
-        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+        <div id="daily-model-chart-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตามรุ่น (Daily Output)</h3>
                     <p class="text-xs text-slate-400">แท่งละ 1 วัน สแตกทุกรุ่นเข้าด้วยกัน · เลือกช่วงวันที่ด้านบนเพื่อดูยอดรายวันทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
-                <div id="daily-model-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
+                <div class="flex items-start gap-3">
+                    <div id="daily-model-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
+                    <button type="button" onclick="toggleChartFullscreen('daily')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
+                </div>
             </div>
-            <div id="daily-model-chart-scroll" class="relative h-80 w-full overflow-x-auto overflow-y-hidden">
+            <div id="daily-model-chart-scroll" class="chart-fs-area relative h-80 w-full overflow-x-auto overflow-y-hidden">
                 <div id="daily-model-chart-holder" class="relative h-full w-full">
                     <canvas id="dailyModelChart"></canvas>
                 </div>
@@ -6381,6 +6407,100 @@ function doPost(e) {
                 }
             });
         }
+
+        // ---- ขยายกราฟเต็มจอ ----
+        const CHART_FS_CARDS = {
+            hourly: { cardId: 'hourly-chart-card', getChart: () => hourlyChartObj },
+            model: { cardId: 'model-chart-card', getChart: () => modelChartObj },
+            daily: { cardId: 'daily-model-chart-card', getChart: () => dailyModelChartObj }
+        };
+        let activeChartFsKey = null;
+
+        function setChartFsButtonIcon(card, isFs) {
+            const btn = card && card.querySelector('.chart-fs-btn');
+            if (!btn) return;
+            btn.title = isFs ? 'ย่อกลับ (Esc)' : 'ขยายเต็มจอ';
+            btn.innerHTML = `<i data-lucide="${isFs ? 'minimize-2' : 'maximize-2'}" class="w-4 h-4"></i>`;
+            if (window.lucide) lucide.createIcons();
+        }
+
+        // ปรับขนาดพื้นที่กราฟที่กำหนดเป็น px ไว้ (กราฟรุ่น = ความสูง, กราฟรายวัน = ความกว้าง) ให้พอดีกับขนาดใหม่
+        function refitChartAfterFsChange(key) {
+            if (key === 'model') {
+                const scrollEl = document.getElementById('model-chart-scroll');
+                const holderEl = document.getElementById('model-chart-holder');
+                if (scrollEl && holderEl) {
+                    const needed = (activeModelLabels || []).length * 30 + 46;
+                    holderEl.style.height = Math.max(scrollEl.clientHeight || 288, needed) + 'px';
+                }
+            } else if (key === 'daily') {
+                const scrollEl = document.getElementById('daily-model-chart-scroll');
+                const holderEl = document.getElementById('daily-model-chart-holder');
+                const chart = dailyModelChartObj;
+                if (scrollEl && holderEl && chart) {
+                    const needed = (chart.data.labels || []).length * DAILY_CHART_MIN_BAR_WIDTH;
+                    holderEl.style.width = needed > scrollEl.clientWidth ? `${needed}px` : '100%';
+                }
+            }
+            const chart = CHART_FS_CARDS[key].getChart();
+            if (chart) chart.resize();
+        }
+
+        function applyChartFs(key, on) {
+            const cfg = CHART_FS_CARDS[key];
+            const card = cfg && document.getElementById(cfg.cardId);
+            if (!card) return;
+            card.classList.toggle('chart-fs-active', on);
+            document.body.classList.toggle('chart-fs-open', on);
+            activeChartFsKey = on ? key : null;
+            setChartFsButtonIcon(card, on);
+            requestAnimationFrame(() => refitChartAfterFsChange(key));
+        }
+
+        function toggleChartFullscreen(key) {
+            if (activeChartFsKey && activeChartFsKey !== key) exitChartFullscreen();
+            if (activeChartFsKey === key) {
+                exitChartFullscreen();
+                return;
+            }
+            applyChartFs(key, true);
+            // ใช้ Fullscreen API ของเบราว์เซอร์ถ้ามี (ซ่อนแถบเบราว์เซอร์) ไม่มีก็ใช้แบบเต็มหน้าต่างแทน
+            const card = document.getElementById(CHART_FS_CARDS[key].cardId);
+            const req = card.requestFullscreen || card.webkitRequestFullscreen;
+            if (req) {
+                try {
+                    const p = req.call(card);
+                    if (p && p.catch) p.catch(() => {});
+                } catch (e) { /* ใช้แบบเต็มหน้าต่างต่อไป */ }
+            }
+        }
+
+        function exitChartFullscreen() {
+            const key = activeChartFsKey;
+            if (!key) return;
+            const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+            if (fsEl) {
+                const exit = document.exitFullscreen || document.webkitExitFullscreen;
+                if (exit) {
+                    try {
+                        const p = exit.call(document);
+                        if (p && p.catch) p.catch(() => {});
+                    } catch (e) {}
+                }
+            }
+            applyChartFs(key, false);
+        }
+
+        function onNativeFullscreenChange() {
+            // ผู้ใช้กด Esc ออกจาก Fullscreen ของเบราว์เซอร์ ให้คืนการ์ดกลับตำแหน่งเดิมด้วย
+            const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+            if (!fsEl && activeChartFsKey) applyChartFs(activeChartFsKey, false);
+        }
+        document.addEventListener('fullscreenchange', onNativeFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onNativeFullscreenChange);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && activeChartFsKey) exitChartFullscreen();
+        });
 
         function toggleTargetCalcPanel() {
             const panel = document.getElementById('target-calc-content');
