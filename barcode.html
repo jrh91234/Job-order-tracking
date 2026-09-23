@@ -421,6 +421,52 @@
             </div>
         </div>
 
+        <!-- Job Order Progress Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="clipboard-list" class="w-5 h-5 text-indigo-500"></i>
+                        ความคืบหน้า Job Order (Job Progress)
+                    </h3>
+                    <p class="text-xs text-slate-400">เทียบแผนจากชีต Plan กับยอดที่ผลิตแล้ว · ยอดในช่วง = ยอดสแกนในช่วงวันที่ที่เลือก · <span id="job-progress-range-label" class="font-semibold text-slate-500"></span></p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <div class="relative">
+                        <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                        <input id="job-progress-search" type="text" placeholder="ค้นหา Job / รุ่น" oninput="renderJobProgressTable()"
+                            class="pl-8 pr-3 py-1.5 w-44 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                    </div>
+                    <div id="job-progress-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
+                        <button type="button" data-tab="open" onclick="setJobProgressTab('open')" class="px-2.5 py-1 rounded-md">ค้าง</button>
+                        <button type="button" data-tab="period" onclick="setJobProgressTab('period')" class="px-2.5 py-1 rounded-md">เดินในช่วงนี้</button>
+                        <button type="button" data-tab="done" onclick="setJobProgressTab('done')" class="px-2.5 py-1 rounded-md">ครบ/ปิดแล้ว</button>
+                        <button type="button" data-tab="all" onclick="setJobProgressTab('all')" class="px-2.5 py-1 rounded-md">ทั้งหมด</button>
+                    </div>
+                </div>
+            </div>
+            <div id="job-progress-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+            <div class="overflow-x-auto max-h-[480px] overflow-y-auto rounded-xl border border-slate-100">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50 sticky top-0 z-10">
+                        <tr class="text-slate-500">
+                            <th class="p-3 text-left font-bold">Job Order</th>
+                            <th class="p-3 text-left font-bold">รุ่นสินค้า (Model)</th>
+                            <th class="p-3 text-center font-bold">ไลน์</th>
+                            <th class="p-3 text-right font-bold">แผน</th>
+                            <th class="p-3 text-right font-bold">ผลิตแล้ว</th>
+                            <th class="p-3 text-right font-bold">คงเหลือ</th>
+                            <th class="p-3 text-right font-bold">ยอดในช่วง</th>
+                            <th class="p-3 font-bold min-w-[180px]">ความคืบหน้า</th>
+                            <th class="p-3 text-center font-bold">สแกนล่าสุด</th>
+                            <th class="p-3 text-center font-bold">สถานะ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="job-progress-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Shift Transfer Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100 gap-3">
@@ -1778,6 +1824,7 @@ function doPost(e) {
             // กำลังคนขึ้นกับทั้งวันที่และกะที่เลือก จึงต้องวาดใหม่ทุกครั้งที่ตัวกรองเปลี่ยน
             renderManpowerTable();
             renderShiftTransferTable();
+            renderJobProgressTable();
         }
 
         // ==========================================
@@ -3741,6 +3788,195 @@ function doPost(e) {
                 .filter(sc => sc.prodDate === date && sc.line === line && hours.has(sc.hour)
                     && String(sc.status).toUpperCase() === 'OK')
                 .reduce((sum, sc) => sum + (sc.qty || 1), 0);
+        }
+
+        // ==========================================
+        // JOB ORDER PROGRESS
+        // ==========================================
+        let jobProgressTab = 'open';
+
+        function setJobProgressTab(tab) {
+            jobProgressTab = tab;
+            renderJobProgressTable();
+        }
+
+        function formatJobLastScan(ts) {
+            if (!ts) return '-';
+            const d = new Date(ts);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            return `${dd}/${mm} ${hh}:${mi}`;
+        }
+
+        // รวมแผนจากชีต Plan เข้ากับยอดสแกนจริง ให้ได้ความคืบหน้าราย Job order
+        function buildJobProgressRows() {
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            const activeLine = els.filterLine ? els.filterLine.value : 'All';
+            const activeJob = els.filterJob.value;
+            const activeModel = els.filterModel.value;
+
+            // ยอดสแกนสะสมทั้งหมดที่โหลดมา + ยอดในช่วงที่เลือก + ไลน์และเวลาสแกนล่าสุดของแต่ละ Job
+            const scanInfo = {};
+            processedScans.forEach(s => {
+                if (String(s.status || '').toUpperCase() !== 'OK') return;
+                const job = String(s.jobOrder || '').trim();
+                if (!job || job === 'MANUAL_MODE') return;
+                const info = scanInfo[job] || (scanInfo[job] = { total: 0, period: 0, lines: new Set(), lastTs: 0, model: s.model });
+                const qty = s.qty || 1;
+                info.total += qty;
+                if (s.prodDate >= startDate && s.prodDate <= endDate) info.period += qty;
+                if (s.line && s.line !== '-') info.lines.add(s.line);
+                if (s.ts > info.lastTs) { info.lastTs = s.ts; info.model = s.model; }
+            });
+
+            const rows = [];
+            const seen = new Set();
+            (planJobs || []).forEach(j => {
+                if (seen.has(j.job)) return;
+                seen.add(j.job);
+                const info = scanInfo[j.job];
+                // ชีต Plan อาจอัปเดตช้ากว่ายอดสแกน ใช้ค่าที่สูงกว่าเหมือนที่ parsePlanSheet ทำ
+                const actual = Math.max(j.actual || 0, info ? info.total : 0);
+                rows.push({
+                    job: j.job,
+                    model: j.model && j.model !== '-' ? j.model : (info ? info.model : '-'),
+                    plan: j.plan || 0,
+                    actual,
+                    closed: !!j.closed,
+                    inPlan: true,
+                    info
+                });
+            });
+            // Job ที่มีสแกนแต่ไม่อยู่ในชีต Plan ก็ยังแสดง เพื่อไม่ให้ยอดหายไปเฉยๆ
+            Object.entries(scanInfo).forEach(([job, info]) => {
+                if (seen.has(job)) return;
+                rows.push({ job, model: info.model || '-', plan: 0, actual: info.total, closed: false, inPlan: false, info });
+            });
+
+            rows.forEach(r => {
+                r.remaining = Math.max(r.plan - r.actual, 0);
+                r.progress = r.plan > 0 ? (r.actual / r.plan) * 100 : null;
+                r.period = r.info ? r.info.period : 0;
+                r.lines = r.info ? [...r.info.lines].sort() : [];
+                r.lastTs = r.info ? r.info.lastTs : 0;
+                r.done = r.closed || (r.progress !== null && r.progress >= 100);
+                if (r.closed) r.status = 'closed';
+                else if (!r.inPlan) r.status = 'noplan';
+                else if (r.progress !== null && r.progress >= 100) r.status = 'complete';
+                else if (r.period > 0) r.status = 'running';
+                else if (r.actual === 0) r.status = 'notstarted';
+                else r.status = 'pending';
+            });
+
+            return rows.filter(r => {
+                if (activeJob && activeJob !== 'All' && r.job !== activeJob) return false;
+                if (activeModel && activeModel !== 'All' && r.model !== activeModel) return false;
+                if (activeLine && activeLine !== 'All' && !r.lines.includes(activeLine)) return false;
+                return true;
+            });
+        }
+
+        const JOB_STATUS_BADGE = {
+            running:    { text: 'กำลังผลิต',   cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
+            pending:    { text: 'ค้าง',         cls: 'bg-amber-50 text-amber-600 border-amber-200' },
+            notstarted: { text: 'ยังไม่เริ่ม',   cls: 'bg-slate-50 text-slate-500 border-slate-200' },
+            complete:   { text: 'ครบแผน',      cls: 'bg-indigo-50 text-indigo-600 border-indigo-200' },
+            closed:     { text: 'ปิดแล้ว',      cls: 'bg-slate-100 text-slate-400 border-slate-200' },
+            noplan:     { text: 'ไม่พบในแผน',   cls: 'bg-rose-50 text-rose-500 border-rose-200' }
+        };
+
+        function renderJobProgressTable() {
+            const tbody = document.getElementById('job-progress-tbody');
+            if (!tbody) return;
+
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            setRangeLabel('job-progress-range-label', startDate, endDate);
+
+            document.querySelectorAll('#job-progress-tabs button').forEach(btn => {
+                const active = btn.dataset.tab === jobProgressTab;
+                btn.classList.toggle('bg-white', active);
+                btn.classList.toggle('shadow-sm', active);
+                btn.classList.toggle('text-indigo-600', active);
+                btn.classList.toggle('text-slate-500', !active);
+            });
+
+            const allRows = buildJobProgressRows();
+
+            // สรุปด้านบนนับจากทุก Job ที่ผ่านตัวกรองหลัก ไม่ขึ้นกับแท็บ/คำค้น
+            const openRows = allRows.filter(r => !r.done && r.inPlan);
+            const summaryEl = document.getElementById('job-progress-summary');
+            if (summaryEl) {
+                const tile = (label, value, cls) => `
+                    <div class="rounded-xl border border-slate-100 bg-white/70 px-4 py-3">
+                        <p class="text-[11px] text-slate-400 font-semibold">${label}</p>
+                        <p class="text-lg font-bold ${cls}">${value}</p>
+                    </div>`;
+                summaryEl.innerHTML =
+                    tile('Job ค้าง', openRows.length.toLocaleString(), 'text-slate-800') +
+                    tile('เดินในช่วงนี้', allRows.filter(r => r.period > 0).length.toLocaleString(), 'text-emerald-600') +
+                    tile('ยอดคงเหลือรวม (PCS)', openRows.reduce((s, r) => s + r.remaining, 0).toLocaleString(), 'text-amber-600') +
+                    tile('ครบ/ปิดแล้ว', allRows.filter(r => r.done).length.toLocaleString(), 'text-indigo-600');
+            }
+
+            const q = (document.getElementById('job-progress-search')?.value || '').trim().toLowerCase();
+            let rows = allRows.filter(r => {
+                if (jobProgressTab === 'open' && r.done) return false;
+                if (jobProgressTab === 'period' && r.period <= 0) return false;
+                if (jobProgressTab === 'done' && !r.done) return false;
+                if (q && !r.job.toLowerCase().includes(q) && !String(r.model).toLowerCase().includes(q)) return false;
+                return true;
+            });
+
+            // Job ที่เดินในช่วงนี้ขึ้นก่อน (ล่าสุดก่อน) ตามด้วย Job ที่คืบหน้ามากไปน้อย
+            rows.sort((a, b) =>
+                (b.period > 0) - (a.period > 0) ||
+                b.lastTs - a.lastTs ||
+                (b.progress || 0) - (a.progress || 0) ||
+                a.job.localeCompare(b.job)
+            );
+
+            if (rows.length === 0) {
+                const msg = (planJobs || []).length === 0 && allRows.length === 0
+                    ? 'ยังไม่มีข้อมูล Job order (ไม่พบชีต Plan และไม่มียอดสแกนที่ระบุ Job)'
+                    : 'ไม่มี Job order ที่ตรงกับตัวกรอง';
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center p-6 text-slate-400 italic">${msg}</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = rows.map(r => {
+                const pct = r.progress === null ? null : r.progress;
+                const barPct = pct === null ? 0 : Math.min(pct, 100);
+                const barColor = pct === null ? 'bg-slate-300'
+                    : pct >= 100 ? 'bg-indigo-500'
+                    : pct >= 70 ? 'bg-emerald-500'
+                    : pct >= 30 ? 'bg-amber-500'
+                    : 'bg-rose-500';
+                const badge = JOB_STATUS_BADGE[r.status];
+                return `
+                    <tr class="hover:bg-slate-50/60 ${r.done ? 'text-slate-400' : 'text-slate-700'}">
+                        <td class="p-3 font-mono font-semibold whitespace-nowrap">${escapeHtml(r.job)}</td>
+                        <td class="p-3 whitespace-nowrap">${escapeHtml(r.model)}</td>
+                        <td class="p-3 text-center whitespace-nowrap">${r.lines.length ? escapeHtml(r.lines.join(', ')) : '-'}</td>
+                        <td class="p-3 text-right font-mono">${r.plan ? r.plan.toLocaleString() : '-'}</td>
+                        <td class="p-3 text-right font-mono">${r.actual.toLocaleString()}</td>
+                        <td class="p-3 text-right font-mono ${r.remaining > 0 && !r.done ? 'text-amber-600' : ''}">${r.plan ? r.remaining.toLocaleString() : '-'}</td>
+                        <td class="p-3 text-right font-mono ${r.period > 0 ? 'text-emerald-600 font-bold' : 'text-slate-300'}">${r.period > 0 ? '+' + r.period.toLocaleString() : '-'}</td>
+                        <td class="p-3">
+                            <div class="flex items-center gap-2">
+                                <div class="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div class="h-full ${barColor} rounded-full transition-all" style="width:${barPct.toFixed(1)}%"></div>
+                                </div>
+                                <span class="w-12 text-right font-mono font-bold">${pct === null ? '-' : pct.toFixed(pct >= 100 ? 0 : 1) + '%'}</span>
+                            </div>
+                        </td>
+                        <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${formatJobLastScan(r.lastTs)}</td>
+                        <td class="p-3 text-center"><span class="inline-block px-2 py-0.5 rounded-full border text-[11px] font-bold whitespace-nowrap ${badge.cls}">${badge.text}</span></td>
+                    </tr>`;
+            }).join('');
         }
 
         function renderShiftTransferTable() {
