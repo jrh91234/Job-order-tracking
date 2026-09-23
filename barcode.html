@@ -367,7 +367,7 @@
                     <!-- เลือกวิธีเรียงรุ่นในกราฟ -->
                     <div id="model-sort-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold" title="วิธีเรียงรุ่นในกราฟ">
                         <button type="button" data-sort="qty" onclick="setModelChartSort('qty')" class="px-2 py-1 rounded-md">ยอดมาก→น้อย</button>
-                        <button type="button" data-sort="sequence" onclick="setModelChartSort('sequence')" class="px-2 py-1 rounded-md">ลำดับที่ผลิต</button>
+                        <button type="button" data-sort="sequence" onclick="setModelChartSort('sequence')" class="px-2 py-1 rounded-md" title="รุ่นที่เริ่มผลิตหลังสุดอยู่บนสุด">ลำดับที่ผลิต (ล่าสุดบน)</button>
                     </div>
                     <!-- Toggle Switch for Chart Values -->
                     <label class="relative inline-flex items-center cursor-pointer select-none">
@@ -2993,7 +2993,7 @@ function doPost(e) {
 
             // เรียงรุ่นตามที่ผู้ใช้เลือก (ปุ่มด้านบนกราฟ)
             //   qty      = ยอดผลิตมากไปน้อย
-            //   sequence = ลำดับที่ผลิตจริง ดูจากเวลาสแกนชิ้นแรกของแต่ละรุ่นในช่วงที่กรอง (รุ่นแรกอยู่บนสุด)
+            //   sequence = ลำดับที่ผลิตจริง ดูจากเวลาสแกนชิ้นแรกของแต่ละรุ่นในช่วงที่กรอง (รุ่นที่ผลิตหลังสุดอยู่บนสุด)
             // กราฟแสดงครบทุกรุ่นแล้ว (เลื่อนดูได้) จึงไม่ต้องตรึงรุ่นที่ RUNNING ไว้บนสุดอีก จุดไฟหน้าชื่อรุ่นยังบอกอยู่
             const firstScanTsByModel = {};
             okScans.forEach(s => {
@@ -3005,8 +3005,9 @@ function doPost(e) {
                 if (!(modelName in modelGroups)) displayModels.push([modelName, 0]);
             });
             if (modelChartSortMode === 'sequence') {
+                // รุ่นที่ RUNNING แต่ยังไม่มีสแกนในช่วงนี้ ถือว่าเพิ่งเริ่ม จึงอยู่บนสุด
                 displayModels.sort((a, b) =>
-                    (firstScanTsByModel[a[0]] ?? Infinity) - (firstScanTsByModel[b[0]] ?? Infinity) ||
+                    (firstScanTsByModel[b[0]] ?? Infinity) - (firstScanTsByModel[a[0]] ?? Infinity) ||
                     b[1] - a[1]);
             } else {
                 displayModels.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
