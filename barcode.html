@@ -418,9 +418,9 @@
                 <p class="text-xs text-slate-400">คำนวณแบบคลีนจากสถิติจริง (กรองสแกนเบิ้ล 1 วินาที และเวลานอกสายผลิตออกแล้ว)</p>
             </div>
             
-            <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm">
+            <div id="capacity-auditor-scroll" class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
                 <table class="w-full text-left border-collapse text-xs">
-                    <thead>
+                    <thead class="sticky top-0 z-10">
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
                             <th class="p-3 cursor-pointer select-none hover:text-indigo-600 transition-colors" onclick="toggleCapacityAuditorSort()">
                                 <span class="inline-flex items-center gap-1">
@@ -3389,6 +3389,25 @@ function doPost(e) {
             renderCapacityAuditor();
         }
 
+        // แสดงสูงสุด 20 รุ่น ที่เหลือให้เลื่อนดูในกล่อง (หัวตารางค้างไว้ด้านบน)
+        // วัดความสูงจริงของแถวแทนการใช้ค่าคงที่ เพราะชื่อรุ่นยาวอาจทำให้บางแถวขึ้นสองบรรทัด
+        const CAPACITY_AUDITOR_VISIBLE_ROWS = 20;
+        function limitCapacityAuditorRows() {
+            const scrollEl = document.getElementById('capacity-auditor-scroll');
+            const tbody = document.getElementById('capacity-auditor-tbody');
+            if (!scrollEl || !tbody) return;
+            const rows = tbody.rows;
+            if (rows.length <= CAPACITY_AUDITOR_VISIBLE_ROWS) {
+                scrollEl.style.maxHeight = '';
+                return;
+            }
+            const thead = scrollEl.querySelector('thead');
+            const lastVisible = rows[CAPACITY_AUDITOR_VISIBLE_ROWS - 1];
+            const height = (thead ? thead.offsetHeight : 0) + lastVisible.offsetTop + lastVisible.offsetHeight - rows[0].offsetTop;
+            // การ์ดถูกซ่อนอยู่ (วัดได้ 0) ให้ใช้ค่าประมาณแทน จะได้ไม่ยุบจนมองไม่เห็นตาราง
+            scrollEl.style.maxHeight = height > 0 ? `${height + 2}px` : '860px';
+        }
+
         function renderCapacityAuditor() {
             const tbody = document.getElementById('capacity-auditor-tbody');
             if (!tbody) return;
@@ -3434,6 +3453,7 @@ function doPost(e) {
             });
 
             tbody.innerHTML = html;
+            limitCapacityAuditorRows();
             if (window.lucide) lucide.createIcons();
         }
 
