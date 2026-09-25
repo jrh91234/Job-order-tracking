@@ -3444,11 +3444,14 @@ function doPost(e) {
             return { v: t };
         }
 
-        function rowsToSheet(XLSX, rows) {
-            const ws = XLSX.utils.aoa_to_sheet(rows.map(r => r.map(c => (c && typeof c === 'object') ? c.v : c)));
+        // metaRows: แถวข้อมูลประกอบด้านบนไฟล์ (หัวข้อ, ช่วงวันที่, ตัวกรอง) ไม่นำไปคิดความกว้างคอลัมน์
+        function rowsToSheet(XLSX, rows, metaRows = []) {
+            const allRows = [...metaRows, ...rows];
+            const offset = metaRows.length;
+            const ws = XLSX.utils.aoa_to_sheet(allRows.map(r => r.map(c => (c && typeof c === 'object') ? c.v : c)));
             rows.forEach((r, ri) => r.forEach((c, ci) => {
                 if (c && typeof c === 'object' && c.z) {
-                    const cell = ws[XLSX.utils.encode_cell({ r: ri, c: ci })];
+                    const cell = ws[XLSX.utils.encode_cell({ r: ri + offset, c: ci })];
                     if (cell) cell.z = c.z;
                 }
             }));
@@ -3494,18 +3497,37 @@ function doPost(e) {
             return rows;
         }
 
+        // ข้อมูลประกอบที่หัวไฟล์ บอกว่าเป็นข้อมูลช่วงวันไหน ใช้ตัวกรองอะไร ส่งออกเมื่อไหร่
+        function excelMetaRows(title, start, end) {
+            const optionText = sel => (sel && sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex].text.trim() : '-';
+            const range = start === end ? formatThaiDate(start) : `${formatThaiDate(start)} ถึง ${formatThaiDate(end)}`;
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const exportedAt = `${formatThaiDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`)} ${pad(now.getHours())}:${pad(now.getMinutes())} น.`;
+            return [
+                [title],
+                ['ช่วงวันที่ (วันผลิต)', range],
+                ['ไลน์', optionText(els.filterLine)],
+                ['กะ', optionText(els.filterShift)],
+                ['Job Order', optionText(els.filterJob)],
+                ['รุ่นสินค้า', optionText(els.filterModel)],
+                ['ส่งออกเมื่อ', exportedAt],
+                []
+            ];
+        }
+
         async function exportCardToExcel(title, getRows, fileKey) {
             try {
                 const XLSX = await loadSheetJs();
                 const rows = getRows();
+                const start = els.filterStartDate.value || '';
+                const end = els.filterEndDate.value || start;
                 if (rows.length <= 1) {
                     return Swal.fire({ icon: 'info', title: 'ไม่มีข้อมูลให้ส่งออก', text: 'ลองเปลี่ยนช่วงวันที่หรือตัวกรองดูครับ' });
                 }
                 const wb = XLSX.utils.book_new();
                 const sheetName = title.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31).trim() || 'Sheet1';
-                XLSX.utils.book_append_sheet(wb, rowsToSheet(XLSX, rows), sheetName);
-                const start = els.filterStartDate.value || '';
-                const end = els.filterEndDate.value || start;
+                XLSX.utils.book_append_sheet(wb, rowsToSheet(XLSX, rows, excelMetaRows(title, start, end)), sheetName);
                 const range = start === end ? start : `${start}_${end}`;
                 // ชื่อไฟล์ใช้ภาษาอังกฤษ บางเบราว์เซอร์/เครื่องทิ้งชื่อไฟล์ภาษาไทยแล้วตั้งเป็น "download" แทน
                 XLSX.writeFile(wb, `${fileKey}_${range}.xlsx`);
