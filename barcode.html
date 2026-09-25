@@ -295,7 +295,8 @@
                 <div>
                     <span class="text-xs font-bold text-slate-400 block mb-1">รุ่นสินค้าที่สแกน</span>
                     <span id="kpi-active-models" class="text-2xl font-black text-amber-500 font-mono">0</span>
-                    <span class="text-[10px] text-slate-400 block mt-1">โมเดลสินค้า</span>
+                    <span class="text-[10px] text-slate-400 block mt-1">โมเดลสินค้า (รุ่นซ้ำนับครั้งเดียว)</span>
+                    <span class="text-xs font-bold text-slate-600 block mt-1" title="นับทุกครั้งที่ไลน์เปลี่ยนจากรุ่นหนึ่งไปอีกรุ่น รวมการเปลี่ยนข้ามกะ ไม่นับสแกนเก็บตก 5 ชิ้นหรือน้อยกว่า">เปลี่ยนรุ่น <span id="kpi-model-changes" class="font-mono text-amber-600">0</span> ครั้ง</span>
                 </div>
                 <div class="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500">
                     <i data-lucide="box" class="w-6 h-6"></i>
@@ -1442,6 +1443,7 @@ function doPost(e) {
             kpiTotalScans: document.getElementById('kpi-total-scans'),
             kpiAvgSpeed: document.getElementById('kpi-avg-speed'),
             kpiActiveModels: document.getElementById('kpi-active-models'),
+            kpiModelChanges: document.getElementById('kpi-model-changes'),
             kpiLastScanLines: document.getElementById('kpi-last-scan-lines'),
             scanTableBody: document.getElementById('scanTableBody'),
             tableSearch: document.getElementById('table-search'),
@@ -1911,6 +1913,10 @@ function doPost(e) {
             // Active Models
             const modelsSet = new Set(okScans.map(s => s.model));
             els.kpiActiveModels.textContent = modelsSet.size.toString();
+            // จำนวนครั้งที่เปลี่ยนรุ่นจริง (รุ่นเดิมกลับมาเดินอีกก็นับเป็นอีกครั้ง) รวมการเปลี่ยนข้ามกะ
+            if (els.kpiModelChanges) {
+                els.kpiModelChanges.textContent = computeChangeoverEvents({ includeUntimed: true }).length.toLocaleString();
+            }
 
             // Last Scan and Elapsed Time (แยกตามไลน์การผลิต)
             const formatElapsed = (item) => {
@@ -3489,7 +3495,9 @@ function doPost(e) {
         // ไล่สแกนของแต่ละไลน์ตามเวลา ทุกครั้งที่รุ่นเปลี่ยนคือ 1 ครั้งของการเปลี่ยนรุ่น
         // เวลาที่เสีย = ช่องว่างระหว่างชิ้นสุดท้ายของรุ่นเดิมกับชิ้นแรกของรุ่นใหม่ หักช่วงพักที่ทับอยู่
         // และหัก Cycle Time ปกติของรุ่นใหม่ 1 รอบ (เวลาที่ต้องใช้ประกอบชิ้นแรกอยู่แล้วแม้ไม่มีการเปลี่ยนรุ่น)
-        function computeChangeoverEvents() {
+        // includeUntimed: รวมการเปลี่ยนรุ่นที่คิดเวลาเสียไม่ได้ด้วย (ข้ามกะ/ข้ามวัน หรือห่างเกินเกณฑ์)
+        // ใช้นับจำนวนครั้งที่เปลี่ยนรุ่นทั้งหมด ส่วนการ์ด Changeover Lost ใช้เฉพาะครั้งที่คิดเวลาได้
+        function computeChangeoverEvents({ includeUntimed = false } = {}) {
             const startDate = els.filterStartDate.value;
             const endDate = els.filterEndDate.value || startDate;
             const activeShift = els.filterShift.value;
@@ -3539,10 +3547,15 @@ function doPost(e) {
                     const cur = runs[i];
                     if (prev.model === cur.model) continue;
                     // เปลี่ยนรุ่นข้ามกะ/ข้ามวันผลิต เวลาที่ห่างคือเวลาไลน์ปิด ไม่ใช่เวลาเปลี่ยนรุ่น
-                    if (prev.prodDate !== cur.prodDate || prev.shift !== cur.shift) continue;
-
                     const gapMs = cur.firstTs - prev.lastTs;
-                    if (gapMs <= 0 || gapMs > CHANGEOVER_MAX_GAP_MINUTES * 60000) continue;
+                    const timed = prev.prodDate === cur.prodDate && prev.shift === cur.shift &&
+                        gapMs > 0 && gapMs <= CHANGEOVER_MAX_GAP_MINUTES * 60000;
+                    if (!timed) {
+                        if (includeUntimed) {
+                            events.push({ line, prodDate: cur.prodDate, shift: cur.shift, fromModel: prev.model, toModel: cur.model, fromTs: prev.lastTs, toTs: cur.firstTs, timed: false });
+                        }
+                        continue;
+                    }
 
                     const breakMs = breakOverlapMs(prev.lastTs, cur.firstTs);
                     const cycleSec = modelCycleSecondsCache[cur.model] || 0;
@@ -3559,7 +3572,8 @@ function doPost(e) {
                         gapMin: gapMs / 60000,
                         breakMin: breakMs / 60000,
                         cycleMin: cycleSec / 60,
-                        lostMin
+                        lostMin,
+                        timed: true
                     });
                 }
             });
