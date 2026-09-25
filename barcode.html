@@ -418,7 +418,7 @@
                 <p class="text-xs text-slate-400">คำนวณแบบคลีนจากสถิติจริง (กรองสแกนเบิ้ล 1 วินาที และเวลานอกสายผลิตออกแล้ว)</p>
             </div>
             
-            <div id="capacity-auditor-scroll" class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
+            <div id="capacity-auditor-scroll" data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
                 <table class="w-full text-left border-collapse text-xs">
                     <thead class="sticky top-0 z-10">
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
@@ -463,7 +463,7 @@
                     </div>
                 </div>
             </div>
-            <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm" style="max-height: 420px; overflow-y: auto;">
+            <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
                 <table class="w-full text-left border-collapse text-xs">
                     <thead id="changeover-thead" class="bg-slate-50 sticky top-0 z-10"></thead>
                     <tbody id="changeover-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
@@ -496,7 +496,7 @@
                 </div>
             </div>
             <div id="job-progress-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
-            <div class="overflow-x-auto max-h-[480px] overflow-y-auto rounded-xl border border-slate-100">
+            <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100">
                 <table class="w-full text-xs">
                     <thead class="bg-slate-50 sticky top-0 z-10">
                         <tr class="text-slate-500">
@@ -538,9 +538,9 @@
                     เพิ่มการโอนยอด
                 </button>
             </div>
-            <div class="overflow-x-auto">
+            <div data-row-limit class="overflow-x-auto overflow-y-auto">
                 <table class="w-full text-xs">
-                    <thead class="bg-slate-50/80">
+                    <thead class="bg-slate-50 sticky top-0 z-10">
                         <tr class="text-slate-500">
                             <th class="p-3 text-center font-bold">วันผลิต<br><span class="font-semibold text-slate-400">(Date)</span></th>
                             <th class="p-3 text-center font-bold">ไลน์<br><span class="font-semibold text-slate-400">(Line)</span></th>
@@ -571,9 +571,9 @@
                     กรอกกำลังคน
                 </button>
             </div>
-            <div class="overflow-x-auto">
+            <div data-row-limit class="overflow-x-auto overflow-y-auto">
                 <table class="w-full text-xs">
-                    <thead class="bg-slate-50/80">
+                    <thead class="bg-slate-50 sticky top-0 z-10">
                         <tr class="text-slate-500">
                             <th class="p-3 text-center font-bold">วันผลิต<br><span class="font-semibold text-slate-400">(Date)</span></th>
                             <th class="p-3 text-center font-bold">กะ<br><span class="font-semibold text-slate-400">(Shift)</span></th>
@@ -608,9 +608,9 @@
                 </button>
             </div>
             
-            <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm">
+            <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
                 <table class="w-full text-left border-collapse text-xs">
-                    <thead>
+                    <thead class="sticky top-0 z-10">
                         <tr class="bg-slate-50 text-slate-500 border-b border-slate-100 font-semibold">
                             <th class="p-3 text-center w-24">วันผลิต<br><span class="font-semibold text-slate-400">(Date)</span></th>
                             <th class="p-3 text-center w-24">ช่วงเวลา<br><span class="font-semibold text-slate-400">(Time)</span></th>
@@ -651,7 +651,7 @@
             </div>
 
             <!-- Table -->
-            <div id="table-scroll-container" class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm" style="max-height: 480px; overflow-y: auto;">
+            <div id="table-scroll-container" data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
                 <table class="w-full text-left border-collapse text-xs">
                     <thead>
                         <tr class="bg-slate-50/80 text-slate-500 border-b border-slate-100 font-semibold uppercase sticky top-0 z-10 backdrop-blur-md">
@@ -1464,6 +1464,7 @@ function doPost(e) {
         // INITIALIZATION
         // ==========================================
         window.addEventListener('DOMContentLoaded', () => {
+            initTableRowLimits();
             initApp();
         });
 
@@ -3389,23 +3390,40 @@ function doPost(e) {
             renderCapacityAuditor();
         }
 
-        // แสดงสูงสุด 20 รุ่น ที่เหลือให้เลื่อนดูในกล่อง (หัวตารางค้างไว้ด้านบน)
-        // วัดความสูงจริงของแถวแทนการใช้ค่าคงที่ เพราะชื่อรุ่นยาวอาจทำให้บางแถวขึ้นสองบรรทัด
-        const CAPACITY_AUDITOR_VISIBLE_ROWS = 20;
-        function limitCapacityAuditorRows() {
-            const scrollEl = document.getElementById('capacity-auditor-scroll');
-            const tbody = document.getElementById('capacity-auditor-tbody');
-            if (!scrollEl || !tbody) return;
-            const rows = tbody.rows;
-            if (rows.length <= CAPACITY_AUDITOR_VISIBLE_ROWS) {
+        // ทุกตารางบนหน้าที่ติด data-row-limit แสดงสูงสุด 20 แถว ที่เหลือเลื่อนดูในกล่อง (หัวตารางค้างไว้ด้านบน)
+        // วัดความสูงจริงของแถวแทนการใช้ค่าคงที่ เพราะบางแถวขึ้นสองบรรทัดหรือมีรายละเอียดซ้อน
+        // คอยดู tbody ด้วย MutationObserver จึงไม่ต้องไปเรียกซ้ำในทุกฟังก์ชันที่วาดตาราง
+        const TABLE_VISIBLE_ROWS = 20;
+        function limitTableRows(scrollEl) {
+            const tbody = scrollEl.querySelector('tbody');
+            if (!tbody) return;
+            const rows = Array.from(tbody.rows).filter(r => r.offsetHeight > 0);
+            if (rows.length <= TABLE_VISIBLE_ROWS) {
                 scrollEl.style.maxHeight = '';
                 return;
             }
             const thead = scrollEl.querySelector('thead');
-            const lastVisible = rows[CAPACITY_AUDITOR_VISIBLE_ROWS - 1];
+            const lastVisible = rows[TABLE_VISIBLE_ROWS - 1];
             const height = (thead ? thead.offsetHeight : 0) + lastVisible.offsetTop + lastVisible.offsetHeight - rows[0].offsetTop;
             // การ์ดถูกซ่อนอยู่ (วัดได้ 0) ให้ใช้ค่าประมาณแทน จะได้ไม่ยุบจนมองไม่เห็นตาราง
             scrollEl.style.maxHeight = height > 0 ? `${height + 2}px` : '860px';
+        }
+
+        function initTableRowLimits() {
+            const boxes = document.querySelectorAll('[data-row-limit]');
+            boxes.forEach(el => {
+                const tbody = el.querySelector('tbody');
+                if (!tbody) return;
+                let queued = false;
+                new MutationObserver(() => {
+                    if (queued) return;
+                    queued = true;
+                    requestAnimationFrame(() => { queued = false; limitTableRows(el); });
+                }).observe(tbody, { childList: true, subtree: true });
+                limitTableRows(el);
+            });
+            // หน้าจอกว้าง/แคบลง แถวอาจขึ้นบรรทัดใหม่ ต้องวัดใหม่
+            window.addEventListener('resize', () => boxes.forEach(limitTableRows));
         }
 
         function renderCapacityAuditor() {
@@ -3453,7 +3471,6 @@ function doPost(e) {
             });
 
             tbody.innerHTML = html;
-            limitCapacityAuditorRows();
             if (window.lucide) lucide.createIcons();
         }
 
