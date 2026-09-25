@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- หน้า Efficiency (OEE) เลิกใช้แล้ว ใช้หน้า Barcode Real-time แทน
+         ส่งต่อทันทีก่อนโหลดอะไร เพื่อให้บุ๊กมาร์ก/ทางลัดแอปที่ยังชี้มาที่ไฟล์นี้ไปถึงหน้าที่ใช้งานจริง -->
+    <script>location.replace('barcode.html' + location.search + location.hash);</script>
+    <meta http-equiv="refresh" content="0; url=barcode.html">
     <title>Efficiency Dashboard</title>
     <!-- Tailwind CSS (Trigger rebuild) -->
     <script src="https://cdn.tailwindcss.com"></script>
