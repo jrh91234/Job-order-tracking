@@ -1613,27 +1613,11 @@ function doPost(e) {
         // ==========================================
 
         // คืนค่าตัวคูณเป้าหมายตามช่วงเวลาพักเบรคมาตรฐาน (Downtime Multiplier)
-        function isShiftFirstHour(hour) {
-            return hour === 8 || hour === 20;
-        }
-
+        // หักเฉพาะช่วงพักใน BREAK_MINUTES_BY_HOUR: 12:00-13:00, 00:00-01:00, 17:00-17:30, 05:00-05:30
+        // ชั่วโมงอื่นนับเต็ม 60 นาที (ไม่หักชั่วโมงแรกของกะ และไม่หักพัก 10 นาทีช่วงสาย/บ่าย)
         function getDowntimeMultiplier(hour) {
-            // ชั่วโมงแรกของกะเสียเวลาเตรียมไลน์ 40 นาที (รัน 20 นาที)
-            if (isShiftFirstHour(hour)) return 20 / 60;
-
-            // กะกลางวัน (Day Shift)
-            if (hour === 10) return 50 / 60; // 10:00 - 10:10 (รัน 50 นาที)
-            if (hour === 12) return 0;       // 12:00 - 13:00 (รัน 0 นาที)
-            if (hour === 15) return 50 / 60; // 15:00 - 15:10 (รัน 50 นาที)
-            if (hour === 17) return 30 / 60; // 17:00 - 17:30 (รัน 30 นาที)
-            
-            // กะดึก (Night Shift) - เทียบเคียงเวลาเดียวกันของชั่วโมงกะ
-            if (hour === 22) return 50 / 60; // 22:00 - 22:10 (รัน 50 นาที)
-            if (hour === 0)  return 0;       // 00:00 - 01:00 (รัน 0 นาที)
-            if (hour === 3)  return 50 / 60; // 03:00 - 03:10 (รัน 50 นาที)
-            if (hour === 5)  return 30 / 60; // 05:00 - 05:30 (รัน 30 นาที)
-            
-            return 1.0; // ชั่วโมงปกติ รันเต็ม 60 นาที
+            const breakMinutes = BREAK_MINUTES_BY_HOUR[hour] || 0;
+            return (60 - breakMinutes) / 60;
         }
 
         /**
@@ -2714,8 +2698,7 @@ function doPost(e) {
                         breakText = ` (พักเที่ยง/พักเที่ยงคืน)`;
                     } else if (multiplier < 1) {
                         const runMins = Math.round(multiplier * 60);
-                        const reason = isShiftFirstHour(hr) ? 'ชั่วโมงแรกเสีย 40 นาที' : 'หักพักเบรค';
-                        breakText = ` (${reason}, รัน ${runMins} นาที)`;
+                        breakText = ` (หักพักเบรค, รัน ${runMins} นาที)`;
                     }
                     
                     lineCalculationsHtml += `
@@ -2731,8 +2714,6 @@ function doPost(e) {
                 let hourBreakText = '';
                 if (multiplier === 0) {
                     hourBreakText = ' (พักกลางวัน/กะดึก)';
-                } else if (isShiftFirstHour(hr)) {
-                    hourBreakText = ' (ชั่วโมงแรกของกะ เสีย 40 นาที)';
                 } else if (multiplier < 1) {
                     hourBreakText = ' (มีช่วงพักเบรค)';
                 }
