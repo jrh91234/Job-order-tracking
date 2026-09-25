@@ -452,7 +452,7 @@
                         <i data-lucide="repeat" class="w-5 h-5 text-indigo-500"></i>
                         เวลาที่เสียจากการเปลี่ยนรุ่น (Changeover Lost)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากสแกนอัตโนมัติ: ชิ้นแรกของรุ่นใหม่ − ชิ้นสุดท้ายของรุ่นเดิมในไลน์เดียวกัน หักเวลาพักและ Cycle Time ปกติ 1 รอบ · ไม่นับการเปลี่ยนข้ามกะ ช่วงห่างเกิน 180 นาที และสแกนหลงที่น้อยกว่า 3 ครั้ง · <span id="changeover-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากสแกนอัตโนมัติ: ชิ้นแรกของรุ่นใหม่ − ชิ้นสุดท้ายของรุ่นเดิมในไลน์เดียวกัน หักเวลาพักและ Cycle Time ปกติ 1 รอบ · ไม่นับการเปลี่ยนข้ามกะ ช่วงห่างเกิน 180 นาที และรุ่นที่สแกนติดกันไม่เกิน 5 ชิ้น (ถือเป็นสแกนเก็บตก) · <span id="changeover-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="changeover-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -3441,7 +3441,7 @@ function doPost(e) {
         // CHANGEOVER LOST (เวลาที่เสียจากการเปลี่ยนรุ่น คำนวณจากสแกน)
         // ==========================================
         const CHANGEOVER_MAX_GAP_MINUTES = 180; // ห่างกว่านี้ถือว่าไลน์หยุดด้วยเหตุอื่น ไม่ใช่การเปลี่ยนรุ่น
-        const CHANGEOVER_MIN_RUN_SCANS = 3;     // รุ่นที่สแกนติดกันน้อยกว่านี้ถือเป็นสแกนหลง ไม่ใช่การเปลี่ยนรุ่นจริง
+        const CHANGEOVER_CATCHUP_MAX_PCS = 5;   // รุ่นที่สแกนติดกันไม่เกินกี่ชิ้นถือเป็นสแกนเก็บตก ไม่ใช่การเปลี่ยนรุ่นจริง
         let changeoverTab = 'line';
 
         function setChangeoverTab(tab) {
@@ -3479,14 +3479,14 @@ function doPost(e) {
                     const last = runs[runs.length - 1];
                     if (last && last.model === s.model && last.prodDate === s.prodDate && last.shift === s.shift) {
                         last.lastTs = s.ts;
-                        last.count++;
+                        last.count += s.qty || 1;
                     } else {
-                        runs.push({ model: s.model, prodDate: s.prodDate, shift: s.shift, firstTs: s.ts, lastTs: s.ts, count: 1 });
+                        runs.push({ model: s.model, prodDate: s.prodDate, shift: s.shift, firstTs: s.ts, lastTs: s.ts, count: s.qty || 1 });
                     }
                 });
 
-                // ตัดสแกนหลงทิ้ง แล้วต่อช่วงรุ่นเดียวกันที่ถูกสแกนหลงคั่นกลางกลับเป็นช่วงเดียว
-                runs = runs.filter(r => r.count >= CHANGEOVER_MIN_RUN_SCANS).reduce((acc, r) => {
+                // ตัดสแกนเก็บตกทิ้ง (นับเป็นชิ้น) แล้วต่อช่วงรุ่นเดียวกันที่ถูกสแกนเก็บตกคั่นกลางกลับเป็นช่วงเดียว
+                runs = runs.filter(r => r.count > CHANGEOVER_CATCHUP_MAX_PCS).reduce((acc, r) => {
                     const last = acc[acc.length - 1];
                     if (last && last.model === r.model && last.prodDate === r.prodDate && last.shift === r.shift) {
                         last.lastTs = r.lastTs;
