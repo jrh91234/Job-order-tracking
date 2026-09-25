@@ -44,7 +44,8 @@
         body.chart-fs-open { overflow: hidden; }
         .glass-card {
             background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(10px);
+            /* ไม่ใช้ backdrop-filter: พื้นหลังหน้าเป็นสีเรียบ เบลอแล้วหน้าตาเหมือนเดิม
+               แต่เบราว์เซอร์ต้องคำนวณเบลอใหม่ทุกการ์ดทุกครั้งที่เลื่อนจอ หน้ายิ่งยาวยิ่งกระตุก */
             border: 1px solid rgba(226, 232, 240, 0.8);
         }
         ::-webkit-scrollbar {
@@ -3159,8 +3160,13 @@ function doPost(e) {
                         }
                     });
                     
-                    if (hasRunning) {
+                    // จองเฟรมถัดไปได้ทีละหนึ่งเฟรมเท่านั้น เดิมทุกครั้งที่กราฟวาด (ขยับเมาส์ชี้ tooltip, อนิเมชัน, รีเฟรชอัตโนมัติ)
+                    // จะเปิดลูปวาดใหม่ซ้อนเพิ่มอีกหนึ่งสายที่ไม่มีวันหยุด ลูปจึงสะสมจนวาดกราฟหลายสิบรอบต่อเฟรม
+                    // ยิ่งเลือกช่วงวันยาว รุ่นยิ่งเยอะ กราฟยิ่งสูง หน้าจอก็ยิ่งกระตุกเวลาเลื่อน
+                    if (hasRunning && !chart.pulseFrameQueued) {
+                        chart.pulseFrameQueued = true;
                         requestAnimationFrame(() => {
+                            chart.pulseFrameQueued = false;
                             if (chart.ctx) {
                                 chart.draw();
                             }
