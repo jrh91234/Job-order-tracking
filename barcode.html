@@ -2812,7 +2812,7 @@ function doPost(e) {
                         ctx.save();
 
                         const activeStartDate = els.filterStartDate.value;
-                        const dayIncidents = getIncidentsForDate(activeStartDate);
+                        const dayIncidents = getIncidentsForDate(activeStartDate).filter(incidentMatchesActiveLine);
                         chart.warningIconPositions = [];
 
                         chart.data.labels.forEach((label, index) => {
@@ -4859,6 +4859,12 @@ function doPost(e) {
             return list;
         }
 
+        // เลือกไลน์ในตัวกรองแล้ว ให้เห็นเฉพาะเหตุการณ์ของไลน์นั้น กับเหตุการณ์ที่บันทึกไว้ว่ากระทบทุกไลน์
+        function incidentMatchesActiveLine(inc) {
+            const activeLine = els.filterLine ? els.filterLine.value : 'All';
+            return activeLine === 'All' || inc.line === 'All' || String(inc.line) === String(activeLine);
+        }
+
         function escapeHtml(str) {
             if (str === null || str === undefined) return '';
             return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -4869,7 +4875,7 @@ function doPost(e) {
             loadIncidents();
             const activeDate = els.filterStartDate.value;
             const hourIncidents = getIncidentsForDate(activeDate)
-                .filter(inc => inc.hour === hour)
+                .filter(inc => inc.hour === hour && incidentMatchesActiveLine(inc))
                 .sort((a, b) => String(a.line).localeCompare(String(b.line)) || String(a.model).localeCompare(String(b.model)));
 
             const hourRange = `${String(hour).padStart(2, '0')}:00 - ${String((hour + 1) % 24).padStart(2, '0')}:00 น.`;
