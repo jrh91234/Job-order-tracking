@@ -459,6 +459,7 @@
                     <div id="changeover-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
                         <button type="button" data-tab="line" onclick="setChangeoverTab('line')" class="px-2.5 py-1 rounded-md">ตามไลน์</button>
                         <button type="button" data-tab="pair" onclick="setChangeoverTab('pair')" class="px-2.5 py-1 rounded-md">ตามคู่รุ่น</button>
+                        <button type="button" data-tab="event" onclick="setChangeoverTab('event')" class="px-2.5 py-1 rounded-md">รายครั้ง</button>
                     </div>
                 </div>
             </div>
@@ -3518,7 +3519,9 @@ function doPost(e) {
                         toModel: cur.model,
                         fromTs: prev.lastTs,
                         toTs: cur.firstTs,
+                        gapMin: gapMs / 60000,
                         breakMin: breakMs / 60000,
+                        cycleMin: cycleSec / 60,
                         lostMin
                     });
                 }
@@ -3574,6 +3577,11 @@ function doPost(e) {
                 );
             };
 
+            if (changeoverTab === 'event') {
+                renderChangeoverEvents(thead, tbody, events, incidentsForEvent);
+                return;
+            }
+
             const groups = {};
             events.forEach(e => {
                 const key = changeoverTab === 'pair' ? `${e.line}\u0000${e.fromModel}\u0000${e.toModel}` : e.line;
@@ -3616,6 +3624,58 @@ function doPost(e) {
                         <td class="p-3 text-right font-mono font-bold text-slate-800">${formatLostMinutes(g.total)}</td>
                         <td class="p-3 text-right font-mono font-bold ${avgCls}">${Math.round(avg)} นาที</td>
                         <td class="p-3 text-right font-mono text-slate-500">${Math.round(g.max)} นาที</td>
+                        <td class="p-3 text-center">${notesCell}</td>
+                    </tr>`;
+            }).join('');
+        }
+
+        // วันที่และเวลาสแกนจริง (ตามปฏิทิน ไม่ใช่วันผลิต) กะดึกหลังเที่ยงคืนจึงเห็นวันถัดไปตามจริง
+        function formatScanDateTime(ts) {
+            const d = new Date(ts);
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(d.getFullYear() + 543).slice(-2)} ` +
+                `<span class="font-bold text-slate-700">${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}</span>`;
+        }
+
+        // ตารางทีละครั้ง: เอาไว้เทียบกับหน้างานว่าครั้งที่ตัวเลขสูง ช่องว่างนั้นเกิดจากอะไรจริง ๆ
+        function renderChangeoverEvents(thead, tbody, events, incidentsForEvent) {
+            thead.innerHTML = `
+                <tr class="text-slate-500 border-b border-slate-100 font-semibold">
+                    <th class="p-3">วันผลิต / กะ</th>
+                    <th class="p-3">ไลน์</th>
+                    <th class="p-3">รุ่นเดิม → รุ่นใหม่</th>
+                    <th class="p-3 text-center">สแกนสุดท้าย รุ่นเดิม</th>
+                    <th class="p-3 text-center">สแกนแรก รุ่นใหม่</th>
+                    <th class="p-3 text-right">ช่องว่าง</th>
+                    <th class="p-3 text-right">หักพัก</th>
+                    <th class="p-3 text-right">หัก CT</th>
+                    <th class="p-3 text-right">เสีย</th>
+                    <th class="p-3 text-center">บันทึกปัญหา</th>
+                </tr>`;
+
+            if (events.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center p-6 text-slate-400 italic">ไม่พบการเปลี่ยนรุ่นในช่วงที่เลือก</td></tr>`;
+                return;
+            }
+
+            const fmtMin = m => m > 0 ? `${Math.round(m)} นาที` : '<span class="text-slate-300">-</span>';
+            tbody.innerHTML = [...events].sort((a, b) => b.lostMin - a.lostMin).map(e => {
+                const lostCls = e.lostMin >= 30 ? 'text-rose-600' : e.lostMin >= 15 ? 'text-amber-500' : 'text-emerald-600';
+                const notes = incidentsForEvent(e).map(inc => `${inc.time || inc.hour + ':00'} ${inc.notes || ''}`.trim());
+                const notesCell = notes.length === 0
+                    ? '<span class="text-slate-300">-</span>'
+                    : `<span class="inline-flex items-center gap-1 text-amber-600 font-bold cursor-help" title="${escapeHtml(notes.join('\n'))}">📝 ${notes.length}</span>`;
+                return `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 text-slate-600 whitespace-nowrap">${formatThaiDate(e.prodDate)} <span class="text-slate-400">${e.shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก'}</span></td>
+                        <td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${e.line === '-' ? 'ไม่ระบุไลน์' : 'Line ' + escapeHtml(e.line)}</td>
+                        <td class="p-3 font-semibold text-slate-700">${escapeHtml(e.fromModel)} <span class="text-slate-400">→</span> ${escapeHtml(e.toModel)}</td>
+                        <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${formatScanDateTime(e.fromTs)}</td>
+                        <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${formatScanDateTime(e.toTs)}</td>
+                        <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">${Math.round(e.gapMin)} นาที</td>
+                        <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${fmtMin(e.breakMin)}</td>
+                        <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${e.cycleMin > 0 ? e.cycleMin.toFixed(1) + ' นาที' : '<span class="text-slate-300">-</span>'}</td>
+                        <td class="p-3 text-right font-mono font-bold whitespace-nowrap ${lostCls}">${Math.round(e.lostMin)} นาที</td>
                         <td class="p-3 text-center">${notesCell}</td>
                     </tr>`;
             }).join('');
