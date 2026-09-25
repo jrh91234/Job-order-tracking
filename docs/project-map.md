@@ -16,7 +16,8 @@ Update this file whenever a new major folder or service is added.
 - `scr/`: ซอร์สของโปรเจกต์ Apps Script ฝั่งลงยอด (ชื่อโปรเจกต์ `KPI`)
 - `gas_sync_incidents.js`: ซอร์สของโปรเจกต์ Apps Script ฝั่งบันทึกเหตุการณ์ (แยกอิสระ)
 - `gas_cleanup_incidents.js`: เครื่องมือล้างแถวเสียในชีต มี dry run ให้ตรวจก่อนลบเสมอ
-- `barcode.html`, `index.html`, `dashboard.html`: หน้าจอผู้ใช้ทั้งหมด (แต่ละไฟล์รวม HTML/CSS/JS ไว้ในตัว)
+- `barcode.html`, `index.html`: หน้าจอผู้ใช้ทั้งหมด (แต่ละไฟล์รวม HTML/CSS/JS ไว้ในตัว)
+- `dashboard.html`: หน้า Efficiency (OEE) เดิม เลิกใช้แล้ว เปิดแล้วจะส่งต่อไป `barcode.html` ทันที
 - `config.json`: ค่าตั้งต้นที่หน้าจอดึงไปใช้ รวมถึง URL ของ Web App ฝั่งบันทึกเหตุการณ์
 
 ## Task routing checklist
