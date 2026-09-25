@@ -1467,6 +1467,7 @@ function doPost(e) {
         // ==========================================
         window.addEventListener('DOMContentLoaded', () => {
             initTableRowLimits();
+            initExcelExportButtons();
             initApp();
         });
 
@@ -3411,6 +3412,145 @@ function doPost(e) {
             });
             // หน้าจอกว้าง/แคบลง แถวอาจขึ้นบรรทัดใหม่ ต้องวัดใหม่
             window.addEventListener('resize', () => boxes.forEach(limitTableRows));
+        }
+
+        // ==========================================
+        // EXPORT แต่ละการ์ดเป็นไฟล์ Excel (.xlsx)
+        // ==========================================
+        // โหลดไลบรารี SheetJS ตอนกดครั้งแรกเท่านั้น หน้าเว็บจะได้ไม่ช้าลงตอนเปิด
+        let sheetJsPromise = null;
+        function loadSheetJs() {
+            if (window.XLSX) return Promise.resolve(window.XLSX);
+            if (!sheetJsPromise) {
+                sheetJsPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+                    script.onload = () => resolve(window.XLSX);
+                    script.onerror = () => { sheetJsPromise = null; reject(new Error('โหลดไลบรารี Excel ไม่สำเร็จ')); };
+                    document.head.appendChild(script);
+                });
+            }
+            return sheetJsPromise;
+        }
+
+        // ตัวเลขที่แสดงพร้อมหน่วย เช่น "169 นาที (2.8 ชม.)", "75 PCS/Hr", "1,234" ให้กลายเป็นตัวเลขจริงใน Excel
+        // จะได้เอาไปรวม/เฉลี่ย/ทำกราฟต่อได้ ส่วน "67.7%" เก็บเป็นค่าเปอร์เซ็นต์
+        function toExcelValue(text) {
+            const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+            const pct = t.match(/^(-?[\d,]+(?:\.\d+)?)\s*%$/);
+            if (pct) return { v: Number(pct[1].replace(/,/g, '')) / 100, z: '0.0%' };
+            const num = t.match(/^(-?[\d,]+(?:\.\d+)?)(?:\s*(?:นาที|วินาที|ชิ้น|PCS\/Hr|PCS|คน|ครั้ง))?(?:\s*\([^)]*\))?$/);
+            if (num) return { v: Number(num[1].replace(/,/g, '')) };
+            return { v: t };
+        }
+
+        function rowsToSheet(XLSX, rows) {
+            const ws = XLSX.utils.aoa_to_sheet(rows.map(r => r.map(c => (c && typeof c === 'object') ? c.v : c)));
+            rows.forEach((r, ri) => r.forEach((c, ci) => {
+                if (c && typeof c === 'object' && c.z) {
+                    const cell = ws[XLSX.utils.encode_cell({ r: ri, c: ci })];
+                    if (cell) cell.z = c.z;
+                }
+            }));
+            // กว้างคอลัมน์ตามข้อความที่ยาวสุด อ่านง่ายตั้งแต่เปิดไฟล์
+            ws['!cols'] = (rows[0] || []).map((_, ci) => ({
+                wch: Math.min(50, Math.max(8, ...rows.map(r => String((r[ci] && typeof r[ci] === 'object') ? r[ci].v : (r[ci] ?? '')).length + 2)))
+            }));
+            return ws;
+        }
+
+        // อ่านตารางตามที่เห็นบนจอ (ข้ามแถวที่ซ่อนอยู่) หัวตารางเก็บเป็นข้อความ ส่วนเนื้อหาแปลงตัวเลข
+        function tableToRows(table) {
+            const rows = [];
+            table.querySelectorAll('tr').forEach(tr => {
+                if (tr.offsetParent === null && tr.closest('tbody')) return;
+                const isHead = !!tr.closest('thead');
+                const cells = Array.from(tr.children).filter(td => td.tagName === 'TD' || td.tagName === 'TH');
+                if (cells.length === 0) return;
+                // แถวแจ้ง "ไม่มีข้อมูล" ที่มีคอลัมน์เดียวคร่อมทั้งตาราง ไม่ต้องใส่ลงไฟล์
+                if (!isHead && cells.length === 1 && cells[0].colSpan > 1) return;
+                rows.push(cells.map(td => {
+                    const text = td.innerText.replace(/\s*\n\s*/g, ' ').trim();
+                    return isHead ? text : toExcelValue(text);
+                }));
+            });
+            return rows;
+        }
+
+        function chartToRows(chart) {
+            if (!chart) return [];
+            const datasets = chart.data.datasets.filter((d, i) => !chart.getDatasetMeta(i).hidden);
+            const header = ['รายการ', ...datasets.map(d => d.label || 'จำนวน')];
+            const rows = [header];
+            (chart.data.labels || []).forEach((label, i) => {
+                rows.push([String(label), ...datasets.map(d => Number(d.data[i]) || 0)]);
+            });
+            return rows;
+        }
+
+        function scanLogToRows() {
+            const rows = [['เวลาสแกน', 'วันผลิต', 'กะ', 'ไลน์', 'Job Order', 'รุ่น', 'จำนวนชิ้น', 'บาร์โค้ด', 'สถานะ']];
+            allFilteredRows.forEach(s => rows.push([s.time, s.displayDate, s.shift, s.line, s.jobOrder, s.model, s.qty || 1, s.barcode, s.status]));
+            return rows;
+        }
+
+        async function exportCardToExcel(title, getRows, fileKey) {
+            try {
+                const XLSX = await loadSheetJs();
+                const rows = getRows();
+                if (rows.length <= 1) {
+                    return Swal.fire({ icon: 'info', title: 'ไม่มีข้อมูลให้ส่งออก', text: 'ลองเปลี่ยนช่วงวันที่หรือตัวกรองดูครับ' });
+                }
+                const wb = XLSX.utils.book_new();
+                const sheetName = title.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31).trim() || 'Sheet1';
+                XLSX.utils.book_append_sheet(wb, rowsToSheet(XLSX, rows), sheetName);
+                const start = els.filterStartDate.value || '';
+                const end = els.filterEndDate.value || start;
+                const range = start === end ? start : `${start}_${end}`;
+                // ชื่อไฟล์ใช้ภาษาอังกฤษ บางเบราว์เซอร์/เครื่องทิ้งชื่อไฟล์ภาษาไทยแล้วตั้งเป็น "download" แทน
+                XLSX.writeFile(wb, `${fileKey}_${range}.xlsx`);
+            } catch (err) {
+                console.error(err);
+                Swal.fire({ icon: 'error', title: 'ส่งออก Excel ไม่สำเร็จ', text: err.message || String(err) });
+            }
+        }
+
+        // ใส่ปุ่ม Excel ต่อท้ายหัวข้อของทุกการ์ดที่เป็นตารางหรือกราฟ
+        function initExcelExportButtons() {
+            const addButton = (card, getRows, fileKey) => {
+                const h3 = card && card.querySelector('h3');
+                if (!h3 || h3.querySelector('.excel-export-btn')) return;
+                const title = h3.textContent.replace(/\s+/g, ' ').trim();
+                // ใช้ชื่อภาษาอังกฤษในวงเล็บท้ายหัวข้อเป็นชื่อไฟล์ เช่น "(Job Progress)" -> Job_Progress
+                const english = (title.match(/\(([^()]*[A-Za-z][^()]*)\)\s*$/) || [])[1];
+                const key = (fileKey || english || 'Export').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'excel-export-btn ml-2 inline-flex items-center gap-1 align-middle px-2 py-0.5 rounded-md text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors';
+                btn.title = 'ส่งออกข้อมูลการ์ดนี้เป็นไฟล์ Excel';
+                btn.innerHTML = '<i data-lucide="file-spreadsheet" class="w-3 h-3"></i>Excel';
+                btn.addEventListener('click', e => { e.stopPropagation(); exportCardToExcel(title, getRows, key); });
+                h3.appendChild(btn);
+            };
+
+            document.querySelectorAll('[data-row-limit]').forEach(box => {
+                const card = box.closest('.glass-card');
+                const table = box.querySelector('table');
+                if (box.id === 'table-scroll-container') {
+                    // ตารางสแกนโหลดทีละช่วงตอนเลื่อน ต้องส่งออกจากข้อมูลทั้งหมด ไม่ใช่เฉพาะแถวที่วาดแล้ว
+                    addButton(card, scanLogToRows);
+                } else if (table) {
+                    addButton(card, () => tableToRows(table));
+                }
+            });
+
+            [['hourlyChart', () => hourlyChartObj, 'Hourly_Output'], ['modelChart', () => modelChartObj, 'Model_Output'], ['dailyModelChart', () => dailyModelChartObj, 'Daily_Output']]
+                .forEach(([canvasId, getChart, fileKey]) => {
+                    const canvas = document.getElementById(canvasId);
+                    if (canvas) addButton(canvas.closest('.glass-card'), () => chartToRows(getChart()), fileKey);
+                });
+
+            if (window.lucide) lucide.createIcons();
         }
 
         function renderCapacityAuditor() {
