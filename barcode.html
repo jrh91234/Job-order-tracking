@@ -444,6 +444,32 @@
             </div>
         </div>
 
+        <!-- Changeover Lost Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="repeat" class="w-5 h-5 text-indigo-500"></i>
+                        เวลาที่เสียจากการเปลี่ยนรุ่น (Changeover Lost)
+                    </h3>
+                    <p class="text-xs text-slate-400">คิดจากสแกนอัตโนมัติ: ชิ้นแรกของรุ่นใหม่ − ชิ้นสุดท้ายของรุ่นเดิมในไลน์เดียวกัน หักเวลาพักและ Cycle Time ปกติ 1 รอบ · ไม่นับการเปลี่ยนข้ามกะ ช่วงห่างเกิน 180 นาที และสแกนหลงที่น้อยกว่า 3 ครั้ง · <span id="changeover-range-label" class="font-semibold text-slate-500"></span></p>
+                </div>
+                <div class="flex items-start gap-3 flex-wrap">
+                    <div id="changeover-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
+                    <div id="changeover-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
+                        <button type="button" data-tab="line" onclick="setChangeoverTab('line')" class="px-2.5 py-1 rounded-md">ตามไลน์</button>
+                        <button type="button" data-tab="pair" onclick="setChangeoverTab('pair')" class="px-2.5 py-1 rounded-md">ตามคู่รุ่น</button>
+                    </div>
+                </div>
+            </div>
+            <div class="overflow-x-auto rounded-xl border border-slate-100 shadow-sm" style="max-height: 420px; overflow-y: auto;">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead id="changeover-thead" class="bg-slate-50 sticky top-0 z-10"></thead>
+                    <tbody id="changeover-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Job Order Progress Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
@@ -1862,6 +1888,7 @@ function doPost(e) {
             renderManpowerTable();
             renderShiftTransferTable();
             renderJobProgressTable();
+            renderChangeoverLost();
         }
 
         // ==========================================
@@ -3407,6 +3434,191 @@ function doPost(e) {
 
             tbody.innerHTML = html;
             if (window.lucide) lucide.createIcons();
+        }
+
+        // ==========================================
+        // CHANGEOVER LOST (เวลาที่เสียจากการเปลี่ยนรุ่น คำนวณจากสแกน)
+        // ==========================================
+        const CHANGEOVER_MAX_GAP_MINUTES = 180; // ห่างกว่านี้ถือว่าไลน์หยุดด้วยเหตุอื่น ไม่ใช่การเปลี่ยนรุ่น
+        const CHANGEOVER_MIN_RUN_SCANS = 3;     // รุ่นที่สแกนติดกันน้อยกว่านี้ถือเป็นสแกนหลง ไม่ใช่การเปลี่ยนรุ่นจริง
+        let changeoverTab = 'line';
+
+        function setChangeoverTab(tab) {
+            changeoverTab = tab;
+            renderChangeoverLost();
+        }
+
+        // ไล่สแกนของแต่ละไลน์ตามเวลา ทุกครั้งที่รุ่นเปลี่ยนคือ 1 ครั้งของการเปลี่ยนรุ่น
+        // เวลาที่เสีย = ช่องว่างระหว่างชิ้นสุดท้ายของรุ่นเดิมกับชิ้นแรกของรุ่นใหม่ หักช่วงพักที่ทับอยู่
+        // และหัก Cycle Time ปกติของรุ่นใหม่ 1 รอบ (เวลาที่ต้องใช้ประกอบชิ้นแรกอยู่แล้วแม้ไม่มีการเปลี่ยนรุ่น)
+        function computeChangeoverEvents() {
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            const activeShift = els.filterShift.value;
+            const activeLine = els.filterLine ? els.filterLine.value : 'All';
+            const activeModel = els.filterModel.value;
+
+            // ไม่กรองรุ่นและ Job ตรงนี้ เพราะการเปลี่ยนรุ่นต้องเห็นทั้งรุ่นก่อนและรุ่นหลัง
+            const byLine = {};
+            processedScans.forEach(s => {
+                if (s.status.toUpperCase() !== 'OK') return;
+                if (s.prodDate < startDate || s.prodDate > endDate) return;
+                if (activeShift !== 'All' && s.shift !== activeShift) return;
+                if (activeLine !== 'All' && s.line !== activeLine) return;
+                (byLine[s.line] || (byLine[s.line] = [])).push(s);
+            });
+
+            const events = [];
+            Object.entries(byLine).forEach(([line, scans]) => {
+                scans.sort((a, b) => a.ts - b.ts);
+
+                // รวมสแกนรุ่นเดียวกันที่ติดกันเป็นช่วง (run) แยกตามวันผลิตและกะ
+                let runs = [];
+                scans.forEach(s => {
+                    const last = runs[runs.length - 1];
+                    if (last && last.model === s.model && last.prodDate === s.prodDate && last.shift === s.shift) {
+                        last.lastTs = s.ts;
+                        last.count++;
+                    } else {
+                        runs.push({ model: s.model, prodDate: s.prodDate, shift: s.shift, firstTs: s.ts, lastTs: s.ts, count: 1 });
+                    }
+                });
+
+                // ตัดสแกนหลงทิ้ง แล้วต่อช่วงรุ่นเดียวกันที่ถูกสแกนหลงคั่นกลางกลับเป็นช่วงเดียว
+                runs = runs.filter(r => r.count >= CHANGEOVER_MIN_RUN_SCANS).reduce((acc, r) => {
+                    const last = acc[acc.length - 1];
+                    if (last && last.model === r.model && last.prodDate === r.prodDate && last.shift === r.shift) {
+                        last.lastTs = r.lastTs;
+                        last.count += r.count;
+                    } else {
+                        acc.push({ ...r });
+                    }
+                    return acc;
+                }, []);
+
+                for (let i = 1; i < runs.length; i++) {
+                    const prev = runs[i - 1];
+                    const cur = runs[i];
+                    if (prev.model === cur.model) continue;
+                    // เปลี่ยนรุ่นข้ามกะ/ข้ามวันผลิต เวลาที่ห่างคือเวลาไลน์ปิด ไม่ใช่เวลาเปลี่ยนรุ่น
+                    if (prev.prodDate !== cur.prodDate || prev.shift !== cur.shift) continue;
+
+                    const gapMs = cur.firstTs - prev.lastTs;
+                    if (gapMs <= 0 || gapMs > CHANGEOVER_MAX_GAP_MINUTES * 60000) continue;
+
+                    const breakMs = breakOverlapMs(prev.lastTs, cur.firstTs);
+                    const cycleSec = modelCycleSecondsCache[cur.model] || 0;
+                    const lostMin = Math.max(0, (gapMs - breakMs) / 60000 - cycleSec / 60);
+
+                    events.push({
+                        line,
+                        prodDate: cur.prodDate,
+                        shift: cur.shift,
+                        fromModel: prev.model,
+                        toModel: cur.model,
+                        fromTs: prev.lastTs,
+                        toTs: cur.firstTs,
+                        breakMin: breakMs / 60000,
+                        lostMin
+                    });
+                }
+            });
+
+            if (activeModel !== 'All') {
+                return events.filter(e => e.fromModel === activeModel || e.toModel === activeModel);
+            }
+            return events;
+        }
+
+        function formatLostMinutes(min) {
+            const m = Math.round(min);
+            if (m < 60) return `${m} นาที`;
+            return `${m.toLocaleString()} นาที <span class="text-[10px] text-slate-400">(${(m / 60).toFixed(1)} ชม.)</span>`;
+        }
+
+        function renderChangeoverLost() {
+            const thead = document.getElementById('changeover-thead');
+            const tbody = document.getElementById('changeover-tbody');
+            if (!thead || !tbody) return;
+
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            setRangeLabel('changeover-range-label', startDate, endDate);
+
+            document.querySelectorAll('#changeover-tabs button').forEach(btn => {
+                const active = btn.dataset.tab === changeoverTab;
+                btn.classList.toggle('bg-white', active);
+                btn.classList.toggle('text-indigo-600', active);
+                btn.classList.toggle('shadow-sm', active);
+                btn.classList.toggle('text-slate-500', !active);
+            });
+
+            const events = computeChangeoverEvents();
+            const summaryEl = document.getElementById('changeover-summary');
+            const totalLost = events.reduce((sum, e) => sum + e.lostMin, 0);
+            if (summaryEl) {
+                summaryEl.innerHTML = events.length === 0 ? '' :
+                    `เสียรวม <span class="font-mono text-rose-600">${Math.round(totalLost).toLocaleString()}</span> นาที · ${events.length.toLocaleString()} ครั้ง` +
+                    `<span class="block text-[10px] font-normal text-slate-400">เฉลี่ย ${Math.round(totalLost / events.length)} นาที/ครั้ง</span>`;
+            }
+
+            // บันทึกปัญหาหมวด "เปลี่ยนรุ่นล่าช้า" ที่อยู่ในชั่วโมงเดียวกับการเปลี่ยนรุ่น แสดงคู่กันเป็นหมายเหตุ
+            const coIncidents = getIncidentsInRange(startDate, endDate, 'All', 'All').filter(inc => inc.category === 'Changeover');
+            const incidentsForEvent = e => {
+                const hours = new Set();
+                for (let t = e.fromTs; t <= e.toTs + 3599999; t += 3600000) hours.add(new Date(Math.min(t, e.toTs)).getHours());
+                return coIncidents.filter(inc =>
+                    inc.date === e.prodDate &&
+                    (inc.line === 'All' || String(inc.line) === String(e.line)) &&
+                    hours.has(Number(inc.hour))
+                );
+            };
+
+            const groups = {};
+            events.forEach(e => {
+                const key = changeoverTab === 'pair' ? `${e.line}\u0000${e.fromModel}\u0000${e.toModel}` : e.line;
+                const g = groups[key] || (groups[key] = { line: e.line, fromModel: e.fromModel, toModel: e.toModel, count: 0, total: 0, max: 0, notes: [] });
+                g.count++;
+                g.total += e.lostMin;
+                g.max = Math.max(g.max, e.lostMin);
+                incidentsForEvent(e).forEach(inc => g.notes.push(`${formatThaiDate(inc.date)} ${inc.time || inc.hour + ':00'} ${inc.notes || ''}`.trim()));
+            });
+            const rows = Object.values(groups).sort((a, b) => b.total - a.total);
+
+            const pairCols = changeoverTab === 'pair';
+            thead.innerHTML = `
+                <tr class="text-slate-500 border-b border-slate-100 font-semibold">
+                    <th class="p-3">ไลน์</th>
+                    ${pairCols ? '<th class="p-3">รุ่นเดิม → รุ่นใหม่</th>' : ''}
+                    <th class="p-3 text-right">จำนวนครั้ง</th>
+                    <th class="p-3 text-right">เวลาที่เสียรวม</th>
+                    <th class="p-3 text-right">เฉลี่ย/ครั้ง</th>
+                    <th class="p-3 text-right">นานสุด</th>
+                    <th class="p-3 text-center">บันทึกปัญหา</th>
+                </tr>`;
+
+            if (rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${pairCols ? 7 : 6}" class="text-center p-6 text-slate-400 italic">ไม่พบการเปลี่ยนรุ่นในช่วงที่เลือก</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = rows.map(g => {
+                const avg = g.total / g.count;
+                const avgCls = avg >= 30 ? 'text-rose-600' : avg >= 15 ? 'text-amber-500' : 'text-emerald-600';
+                const notesCell = g.notes.length === 0
+                    ? '<span class="text-slate-300">-</span>'
+                    : `<span class="inline-flex items-center gap-1 text-amber-600 font-bold cursor-help" title="${escapeHtml(g.notes.join('\n'))}">📝 ${g.notes.length}</span>`;
+                return `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="p-3 font-bold text-indigo-600">${g.line === '-' ? 'ไม่ระบุไลน์' : 'Line ' + escapeHtml(g.line)}</td>
+                        ${pairCols ? `<td class="p-3 font-semibold text-slate-700">${escapeHtml(g.fromModel)} <span class="text-slate-400">→</span> ${escapeHtml(g.toModel)}</td>` : ''}
+                        <td class="p-3 text-right font-mono text-slate-700">${g.count.toLocaleString()}</td>
+                        <td class="p-3 text-right font-mono font-bold text-slate-800">${formatLostMinutes(g.total)}</td>
+                        <td class="p-3 text-right font-mono font-bold ${avgCls}">${Math.round(avg)} นาที</td>
+                        <td class="p-3 text-right font-mono text-slate-500">${Math.round(g.max)} นาที</td>
+                        <td class="p-3 text-center">${notesCell}</td>
+                    </tr>`;
+            }).join('');
         }
 
         function renderManpowerTable() {
