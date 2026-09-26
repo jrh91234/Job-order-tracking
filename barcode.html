@@ -1795,45 +1795,28 @@ function doPost(e) {
                 }
             });
 
-            // Populate Line Dropdown
-            const lineSelect = els.filterLine;
-            if (lineSelect) {
-                const currentLineVal = lineSelect.value;
-                lineSelect.innerHTML = '<option value="All">ทุก Line การผลิต (All)</option>';
-                Array.from(lines).sort().forEach(l => {
-                    if (l && l !== '-') {
+            // สร้างตัวเลือกใหม่เฉพาะตอนที่รายการเปลี่ยนจริง
+            // เดิมล้างแล้วสร้างใหม่ทุกครั้งที่ auto-refresh ถ้าผู้ใช้กำลังเปิด dropdown อยู่ มันจะปิดเองและค่าที่กำลังเลือกหลุด
+            const syncOptions = (select, allLabel, values, labelOf) => {
+                if (!select) return;
+                const current = select.value;
+                const wanted = ['All', ...values];
+                const existing = Array.from(select.options).map(o => o.value);
+                if (existing.length !== wanted.length || existing.some((v, i) => v !== wanted[i])) {
+                    select.innerHTML = '';
+                    wanted.forEach(v => {
                         const opt = document.createElement('option');
-                        opt.value = l;
-                        opt.textContent = `Line ${l}`;
-                        lineSelect.appendChild(opt);
-                    }
-                });
-                if (lines.has(currentLineVal)) lineSelect.value = currentLineVal;
-            }
+                        opt.value = v;
+                        opt.textContent = v === 'All' ? allLabel : labelOf(v);
+                        select.appendChild(opt);
+                    });
+                }
+                select.value = wanted.includes(current) ? current : 'All';
+            };
 
-            // Populate Job Order Dropdown
-            const jobSelect = els.filterJob;
-            const currentJobVal = jobSelect.value;
-            jobSelect.innerHTML = '<option value="All">ทุก Job Order (All)</option>';
-            Array.from(jobs).sort().forEach(j => {
-                const opt = document.createElement('option');
-                opt.value = j;
-                opt.textContent = j;
-                jobSelect.appendChild(opt);
-            });
-            if (jobs.has(currentJobVal)) jobSelect.value = currentJobVal;
-
-            // Populate Model Dropdown
-            const modelSelect = els.filterModel;
-            const currentModelVal = modelSelect.value;
-            modelSelect.innerHTML = '<option value="All">ทุกรุ่นสินค้า (All)</option>';
-            Array.from(models).sort().forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                modelSelect.appendChild(opt);
-            });
-            if (models.has(currentModelVal)) modelSelect.value = currentModelVal;
+            syncOptions(els.filterLine, 'ทุก Line การผลิต (All)', Array.from(lines).filter(l => l && l !== '-').sort(), l => `Line ${l}`);
+            syncOptions(els.filterJob, 'ทุก Job Order (All)', Array.from(jobs).sort(), j => j);
+            syncOptions(els.filterModel, 'ทุกรุ่นสินค้า (All)', Array.from(models).sort(), m => m);
         }
 
         function applyFilters() {
@@ -5810,14 +5793,6 @@ function doPost(e) {
         // DATA FETCHERS
         // ==========================================
         function loadBarcodeData(isSilent = false) {
-            // Save current filter values before refresh
-            const savedStartDate = els.filterStartDate ? els.filterStartDate.value : '';
-            const savedEndDate = els.filterEndDate ? els.filterEndDate.value : '';
-            const savedShift = els.filterShift ? els.filterShift.value : 'All';
-            const savedLine = els.filterLine ? els.filterLine.value : 'All';
-            const savedJob = els.filterJob ? els.filterJob.value : 'All';
-            const savedModel = els.filterModel ? els.filterModel.value : 'All';
-
             if (!isSilent) {
                 els.scanTableBody.innerHTML = `
                     <tr>
@@ -5931,6 +5906,16 @@ function doPost(e) {
                                 const now = new Date();
                                 els.lastUpdated.textContent = `สด: ${now.toLocaleTimeString()}`;
                                 els.lastUpdated.classList.remove('hidden');
+
+                                // อ่านค่าตัวกรอง "ตอนข้อมูลมาถึง" ไม่ใช่ตอนเริ่มดึง
+                                // เดิมจำค่าไว้ก่อน fetch ถ้าผู้ใช้เปลี่ยนตัวกรองระหว่างรอข้อมูล (auto-refresh ทุกไม่กี่วินาที)
+                                // พอข้อมูลมาถึงระบบจะเอาค่าเก่ามาทับ ตัวกรองจึงเด้งกลับไปค่าเดิม
+                                const savedStartDate = els.filterStartDate ? els.filterStartDate.value : '';
+                                const savedEndDate = els.filterEndDate ? els.filterEndDate.value : '';
+                                const savedShift = els.filterShift ? els.filterShift.value : 'All';
+                                const savedLine = els.filterLine ? els.filterLine.value : 'All';
+                                const savedJob = els.filterJob ? els.filterJob.value : 'All';
+                                const savedModel = els.filterModel ? els.filterModel.value : 'All';
 
                                 parseRawLogs();
                                 
