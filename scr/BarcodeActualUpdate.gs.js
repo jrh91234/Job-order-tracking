@@ -20,12 +20,15 @@ function updateActualScanH9() {
   const targetData = targetSheet.getDataRange().getValues();
 
   const countByJobOrderAndModel = {};
+  // เวลาสแกน OK ทุกตัวของแต่ละ Job+รุ่น ใช้หาเวลาของสแกนตัวที่ทำให้ยอดครบแผน
+  const scanTimesByKey = {};
 
   function makeKey(jobOrder, model) {
     return String(jobOrder).trim() + '|' + String(model).trim();
   }
 
   // Log:
+  // A = Date/Time (เช่น "24/9/2569 10:46:12" ปีเป็น พ.ศ.)
   // B = Job Order
   // C = Model
   // E = Status
@@ -40,10 +43,17 @@ function updateActualScanH9() {
 
     const key = makeKey(jobOrder, model);
     countByJobOrderAndModel[key] = (countByJobOrderAndModel[key] || 0) + 1;
+
+    const scanTime = parseLogDateTime(recordData[i][0]); // Column A
+    if (scanTime) {
+      if (!scanTimesByKey[key]) scanTimesByKey[key] = [];
+      scanTimesByKey[key].push(scanTime);
+    }
   }
 
   const actualScanValues = [];
   const statusValues = [];
+  const completeDateValues = [];
 
   var planHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0];
   var statusColIdx = -1;
@@ -51,6 +61,13 @@ function updateActualScanH9() {
     var h = String(planHeaders[i]).toLowerCase().replace(/\s/g, '');
     if (h === "status" || h === "jobstatus" || h === "isclosed" || h === "สถานะ") {
       statusColIdx = i;
+    }
+  }
+  // คอลัมน์ Actual complete date (ตรงชื่อเป๊ะ ไม่ใช่ "Actual complete date 0" ที่อยู่ข้าง ๆ)
+  var completeDateColIdx = -1;
+  for (var ci = 0; ci < planHeaders.length; ci++) {
+    if (String(planHeaders[ci]).toLowerCase().replace(/\s/g, '') === 'actualcompletedate') {
+      completeDateColIdx = ci;
     }
   }
   // ถ้ายังไม่พบคอลัมน์ Status ให้สร้างต่อท้าย
@@ -72,15 +89,30 @@ function updateActualScanH9() {
     const actualManual = parseInt(targetData[i][8]) || 0; // Column I
     const currentStatus = statusColIdx < targetData[i].length ? String(targetData[i][statusColIdx]).trim() : '';
 
+    const currentCompleteDate = completeDateColIdx !== -1 && completeDateColIdx < targetData[i].length
+      ? targetData[i][completeDateColIdx] : '';
+
     if (!jobOrder || !model) {
       actualScanValues.push(['']);
       statusValues.push([currentStatus]);
+      completeDateValues.push([currentCompleteDate]);
       continue;
     }
 
     const key = makeKey(jobOrder, model);
     const actualScan = countByJobOrderAndModel[key] || 0;
     actualScanValues.push([actualScan]);
+
+    // Actual complete date = เวลาของสแกนตัวที่ planQty (ตัวที่ทำให้ยอดสแกนครบออร์เดอร์)
+    // สแกนยังไม่ครบแผน = "incomplete" เหมือนที่ชีตแสดงอยู่เดิม
+    let completeDate = 'incomplete';
+    if (planQty <= 0) {
+      completeDate = '';
+    } else if (actualScan >= planQty) {
+      const times = (scanTimesByKey[key] || []).slice().sort(function (a, b) { return a - b; });
+      completeDate = times.length >= planQty ? times[planQty - 1] : '';
+    }
+    completeDateValues.push([completeDate]);
 
     // ใช้ยอดที่สูงที่สุดระหว่าง ยอดแสกน และ ยอดแมนนวล เพื่อป้องกันการนับยอดซ้ำซ้อน
     const totalActual = Math.max(actualManual, actualScan);
@@ -96,4 +128,24 @@ function updateActualScanH9() {
   // เขียนทั้งคอลัมน์ J (Actual Scan) และ Status
   targetSheet.getRange(2, 10, actualScanValues.length, 1).setValues(actualScanValues);
   targetSheet.getRange(2, statusColIdx + 1, statusValues.length, 1).setValues(statusValues);
+
+  if (completeDateColIdx !== -1) {
+    const completeRange = targetSheet.getRange(2, completeDateColIdx + 1, completeDateValues.length, 1);
+    completeRange.setValues(completeDateValues);
+    completeRange.setNumberFormat('yyyy/mm/dd hh:mm');
+  }
+}
+
+// แปลงค่า Date/Time ในแท็บ Log เป็น Date
+// ปกติเป็นข้อความ "D/M/พ.ศ. HH:MM:SS" แต่ถ้า Sheets แปลงเป็นชนิดวันที่ไปแล้วก็ใช้ได้ตรง ๆ
+function parseLogDateTime(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/.exec(String(value || '').trim());
+  if (!m) return null;
+
+  let year = Number(m[3]);
+  if (year > 2400) year -= 543; // พ.ศ. -> ค.ศ.
+  const d = new Date(year, Number(m[2]) - 1, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6] || 0));
+  return isNaN(d.getTime()) ? null : d;
 }
