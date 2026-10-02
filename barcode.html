@@ -1386,8 +1386,10 @@ function doPost(e) {
         // ปุ่มลบต้องอ้างอิงค่านี้ ไม่ใช่ประกอบคีย์ขึ้นมาใหม่จากช่องในฟอร์ม เพราะถ้าค่าใดค่าหนึ่งไม่ตรง
         // (เช่นรุ่นสินค้าไม่อยู่ในรายการของวันนั้น) คีย์จะเพี้ยนแล้วกดลบไม่ติดโดยไม่มีอะไรฟ้อง
         let editingIncidentId = null;
-        // รายการเหตุการณ์ที่ส่งให้ปุ่มแก้ไขในหน้าต่างรายการ (ใช้ index แทนฝังค่าใน inline JS)
-        let incidentEditTargets = [];
+        // แยกเป้าหมายแก้ไขของรายการบนกราฟกับตาราง เพราะ Auto Refresh วาดตารางซ้ำได้
+        // ระหว่างที่หน้าต่างรายการบนกราฟยังเปิดอยู่
+        let incidentListEditTargets = [];
+        let incidentTableEditTargets = [];
 
         // กำลังคนรายไลน์ แยกตามกะ
         // Key เป็นรูปแบบ "YYYY-MM-DD_กะ_ไลน์" เช่น "2026-08-10_Day_Line 5"
@@ -5069,7 +5071,7 @@ function doPost(e) {
             const hourIncidents = getIncidentsForDate(activeDate)
                 .filter(inc => inc.hour === hour && incidentMatchesActiveLine(inc))
                 .sort((a, b) => String(a.line).localeCompare(String(b.line)) || String(a.model).localeCompare(String(b.model)));
-            incidentEditTargets = hourIncidents;
+            incidentListEditTargets = hourIncidents;
 
             const hourRange = `${String(hour).padStart(2, '0')}:00 - ${String((hour + 1) % 24).padStart(2, '0')}:00 น.`;
             document.getElementById('incident-list-title').textContent = `รายการเหตุการณ์ที่บันทึกไว้ (${hourRange})`;
@@ -5085,7 +5087,7 @@ function doPost(e) {
                         <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
                             <div class="flex justify-between items-center gap-2">
                                 <span class="text-xs font-bold text-indigo-600">${lineName} • ${modelName}</span>
-                                <button onclick="closeIncidentListModal(); openIncidentModalForRecord(${index});" class="text-xs font-bold text-indigo-600 hover:underline shrink-0">แก้ไข</button>
+                                <button onclick="closeIncidentListModal(); openIncidentModalForRecord(${index}, 'list');" class="text-xs font-bold text-indigo-600 hover:underline shrink-0">แก้ไข</button>
                             </div>
                             <div class="text-xs font-semibold text-slate-700">${normalizeIncidentTime(inc.time, inc.hour) ? `${escapeHtml(normalizeIncidentTime(inc.time, inc.hour))} น. • ` : ''}${escapeHtml(inc.categoryText)}</div>
                             ${inc.notes ? `<div class="text-xs text-slate-500 whitespace-pre-wrap">${escapeHtml(inc.notes)}</div>` : ''}
@@ -5107,8 +5109,9 @@ function doPost(e) {
             document.getElementById('incident-list-modal').classList.add('hidden');
         }
 
-        function openIncidentModalForRecord(index) {
-            const incident = incidentEditTargets[index];
+        function openIncidentModalForRecord(index, source = 'table') {
+            const targets = source === 'list' ? incidentListEditTargets : incidentTableEditTargets;
+            const incident = targets[index];
             if (!incident) return;
             openIncidentModalForHour(incident.hour, incident.model || 'All', incident);
         }
@@ -5513,7 +5516,7 @@ function doPost(e) {
             }
 
             let html = '';
-            incidentEditTargets = dayIncidents;
+            incidentTableEditTargets = dayIncidents;
             dayIncidents.forEach((inc, index) => {
                 const incTime = normalizeIncidentTime(inc.time, inc.hour);
                 const timeLabel = incTime ? `${incTime} น.` : `${String(inc.hour).padStart(2, '0')}:00 - ${String((inc.hour+1)%24).padStart(2, '0')}:00 น.`;
