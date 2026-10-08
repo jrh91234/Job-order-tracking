@@ -7338,6 +7338,18 @@ function doPost(e) {
             return text.replace(/(\d{1,2}:\d{2}(?::\d{2})?)\s*น\./g, '$1');
         }
 
+        async function translateViaGemini(texts) {
+            const res = await fetch(appsScriptUrl, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'TRANSLATE', texts })
+            });
+            const data = await res.json();
+            if (!data || data.result !== 'success' || !Array.isArray(data.translations)) {
+                throw new Error((data && data.message) || 'TRANSLATE failed');
+            }
+            return data.translations;
+        }
+
         async function translateThaiToEnglish(text) {
             const res = await fetch('https://translate.googleapis.com/translate_a/single', {
                 method: 'POST',
@@ -7371,7 +7383,25 @@ function doPost(e) {
             }, false);
 
             const cache = loadReportTranslateCache();
-            const todo = Array.from(pending).filter(t => !cache[t]);
+            let todo = Array.from(pending).filter(t => !cache[t]);
+
+            // ลองส่งให้ Gemini ผ่าน Apps Script ก่อน (ต้องตั้ง GEMINI_API_KEY ใน Script properties)
+            // ชุดไหนล้มเหลวจะตกไปใช้ตัวแปลสำรองด้านล่างต่อ
+            if (appsScriptUrl && todo.length > 0) {
+                const remaining = [];
+                for (let i = 0; i < todo.length; i += 40) {
+                    const chunk = todo.slice(i, i + 40);
+                    try {
+                        const out = await translateViaGemini(chunk);
+                        chunk.forEach((t, idx) => { if (out[idx] && out[idx].trim()) cache[t] = out[idx].trim(); else remaining.push(t); });
+                    } catch (err) {
+                        console.warn('Gemini translate failed, falling back:', err);
+                        remaining.push(...chunk);
+                    }
+                }
+                todo = remaining;
+            }
+
             let failed = 0;
             let cursor = 0;
             const worker = async () => {

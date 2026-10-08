@@ -1,0 +1,81 @@
+# Deploy อัตโนมัติเฉพาะโปรเจกต์ Apps Script "Incident Sync" (gas_sync_incidents.js)
+# ไม่แตะโปรเจกต์ KPI (หน้าลงยอด) — ดู docs/apps-script-map.md
+name: Deploy Incident Sync (Apps Script)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - gas_sync_incidents.js
+      - apps-script/incident-sync/appsscript.json
+      - .github/workflows/deploy-apps-script.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-incident-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # ค่าเริ่มต้นคือ ID ของโปรเจกต์/deployment ปัจจุบัน (ไม่ใช่ความลับ) ตั้ง Secret หรือ Variable ชื่อเดียวกันเพื่อทับได้ (Secret มาก่อน)
+      SCRIPT_ID: ${{ secrets.INCIDENT_SYNC_SCRIPT_ID || vars.INCIDENT_SYNC_SCRIPT_ID || '1jBaNEfpFKzFQNO4vVD-y8cwGZDG8LNHn6JQUMuQnIZSdWMyJZUQXfVd_' }}
+      DEPLOYMENT_ID: ${{ secrets.INCIDENT_SYNC_DEPLOYMENT_ID || vars.INCIDENT_SYNC_DEPLOYMENT_ID || 'AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf' }}
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$SCRIPT_ID" ] || [ -z "$DEPLOYMENT_ID" ] || [ -z "$CLASPRC_JSON" ]; then
+            echo "::warning::ยังไม่ได้ตั้ง INCIDENT_SYNC_SCRIPT_ID / INCIDENT_SYNC_DEPLOYMENT_ID (Variables) หรือ CLASPRC_JSON (Secret) — ข้ามการ deploy"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          node-version: 20
+
+      - name: Syntax check
+        if: steps.cfg.outputs.ready == 'true'
+        run: node --check gas_sync_incidents.js
+
+      - name: Stage project files
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          mkdir -p build
+          # ตั้งชื่อ Code.js เพื่อให้แทนไฟล์เดิม ไม่ใช่เพิ่มไฟล์ที่สอง
+          # (สองไฟล์ที่มี doPost ซ้ำกันจะทับกันเงียบ ๆ)
+          cp gas_sync_incidents.js build/Code.js
+          cp apps-script/incident-sync/appsscript.json build/appsscript.json
+          printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > build/.clasp.json
+
+      - name: Install clasp and write credentials
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          npm install -g @google/clasp@2.4.2
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Push and deploy
+        if: steps.cfg.outputs.ready == 'true'
+        working-directory: build
+        run: |
+          clasp push --force
+          clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "${GITHUB_SHA::7} ${GITHUB_REF_NAME}"
+
+      - name: Verify the live web app
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          sleep 10
+          body=$(curl -sL "https://script.google.com/macros/s/${DEPLOYMENT_ID}/exec")
+          echo "$body" | head -c 600
+          echo "$body" | grep -q '"TRANSLATE"' || { echo "::error::Web App ยังไม่รายงาน action TRANSLATE — ตรวจสอบ deployment"; exit 1; }
