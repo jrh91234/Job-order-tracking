@@ -52,7 +52,8 @@ function doGet(e) {
       "GET_INCIDENTS", "SAVE", "DELETE",
       "GET_CATEGORIES", "SAVE_CATEGORY", "DELETE_CATEGORY",
       "GET_MANPOWER", "SAVE_MANPOWER", "DELETE_MANPOWER",
-      "GET_SHIFT_TRANSFERS", "SAVE_SHIFT_TRANSFER", "DELETE_SHIFT_TRANSFER"
+      "GET_SHIFT_TRANSFERS", "SAVE_SHIFT_TRANSFER", "DELETE_SHIFT_TRANSFER",
+      "TRANSLATE"
     ];
 
     var rowsOf = function (name) {
@@ -121,6 +122,14 @@ function doPost(e) {
                            .setMimeType(ContentService.MimeType.JSON);
     }
     
+    // --- TRANSLATE (ไทย -> อังกฤษ ด้วย Gemini สำหรับรายงาน PDF ภาษาอังกฤษ) ---
+    // ไม่แตะชีต ต้องตั้ง Script property ชื่อ GEMINI_API_KEY ก่อน
+    // (Project Settings -> Script Properties) key จึงอยู่ฝั่งเซิร์ฟเวอร์ ไม่หลุดไปที่เบราว์เซอร์
+    if (action === "TRANSLATE") {
+      return ContentService.createTextOutput(JSON.stringify(translateWithGemini_(data.texts)))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- INCIDENT CATEGORIES OPERATIONS ---
     if (action === "GET_CATEGORIES" || action === "SAVE_CATEGORY" || action === "DELETE_CATEGORY") {
       var catSheetName = "IncidentCategories";
@@ -464,5 +473,50 @@ function doPost(e) {
                          .setMimeType(ContentService.MimeType.JSON);
   } finally {
     lock.releaseLock();
+  }
+}
+
+
+/**
+ * แปลข้อความไทยเป็นอังกฤษด้วย Gemini คืนอาร์เรย์ผลแปลที่ลำดับตรงกับ texts
+ * ถ้าจำนวนที่ได้กลับมาไม่ตรง จะถือว่าล้มเหลวทั้งชุดเพื่อไม่ให้คำแปลเลื่อนผิดตำแหน่ง
+ */
+function translateWithGemini_(texts) {
+  var key = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
+  if (!key) return {result: "error", message: "ยังไม่ได้ตั้ง Script property GEMINI_API_KEY"};
+  if (!texts || !texts.length) return {result: "success", translations: []};
+
+  var prompt =
+    "Translate each Thai string in the JSON array below into natural English for a factory production report " +
+    "(terms: Job Order, Line, Model, Changeover, Manpower, OT, PCS, Eff%). " +
+    "Keep numbers, model codes, job numbers, times and Latin text unchanged. " +
+    "Return ONLY a JSON array of strings with exactly " + texts.length + " items in the same order.\n\n" +
+    JSON.stringify(texts);
+
+  var res = UrlFetchApp.fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    {
+      method: "post",
+      contentType: "application/json",
+      headers: {"x-goog-api-key": key},
+      muteHttpExceptions: true,
+      payload: JSON.stringify({
+        contents: [{parts: [{text: prompt}]}],
+        generationConfig: {responseMimeType: "application/json", temperature: 0}
+      })
+    }
+  );
+  if (res.getResponseCode() !== 200) {
+    return {result: "error", message: "Gemini HTTP " + res.getResponseCode()};
+  }
+  try {
+    var body = JSON.parse(res.getContentText());
+    var out = JSON.parse(body.candidates[0].content.parts[0].text);
+    if (!Array.isArray(out) || out.length !== texts.length) {
+      return {result: "error", message: "Gemini returned a mismatched number of items"};
+    }
+    return {result: "success", translations: out.map(String)};
+  } catch (err) {
+    return {result: "error", message: "Cannot parse Gemini response: " + err};
   }
 }

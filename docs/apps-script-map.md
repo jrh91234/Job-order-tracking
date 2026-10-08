@@ -38,7 +38,7 @@ Apps Script รวมทุกไฟล์ในโปรเจกต์เด�
 | เขียนลงแท็บ | `Incidents`, `IncidentCategories`, `Manpower` และ `ShiftTransfers` |
 | Web App URL | `https://script.google.com/macros/s/AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf/exec` |
 | ใครเรียก | `barcode.html` ผ่านค่า `incidentAppsScriptUrl` ใน `config.json` |
-| รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY`, `GET_MANPOWER`, `SAVE_MANPOWER`, `DELETE_MANPOWER`, `GET_SHIFT_TRANSFERS`, `SAVE_SHIFT_TRANSFER`, `DELETE_SHIFT_TRANSFER` |
+| รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY`, `GET_MANPOWER`, `SAVE_MANPOWER`, `DELETE_MANPOWER`, `GET_SHIFT_TRANSFERS`, `SAVE_SHIFT_TRANSFER`, `DELETE_SHIFT_TRANSFER`, `TRANSLATE` (แปลไทย→อังกฤษด้วย Gemini สำหรับ PDF ภาษาอังกฤษ ต้องตั้ง Script property `GEMINI_API_KEY`) |
 | ตรวจสุขภาพ | เปิด URL ตรง ๆ ในเบราว์เซอร์ จะได้ JSON บอกว่าผูกกับชีตไหน |
 
 ทั้งสองโปรเจกต์เขียนลง **สเปรดชีตเดียวกัน** คือ `ลงยอด H9`
