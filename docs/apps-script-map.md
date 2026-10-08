@@ -174,7 +174,9 @@ workflow `.github/workflows/deploy-apps-script.yml` จะใช้ clasp push �
 แล้วอัปเดต deployment เดิม (URL ไม่เปลี่ยน) จากนั้นเรียก Web App เช็กว่ามี action `TRANSLATE`
 โปรเจกต์ `KPI` (หน้าลงยอด) **ไม่ได้ผูกกับ workflow นี้**
 
-ตั้งค่าครั้งเดียวที่ Settings → Secrets and variables → Actions ของรีโป
+ค่าเริ่มต้นของ Script ID และ Deployment ID ฝังไว้ใน workflow แล้ว (ไม่ใช่ความลับ) ที่ต้องตั้งจริงมีแค่ `CLASPRC_JSON`; Variable สองตัวด้านล่างใช้ทับค่าเริ่มต้นเมื่อ ID เปลี่ยน
+
+ตั้งค่าที่ Settings → Secrets and variables → Actions ของรีโป
 
 | ชนิด | ชื่อ | ค่า |
 |---|---|---|
