@@ -22,9 +22,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # ค่าเริ่มต้นคือ ID ของโปรเจกต์/deployment ปัจจุบัน (ไม่ใช่ความลับ) ตั้ง Variable ชื่อเดียวกันเพื่อทับได้
-      SCRIPT_ID: ${{ vars.INCIDENT_SYNC_SCRIPT_ID || '1jBaNEfpFKzFQNO4vVD-y8cwGZDG8LNHn6JQUMuQnIZSdWMyJZUQXfVd_' }}
-      DEPLOYMENT_ID: ${{ vars.INCIDENT_SYNC_DEPLOYMENT_ID || 'AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf' }}
+      # ค่าเริ่มต้นคือ ID ของโปรเจกต์/deployment ปัจจุบัน (ไม่ใช่ความลับ) ตั้ง Secret หรือ Variable ชื่อเดียวกันเพื่อทับได้ (Secret มาก่อน)
+      SCRIPT_ID: ${{ secrets.INCIDENT_SYNC_SCRIPT_ID || vars.INCIDENT_SYNC_SCRIPT_ID || '1jBaNEfpFKzFQNO4vVD-y8cwGZDG8LNHn6JQUMuQnIZSdWMyJZUQXfVd_' }}
+      DEPLOYMENT_ID: ${{ secrets.INCIDENT_SYNC_DEPLOYMENT_ID || vars.INCIDENT_SYNC_DEPLOYMENT_ID || 'AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf' }}
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
     steps:
       - uses: actions/checkout@v4
