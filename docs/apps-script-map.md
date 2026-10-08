@@ -165,3 +165,25 @@ ID = "2026-08-11_Line 5_20_22"
 | #41 | `doPost` ทับกัน จนการลงยอดไหลไปลงแท็บ `Incidents` — ที่มาของการแยกโปรเจกต์ |
 | #44 | คำขอที่ไม่ใช่การลงยอดกลายเป็นแถว `undefined` ในแท็บ `ยอดผลิต` |
 | #45 | ปุ่มลบบันทึกเหตุการณ์ประกอบคีย์ใหม่จนลบไม่ติด |
+
+
+## Deploy อัตโนมัติของ Incident Sync
+
+เมื่อ merge เข้า `main` และ `gas_sync_incidents.js` เปลี่ยน
+workflow `.github/workflows/deploy-apps-script.yml` จะใช้ clasp push โค้ดเข้าโปรเจกต์ Incident Sync
+แล้วอัปเดต deployment เดิม (URL ไม่เปลี่ยน) จากนั้นเรียก Web App เช็กว่ามี action `TRANSLATE`
+โปรเจกต์ `KPI` (หน้าลงยอด) **ไม่ได้ผูกกับ workflow นี้**
+
+ตั้งค่าครั้งเดียวที่ Settings → Secrets and variables → Actions ของรีโป
+
+| ชนิด | ชื่อ | ค่า |
+|---|---|---|
+| Variable | `INCIDENT_SYNC_SCRIPT_ID` | Project Settings → รหัสสคริปต์ ของ Incident Sync |
+| Variable | `INCIDENT_SYNC_DEPLOYMENT_ID` | Deploy → Manage deployments (ขึ้นต้น `AKfycb`) |
+| Secret | `CLASPRC_JSON` | เนื้อไฟล์ `~/.clasprc.json` หลังรัน `clasp login` (มี refresh token ห้ามแชร์) |
+
+ข้อควรรู้
+- ต้องเปิด Apps Script API ที่ script.google.com/home/usersettings
+- `clasp push` แทนที่ไฟล์ทั้งโปรเจกต์ด้วยชุดที่ stage ไว้ (`Code.js` + `appsscript.json`)
+- ถ้าโค้ดขอสิทธิ์ใหม่ (เช่น `UrlFetchApp` ของ TRANSLATE) เจ้าของโปรเจกต์ต้องเปิดโปรเจกต์ใน editor แล้วรันฟังก์ชันใดก็ได้หนึ่งครั้งเพื่ออนุญาตสิทธิ์ Web App ถึงจะเรียกได้
+- ถ้าตัวแปรหรือ secret ยังไม่ครบ workflow จะข้ามการ deploy พร้อมคำเตือน ไม่ล้มเหลว
