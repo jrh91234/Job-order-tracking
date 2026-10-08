@@ -2066,6 +2066,57 @@ function doPost(e) {
             }
         };
 
+        // เหตุการณ์ของวันผลิตหนึ่งวัน ใช้แสดงใน tooltip ของกราฟรายวัน
+        // อ่านจาก incidentLogs ในหน่วยความจำ ไม่เรียก loadIncidents() เพราะ tooltip ถูกวาดซ้ำทุกครั้งที่ขยับเมาส์
+        // กรองไลน์/กะตามตัวกรองบนหน้าจอ เหมือนรายการเหตุการณ์ใต้กราฟและรายงาน PDF
+        function getDailyChartIncidents(date) {
+            const activeShift = els.filterShift ? els.filterShift.value : 'All';
+            const list = [];
+            Object.keys(incidentLogs).forEach(key => {
+                const inc = incidentLogs[key];
+                if (!inc) return;
+                const incDate = normalizeIncidentDate(inc.date, inc.id || key);
+                if (incDate !== date || !incidentMatchesActiveLine(inc)) return;
+                if (activeShift && activeShift !== 'All' && getIncidentShift({ ...inc, date: incDate }) !== activeShift) return;
+                list.push({ ...inc, date: incDate });
+            });
+            return list.sort((a, b) => (a.hour - b.hour) || String(a.line).localeCompare(String(b.line)));
+        }
+
+        // ตัดข้อความยาวให้ขึ้นบรรทัดใหม่ เพราะ tooltip ของ Chart.js ไม่ตัดบรรทัดเอง
+        function wrapTooltipText(text, width) {
+            const out = [];
+            // ภาษาไทยไม่มีช่องว่างคั่นคำ ใช้ Intl.Segmenter ตัดตามขอบเขตคำเพื่อไม่ให้ขาดกลางคำ
+            const segmenter = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter('th', { granularity: 'word' }) : null;
+            String(text || '').split(/\r?\n/).forEach(para => {
+                const pieces = segmenter ? Array.from(segmenter.segment(para), seg => seg.segment) : para.split('');
+                let line = '';
+                pieces.forEach(piece => {
+                    if (line && (line + piece).length > width) { out.push(line.trim()); line = ''; }
+                    line += piece;
+                });
+                if (line.trim()) out.push(line.trim());
+            });
+            return out;
+        }
+
+        function dailyIncidentTooltipLines(date) {
+            const MAX_SHOWN = 5;
+            const incidents = getDailyChartIncidents(date);
+            if (incidents.length === 0) return [];
+            const lines = ['', `⚠ บันทึกเหตุการณ์ (${incidents.length})`];
+            incidents.slice(0, MAX_SHOWN).forEach(inc => {
+                const time = normalizeIncidentTime(inc.time, inc.hour) || `${String(inc.hour).padStart(2, '0')}:00`;
+                const lineText = inc.line === 'All' ? 'ทุกไลน์' : `Line ${inc.line}`;
+                const modelText = inc.model && inc.model !== 'All' ? ` · ${inc.model}` : '';
+                lines.push(`• ${time} · ${lineText}${modelText}`);
+                const detail = [inc.categoryText || inc.category, inc.notes].filter(Boolean).join(': ');
+                wrapTooltipText(detail, 44).forEach(l => lines.push(`   ${l}`));
+            });
+            if (incidents.length > MAX_SHOWN) lines.push(`… และอีก ${incidents.length - MAX_SHOWN} รายการ`);
+            return lines;
+        }
+
         function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate, targetByDate) {
             const canvasEl = document.getElementById('dailyModelChart');
             if (!canvasEl) return;
@@ -2154,6 +2205,7 @@ function doPost(e) {
             const dataJson = JSON.stringify(datasets.map(d => ({ label: d.label, data: d.data })));
 
             if (dailyModelChartObj) {
+                dailyModelChartObj.dateKeys = dateSequence;
                 if (dailyModelChartObj.prevLabelsJson !== labelsJson || dailyModelChartObj.prevDataJson !== dataJson) {
                     dailyModelChartObj.data.labels = labels;
 
@@ -2211,6 +2263,10 @@ function doPost(e) {
                                         lines.push(`เทียบเป้า: ${Math.round((total / targetVal) * 100)}%`);
                                     }
                                     return lines;
+                                },
+                                afterFooter: (items) => {
+                                    if (!items.length || !dailyModelChartObj || !dailyModelChartObj.dateKeys) return [];
+                                    return dailyIncidentTooltipLines(dailyModelChartObj.dateKeys[items[0].dataIndex]);
                                 }
                             },
                             itemSort: (a, b) => {
@@ -2242,6 +2298,7 @@ function doPost(e) {
             });
             dailyModelChartObj.prevLabelsJson = labelsJson;
             dailyModelChartObj.prevDataJson = dataJson;
+            dailyModelChartObj.dateKeys = dateSequence;
         }
 
         function renderCharts() {
