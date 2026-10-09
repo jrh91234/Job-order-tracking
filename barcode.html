@@ -3079,6 +3079,19 @@ function doPost(e) {
                 if (!changingByLine[m.line] || m.ts > changingByLine[m.line].ts) changingByLine[m.line] = m;
             });
 
+            // รุ่นใหม่ของไลน์ที่กำลังเปลี่ยนรุ่น ให้มีแถวในกราฟรอไว้เลย (สถานะ 'changing' วงม่วงหมุน)
+            // และเอาไลน์นั้นออกจากรุ่นเดิม เพราะไม่ได้เดินรุ่นเดิมแล้ว
+            Object.entries(changingByLine).forEach(([lineName, m]) => {
+                const prev = latestScanByLine[lineName];
+                if (prev && prev.model !== m.toModel && runningModels[prev.model]) {
+                    runningModels[prev.model] = runningModels[prev.model].filter(l => l.line !== lineName);
+                    if (runningModels[prev.model].length === 0) delete runningModels[prev.model];
+                }
+                if (!runningModels[m.toModel]) runningModels[m.toModel] = [];
+                runningModels[m.toModel] = runningModels[m.toModel].filter(l => l.line !== lineName);
+                runningModels[m.toModel].push({ line: lineName, state: 'changing' });
+            });
+
             // วาดการ์ดสถานะ Running ที่ด้านบนของชาร์ต
             const liveRunningContainer = document.getElementById('live-running-container');
             if (liveRunningContainer) {
@@ -3267,6 +3280,21 @@ function doPost(e) {
 
                             // ไลน์ไหนเดินรุ่นนี้อยู่ปกติก็ยังเป็นไฟเขียว ถ้าไม่มีไลน์ไหนเดินเลยค่อยเตือน/แสดงพัก
                             const states = lineStates.map(l => l.state);
+                            if (!states.includes('running') && states.includes('changing')) {
+                                // กำลังเปลี่ยนรุ่นมาเป็นรุ่นนี้ ยังไม่มีสแกน: วงม่วงหมุนแบบกำลังโหลด
+                                const angle = (now / 180) % (2 * Math.PI);
+                                ctx.beginPath();
+                                ctx.arc(dotX, y, 5, 0, 2 * Math.PI);
+                                ctx.strokeStyle = 'rgba(168, 85, 247, 0.25)';
+                                ctx.lineWidth = 2;
+                                ctx.stroke();
+                                ctx.beginPath();
+                                ctx.arc(dotX, y, 5, angle, angle + Math.PI * 1.2);
+                                ctx.strokeStyle = '#a855f7';
+                                ctx.lineCap = 'round';
+                                ctx.stroke();
+                                return;
+                            }
                             if (!states.includes('running')) {
                                 if (states.includes('stalled')) {
                                     // วงแดงมีเครื่องหมายตกใจ กะพริบตามจังหวะเดียวกับจุดเขียว
