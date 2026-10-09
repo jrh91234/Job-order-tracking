@@ -1740,7 +1740,8 @@ function doPost(e) {
                         shift: mapping.shift,
                         line: String(row['Line'] || '-').trim(),
                         toModel: modelName,
-                        fromModel: barcode.replace(/^FROM\s+/i, '').trim()
+                        fromModel: barcode.replace(/^FROM\s+/i, '').trim(),
+                        job: String(row['Job Order'] || '').trim()
                     });
                     return;
                 }
@@ -3059,25 +3060,8 @@ function doPost(e) {
 
             // ไลน์ที่กำลังเปลี่ยนรุ่น: เครื่องสแกนบันทึก CHANGEOVER (ยืนยันรหัสเปลี่ยนรุ่น) หลังสแกนชิ้นล่าสุดของไลน์นั้น
             // และยังไม่มีชิ้นงานรุ่นใหม่ถูกสแกนเข้ามา แสดงจนกว่าจะเริ่มสแกนรุ่นใหม่ (ไม่เกิน 3 ชม. เผื่อลืมสแกนต่อ)
-            const CHANGING_MAX_MS = 180 * 60000;
             const nowMs = Date.now();
-            const activeLineFilter = els.filterLine ? els.filterLine.value : 'All';
-            const changingByLine = {};
-            // เทียบกับสแกนล่าสุดของไลน์จากข้อมูลทั้งหมด ไม่ใช่เฉพาะที่ผ่านตัวกรองรุ่น/Job
-            const lastOkTsByLine = {};
-            if (changeoverMarks.length > 0) {
-                processedScans.forEach(sc => {
-                    if (String(sc.status || '').toUpperCase() !== 'OK') return;
-                    if (!lastOkTsByLine[sc.line] || sc.ts > lastOkTsByLine[sc.line]) lastOkTsByLine[sc.line] = sc.ts;
-                });
-            }
-            changeoverMarks.forEach(m => {
-                if (!m.line || m.line === '-') return;
-                if (activeLineFilter !== 'All' && m.line !== activeLineFilter) return;
-                if (nowMs - m.ts > CHANGING_MAX_MS || m.ts > nowMs + 60000) return;
-                if ((lastOkTsByLine[m.line] || 0) >= m.ts) return; // สแกนชิ้นงานต่อแล้ว ถือว่าเปลี่ยนเสร็จ
-                if (!changingByLine[m.line] || m.ts > changingByLine[m.line].ts) changingByLine[m.line] = m;
-            });
+            const changingByLine = getChangingByLine(els.filterLine ? els.filterLine.value : 'All');
 
             // รุ่นใหม่ของไลน์ที่กำลังเปลี่ยนรุ่น ให้มีแถวในกราฟรอไว้เลย (สถานะ 'changing' วงม่วงหมุน)
             // และเอาไลน์นั้นออกจากรุ่นเดิม เพราะไม่ได้เดินรุ่นเดิมแล้ว
@@ -3106,7 +3090,7 @@ function doPost(e) {
                             const sinceMin = Math.max(0, Math.round((nowMs - changing.ts) / 60000));
                             html += `
                                 <div class="flex items-center gap-1.5 bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full border border-purple-300 font-medium shadow-sm">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-purple-500 pulse-green-dot"></span>
+                                    <span class="inline-block w-3 h-3 rounded-full border-2 border-purple-200 border-t-purple-500 animate-spin"></span>
                                     <span class="font-bold text-[9px] uppercase tracking-wider text-purple-600 blink-running">เปลี่ยนรุ่น ${sinceMin} นาที</span>
                                     <span class="text-slate-600">Line ${escapeHtml(lineName)}:</span>
                                     <span class="text-slate-500">${escapeHtml(fromModel)}</span>
@@ -4576,6 +4560,29 @@ function doPost(e) {
         }
 
         // รวมแผนจากชีต Plan เข้ากับยอดสแกนจริง ให้ได้ความคืบหน้าราย Job order
+        // ไลน์ที่กำลังเปลี่ยนรุ่น: เครื่องสแกนบันทึก CHANGEOVER (ยืนยันรหัสเปลี่ยนรุ่น) หลังสแกนชิ้นล่าสุดของไลน์นั้น
+        // และยังไม่มีชิ้นงานถูกสแกนเข้ามา แสดงจนกว่าจะเริ่มสแกน (ไม่เกิน 3 ชม. เผื่อลืมสแกนต่อ)
+        // เทียบกับสแกนล่าสุดของไลน์จากข้อมูลทั้งหมด ไม่ใช่เฉพาะที่ผ่านตัวกรองรุ่น/Job
+        const CHANGING_MAX_MS = 180 * 60000;
+        function getChangingByLine(activeLine) {
+            const changingByLine = {};
+            if (changeoverMarks.length === 0) return changingByLine;
+            const nowMs = Date.now();
+            const lastOkTsByLine = {};
+            processedScans.forEach(sc => {
+                if (String(sc.status || '').toUpperCase() !== 'OK') return;
+                if (!lastOkTsByLine[sc.line] || sc.ts > lastOkTsByLine[sc.line]) lastOkTsByLine[sc.line] = sc.ts;
+            });
+            changeoverMarks.forEach(m => {
+                if (!m.line || m.line === '-') return;
+                if (activeLine && activeLine !== 'All' && m.line !== activeLine) return;
+                if (nowMs - m.ts > CHANGING_MAX_MS || m.ts > nowMs + 60000) return;
+                if ((lastOkTsByLine[m.line] || 0) >= m.ts) return;
+                if (!changingByLine[m.line] || m.ts > changingByLine[m.line].ts) changingByLine[m.line] = m;
+            });
+            return changingByLine;
+        }
+
         function buildJobProgressRows() {
             const startDate = els.filterStartDate.value;
             const endDate = els.filterEndDate.value || startDate;
@@ -4591,8 +4598,11 @@ function doPost(e) {
                 if (!lastScanByLine[s.line] || s.ts > lastScanByLine[s.line].ts) lastScanByLine[s.line] = s;
             });
             const liveByJob = {};
-            const LIVE_RANK = { running: 3, onbreak: 2, stalled: 1 };
+            const LIVE_RANK = { changing: 4, running: 3, onbreak: 2, stalled: 1 };
+            const changingByLine = getChangingByLine('All');
             Object.entries(lastScanByLine).forEach(([line, s]) => {
+                // ไลน์ที่กำลังเปลี่ยนรุ่นไม่ได้เดิน Job เดิมแล้ว
+                if (changingByLine[line]) return;
                 const job = String(s.jobOrder || '').trim();
                 if (!job || job === 'MANUAL_MODE') return;
                 const st = getLineLiveStatus(s);
@@ -4646,11 +4656,36 @@ function doPost(e) {
                 rows.push({ job, model: info.model || '-', plan: 0, actual: info.total, closed: false, inPlan: false, remark: '', info });
             });
 
+            // Job ที่ไลน์กำลังเปลี่ยนมา: ใช้ Job ที่เลือกบนเครื่องสแกน (คอลัมน์ Job ของแถว CHANGEOVER)
+            // ถ้าไม่มี (บันทึกจากเครื่องสแกนเวอร์ชันก่อน) ใช้ Job ที่ยังเปิดอยู่แถวบนสุดในชีต Plan ของรุ่นนั้น
+            const nowMs = Date.now();
+            Object.entries(changingByLine).forEach(([line, m]) => {
+                let job = m.job;
+                if (!job) {
+                    const planRow = (planJobs || []).find(j => j.model === m.toModel && !j.closed && !(j.plan > 0 && j.actual >= j.plan));
+                    job = planRow ? planRow.job : '';
+                }
+                if (!job) return;
+                if (!seen.has(job)) {
+                    seen.add(job);
+                    rows.push({ job, model: m.toModel, plan: 0, actual: 0, closed: false, inPlan: false, remark: '', info: null });
+                }
+                const sinceMin = Math.max(0, Math.round((nowMs - m.ts) / 60000));
+                const cur = liveByJob[job];
+                if (cur) {
+                    cur.lines.push(line);
+                    if (LIVE_RANK.changing > LIVE_RANK[cur.state]) { cur.state = 'changing'; cur.idleMin = sinceMin; }
+                } else {
+                    liveByJob[job] = { state: 'changing', idleMin: sinceMin, lines: [line], fromModel: m.fromModel };
+                }
+            });
+
             rows.forEach(r => {
                 r.remaining = Math.max(r.plan - r.actual, 0);
                 r.progress = r.plan > 0 ? (r.actual / r.plan) * 100 : null;
                 r.period = r.info ? r.info.period : 0;
                 r.lines = r.info ? [...r.info.lines].sort() : [];
+                if (liveByJob[r.job]) r.lines = [...new Set([...r.lines, ...liveByJob[r.job].lines])].sort();
                 r.lastTs = r.info ? r.info.lastTs : 0;
                 r.done = r.closed || (r.progress !== null && r.progress >= 100);
                 r.live = liveByJob[r.job] || null;
@@ -4672,6 +4707,7 @@ function doPost(e) {
         }
 
         const JOB_STATUS_BADGE = {
+            changing:   { text: 'กำลังเปลี่ยนเป็นรุ่นนี้', cls: 'bg-purple-50 text-purple-600 border-purple-300' },
             running:    { text: 'กำลังผลิต',   cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
             stalled:    { text: 'หยุดนิ่ง',     cls: 'bg-rose-50 text-rose-600 border-rose-300' },
             onbreak:    { text: 'พัก',         cls: 'bg-sky-50 text-sky-600 border-sky-200' },
@@ -4787,12 +4823,14 @@ function doPost(e) {
                     : pct >= 30 ? 'bg-amber-500'
                     : 'bg-rose-500';
                 const badge = JOB_STATUS_BADGE[r.status];
-                const liveRowCls = !r.live ? '' : r.live.state === 'stalled' ? 'bg-rose-50/60' : r.live.state === 'onbreak' ? 'bg-sky-50/50' : 'bg-emerald-50/50';
+                const liveRowCls = !r.live ? '' : r.live.state === 'changing' ? 'bg-purple-50/60' : r.live.state === 'stalled' ? 'bg-rose-50/60' : r.live.state === 'onbreak' ? 'bg-sky-50/50' : 'bg-emerald-50/50';
                 const liveMark = !r.live ? ''
+                    : r.live.state === 'changing' ? '<span class="inline-block w-3 h-3 rounded-full border-2 border-purple-200 border-t-purple-500 animate-spin"></span>'
                     : r.live.state === 'stalled' ? '<span class="line-stall-icon blink-running">!</span>'
                     : r.live.state === 'onbreak' ? '<span class="w-2 h-2 rounded-full bg-sky-400"></span>'
                     : '<span class="w-2 h-2 rounded-full bg-emerald-500 pulse-green-dot"></span>';
-                const badgeText = r.live && r.live.state === 'stalled' ? `หยุด ${r.live.idleMin} นาที` : badge.text;
+                const badgeText = r.live && r.live.state === 'stalled' ? `หยุด ${r.live.idleMin} นาที`
+                    : r.live && r.live.state === 'changing' ? `${badge.text} · ${r.live.idleMin} นาที` : badge.text;
                 const lineCell = r.live
                     ? r.lines.map(l => r.live.lines.includes(l) ? `<span class="font-bold text-slate-800">${escapeHtml(l)}</span>` : escapeHtml(l)).join(', ')
                     : (r.lines.length ? escapeHtml(r.lines.join(', ')) : '-');
