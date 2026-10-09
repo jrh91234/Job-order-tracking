@@ -1425,6 +1425,15 @@ function doPost(e) {
         // Data Pools
         let rawBarcodeLogs = [];      // Raw rows parsed from sheet
         let processedScans = [];      // Scan logs with mapped Production Dates & Shifts
+        // แถว Status = CHANGEOVER ที่เครื่องสแกน H9 บันทึกตอนยืนยันเปลี่ยนรุ่น (ไม่ใช่ชิ้นงาน ไม่นับยอด)
+        // แยกเก็บไว้ใช้ในตาราง Changeover เท่านั้น ไม่ปนกับ processedScans
+        let changeoverMarks = [];
+
+        // Job ที่เครื่องสแกนสร้างเองเมื่อรุ่นนั้นไม่มี Job เปิดอยู่ใน Plan หรือสแกนแบบ Manual (AUTO-วันผลิต-กะ-รุ่น)
+        function isAutoJob(job) {
+            return String(job || '').indexOf('AUTO-') === 0;
+        }
+        const AUTO_JOB_BADGE_HTML = '<span class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-600 border border-purple-200 whitespace-nowrap">สร้างโดยระบบ</span>';
         let filteredScans = [];       // Filtered logs matching UI inputs
         
         // Lazy Load State
@@ -1693,6 +1702,7 @@ function doPost(e) {
 
         function parseRawLogs() {
             processedScans = [];
+            changeoverMarks = [];
             const tempScans = [];
             const byGroupId = new Map();   // ScanGroupID -> แถวดิบทั้งหมดในกลุ่ม (แถวจาก H9 รุ่นใหม่)
             const legacySeen = new Set();  // barcode_dateTimeRaw -> ใช้กับแถวเก่าที่ไม่มี ScanGroupID เท่านั้น
@@ -1721,6 +1731,20 @@ function doPost(e) {
                 const ts = new Date(cYearBE - 543, cMonth - 1, cDay, pTime[0], pTime[1] || 0, pTime[2] || 0).getTime();
 
                 const modelName = String(row['Model'] || '-').trim();
+
+                if (status.toUpperCase() === 'CHANGEOVER') {
+                    // คอลัมน์ Barcode ของแถวนี้เก็บ "FROM <รุ่นเดิม>"
+                    changeoverMarks.push({
+                        ts,
+                        prodDate: mapping.prodDateStr,
+                        shift: mapping.shift,
+                        line: String(row['Line'] || '-').trim(),
+                        toModel: modelName,
+                        fromModel: barcode.replace(/^FROM\s+/i, '').trim()
+                    });
+                    return;
+                }
+
                 const scan = {
                     rawDateTime: dateTimeRaw,
                     prodDate: mapping.prodDateStr,
@@ -1835,7 +1859,7 @@ function doPost(e) {
             Array.from(jobs).sort().forEach(j => {
                 const opt = document.createElement('option');
                 opt.value = j;
-                opt.textContent = j;
+                opt.textContent = isAutoJob(j) ? `${j} (สร้างโดยระบบ)` : j;
                 jobSelect.appendChild(opt);
             });
             if (jobs.has(currentJobVal)) jobSelect.value = currentJobVal;
@@ -3795,6 +3819,17 @@ function doPost(e) {
                 }
             });
 
+            // จับคู่กับเวลาที่พนักงานกดยืนยันเปลี่ยนรุ่นบนเครื่องสแกน (แถว CHANGEOVER ของไลน์เดียวกัน
+            // เป็นรุ่นใหม่ตัวเดียวกัน และอยู่ระหว่างสแกนสุดท้ายของรุ่นเดิมกับสแกนแรกของรุ่นใหม่)
+            // แบ่งช่องว่างได้เป็น ก่อนยืนยัน (เตรียมเปลี่ยน) กับ หลังยืนยัน (ตั้งไลน์จนได้ชิ้นแรก)
+            const TOLERANCE_MS = 60000;
+            events.forEach(e => {
+                const mark = changeoverMarks.find(m =>
+                    m.line === e.line && m.toModel === e.toModel &&
+                    m.ts >= e.fromTs - TOLERANCE_MS && m.ts <= e.toTs + TOLERANCE_MS);
+                if (mark) e.confirmTs = mark.ts;
+            });
+
             if (activeModel !== 'All') {
                 return events.filter(e => e.fromModel === activeModel || e.toModel === activeModel);
             }
@@ -3948,6 +3983,7 @@ function doPost(e) {
                     <th class="p-3">ไลน์</th>
                     <th class="p-3">รุ่นเดิม → รุ่นใหม่</th>
                     <th class="p-3 text-center">สแกนสุดท้าย รุ่นเดิม</th>
+                    <th class="p-3 text-center" title="เวลาที่ใส่รหัสยืนยันเปลี่ยนรุ่นบนเครื่องสแกน">ยืนยันเปลี่ยนรุ่น</th>
                     <th class="p-3 text-center">สแกนแรก รุ่นใหม่</th>
                     <th class="p-3 text-right">ช่องว่าง</th>
                     <th class="p-3 text-right">หักพัก</th>
@@ -3957,13 +3993,18 @@ function doPost(e) {
                 </tr>`;
 
             if (events.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" class="text-center p-6 text-slate-400 italic">ไม่พบการเปลี่ยนรุ่นในช่วงที่เลือก</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="11" class="text-center p-6 text-slate-400 italic">ไม่พบการเปลี่ยนรุ่นในช่วงที่เลือก</td></tr>`;
                 return;
             }
 
             const fmtMin = m => m > 0 ? `${Math.round(m)} นาที` : '<span class="text-slate-300">-</span>';
             tbody.innerHTML = [...events].sort((a, b) => b.lostMin - a.lostMin).map(e => {
                 const lostCls = e.lostMin >= 30 ? 'text-rose-600' : e.lostMin >= 15 ? 'text-amber-500' : 'text-emerald-600';
+                // แยกช่องว่างเป็น ก่อนยืนยัน / หลังยืนยัน เมื่อมีเวลายืนยันจากเครื่องสแกน
+                const confirmCell = e.confirmTs
+                    ? `<span class="text-purple-600 font-semibold">${formatScanDateTime(e.confirmTs)}</span>` +
+                      `<div class="text-[10px] text-slate-400 font-sans">ก่อน ${Math.max(0, Math.round((e.confirmTs - e.fromTs) / 60000))} · หลัง ${Math.max(0, Math.round((e.toTs - e.confirmTs) / 60000))} นาที</div>`
+                    : '<span class="text-slate-300" title="ไม่มีบันทึกจากเครื่องสแกน คำนวณจากสแกนชิ้นงานเท่านั้น">-</span>';
                 const notesCell = changeoverNotesCell(incidentsForEvent(e),
                     `${e.line === '-' ? 'ไม่ระบุไลน์' : 'Line ' + e.line} · ${e.fromModel} → ${e.toModel} · ${formatThaiDate(e.prodDate)}`);
                 return `
@@ -3972,6 +4013,7 @@ function doPost(e) {
                         <td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${e.line === '-' ? 'ไม่ระบุไลน์' : 'Line ' + escapeHtml(e.line)}</td>
                         <td class="p-3 font-semibold text-slate-700">${escapeHtml(e.fromModel)} <span class="text-slate-400">→</span> ${escapeHtml(e.toModel)}</td>
                         <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${formatScanDateTime(e.fromTs)}</td>
+                        <td class="p-3 text-center font-mono whitespace-nowrap">${confirmCell}</td>
                         <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${formatScanDateTime(e.toTs)}</td>
                         <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">${Math.round(e.gapMin)} นาที</td>
                         <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${fmtMin(e.breakMin)}</td>
@@ -4549,6 +4591,7 @@ function doPost(e) {
                 r.live = liveByJob[r.job] || null;
                 if (r.live) r.status = r.live.state;
                 else if (r.closed) r.status = 'closed';
+                else if (!r.inPlan && isAutoJob(r.job)) r.status = 'auto';
                 else if (!r.inPlan) r.status = 'noplan';
                 else if (r.progress !== null && r.progress >= 100) r.status = 'complete';
                 else if (r.actual === 0) r.status = 'notstarted';
@@ -4571,7 +4614,8 @@ function doPost(e) {
             notstarted: { text: 'ยังไม่เริ่ม',   cls: 'bg-slate-50 text-slate-500 border-slate-200' },
             complete:   { text: 'ครบแผน',      cls: 'bg-indigo-50 text-indigo-600 border-indigo-200' },
             closed:     { text: 'ปิดแล้ว',      cls: 'bg-slate-100 text-slate-400 border-slate-200' },
-            noplan:     { text: 'ไม่พบในแผน',   cls: 'bg-rose-50 text-rose-500 border-rose-200' }
+            noplan:     { text: 'ไม่พบในแผน',   cls: 'bg-rose-50 text-rose-500 border-rose-200' },
+            auto:       { text: 'สร้างโดยระบบ', cls: 'bg-purple-50 text-purple-600 border-purple-200' }
         };
 
         function renderJobProgressTable() {
@@ -4689,7 +4733,7 @@ function doPost(e) {
                     : (r.lines.length ? escapeHtml(r.lines.join(', ')) : '-');
                 return `
                     <tr class="hover:bg-slate-50/60 ${liveRowCls} ${r.done && !r.live ? 'text-slate-400' : 'text-slate-700'}">
-                        <td class="p-3 font-mono font-semibold whitespace-nowrap"><span class="inline-flex items-center gap-2">${liveMark}${escapeHtml(r.job)}</span></td>
+                        <td class="p-3 font-mono font-semibold whitespace-nowrap"><span class="inline-flex items-center gap-2">${liveMark}${escapeHtml(r.job)}${isAutoJob(r.job) ? AUTO_JOB_BADGE_HTML : ''}</span></td>
                         <td class="p-3 whitespace-nowrap">${escapeHtml(r.model)}</td>
                         <td class="p-3 text-center whitespace-nowrap">${lineCell}</td>
                         <td class="p-3 text-right font-mono">${r.plan ? r.plan.toLocaleString() : '-'}</td>
@@ -5879,7 +5923,7 @@ function doPost(e) {
                                 ${row.shift}
                             </span>
                         </td>
-                        <td class="p-3 font-semibold text-indigo-600 font-mono">${row.jobOrder}</td>
+                        <td class="p-3 font-semibold text-indigo-600 font-mono">${row.jobOrder}${isAutoJob(row.jobOrder) ? AUTO_JOB_BADGE_HTML : ''}</td>
                         <td class="p-3 font-semibold text-slate-800">${row.model}${row.qty > 1 ? ` <span class="bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded text-[10px] font-bold">x${row.qty} ชิ้น</span>` : ''}</td>
                         <td class="p-3 font-mono font-medium text-slate-600">${row.barcode}</td>
                         <td class="p-3 text-center">
@@ -7218,7 +7262,7 @@ function doPost(e) {
                     pdfCell(s.time, 'center'),
                     pdfCell(formatThaiDate(s.prodDate), 'center'),
                     pdfCell(s.shift, 'center'),
-                    pdfCell(s.jobOrder),
+                    pdfCell(isAutoJob(s.jobOrder) ? `${s.jobOrder}\n(สร้างโดยระบบ)` : s.jobOrder),
                     pdfCell(s.model),
                     pdfCell(s.barcode),
                     pdfCell(s.status, 'center')
