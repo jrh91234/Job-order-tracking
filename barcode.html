@@ -3037,6 +3037,7 @@ function doPost(e) {
                     const live = getLineLiveStatus(s);
                     latestScanByLine[lineName] = {
                         model: s.model,
+                        ts: s.ts,
                         time: s.time,
                         state: live.state,
                         idleMin: live.idleMin,
@@ -3056,15 +3057,51 @@ function doPost(e) {
                 }
             });
 
+            // ไลน์ที่กำลังเปลี่ยนรุ่น: เครื่องสแกนบันทึก CHANGEOVER (ยืนยันรหัสเปลี่ยนรุ่น) หลังสแกนชิ้นล่าสุดของไลน์นั้น
+            // และยังไม่มีชิ้นงานรุ่นใหม่ถูกสแกนเข้ามา แสดงจนกว่าจะเริ่มสแกนรุ่นใหม่ (ไม่เกิน 3 ชม. เผื่อลืมสแกนต่อ)
+            const CHANGING_MAX_MS = 180 * 60000;
+            const nowMs = Date.now();
+            const activeLineFilter = els.filterLine ? els.filterLine.value : 'All';
+            const changingByLine = {};
+            // เทียบกับสแกนล่าสุดของไลน์จากข้อมูลทั้งหมด ไม่ใช่เฉพาะที่ผ่านตัวกรองรุ่น/Job
+            const lastOkTsByLine = {};
+            if (changeoverMarks.length > 0) {
+                processedScans.forEach(sc => {
+                    if (String(sc.status || '').toUpperCase() !== 'OK') return;
+                    if (!lastOkTsByLine[sc.line] || sc.ts > lastOkTsByLine[sc.line]) lastOkTsByLine[sc.line] = sc.ts;
+                });
+            }
+            changeoverMarks.forEach(m => {
+                if (!m.line || m.line === '-') return;
+                if (activeLineFilter !== 'All' && m.line !== activeLineFilter) return;
+                if (nowMs - m.ts > CHANGING_MAX_MS || m.ts > nowMs + 60000) return;
+                if ((lastOkTsByLine[m.line] || 0) >= m.ts) return; // สแกนชิ้นงานต่อแล้ว ถือว่าเปลี่ยนเสร็จ
+                if (!changingByLine[m.line] || m.ts > changingByLine[m.line].ts) changingByLine[m.line] = m;
+            });
+
             // วาดการ์ดสถานะ Running ที่ด้านบนของชาร์ต
             const liveRunningContainer = document.getElementById('live-running-container');
             if (liveRunningContainer) {
                 let html = '';
-                const sortedLines = Object.keys(latestScanByLine).sort();
+                const sortedLines = Array.from(new Set([...Object.keys(latestScanByLine), ...Object.keys(changingByLine)])).sort();
                 if (sortedLines.length > 0) {
                     sortedLines.forEach(lineName => {
                         const info = latestScanByLine[lineName];
-                        if (info.state === 'stalled') {
+                        const changing = changingByLine[lineName];
+                        if (changing) {
+                            const fromModel = changing.fromModel && changing.fromModel !== '-' ? changing.fromModel : (info ? info.model : '-');
+                            const sinceMin = Math.max(0, Math.round((nowMs - changing.ts) / 60000));
+                            html += `
+                                <div class="flex items-center gap-1.5 bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full border border-purple-300 font-medium shadow-sm" title="ยืนยันเปลี่ยนรุ่นบนเครื่องสแกนเมื่อ ${formatScanDateTime(changing.ts)} ยังไม่มีการสแกนรุ่นใหม่">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-purple-500 pulse-green-dot"></span>
+                                    <span class="font-bold text-[9px] uppercase tracking-wider text-purple-600 blink-running">เปลี่ยนรุ่น ${sinceMin} นาที</span>
+                                    <span class="text-slate-600">Line ${escapeHtml(lineName)}:</span>
+                                    <span class="text-slate-500">${escapeHtml(fromModel)}</span>
+                                    <span class="text-purple-400">→</span>
+                                    <span class="font-bold text-slate-800">${escapeHtml(changing.toModel)}</span>
+                                </div>
+                            `;
+                        } else if (info.state === 'stalled') {
                             html += `
                                 <div class="flex items-center gap-1.5 bg-rose-50 text-rose-700 px-2.5 py-1 rounded-full border border-rose-300 font-medium shadow-sm" title="ไม่มีการสแกนมา ${info.idleMin} นาที (ไม่นับเวลาพัก)">
                                     <span class="line-stall-icon blink-running">!</span>
