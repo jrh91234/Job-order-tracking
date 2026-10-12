@@ -3300,6 +3300,33 @@ function doPost(e) {
             };
 
             // Custom inline Chart.js plugin to draw a pulsing green indicator dot in front of active running models
+            // วงม่วงหมุนหน้าชื่อรุ่นที่ไลน์กำลังเปลี่ยนมา ใช้ element เดิมซ้ำและขยับเฉพาะเมื่อตำแหน่งเปลี่ยน
+            // แอนิเมชันจึงไม่สะดุดตอนกราฟวาดใหม่
+            const syncChangingSpinners = (chart, spots) => {
+                const holder = chart.canvas && chart.canvas.parentNode;
+                if (!holder) return;
+                const pool = chart.changingSpinnerEls || (chart.changingSpinnerEls = {});
+                const keep = new Set();
+                spots.forEach(spot => {
+                    keep.add(spot.model);
+                    let el = pool[spot.model];
+                    if (!el || !el.isConnected) {
+                        el = document.createElement('span');
+                        el.className = 'inline-block w-3 h-3 rounded-full border-2 border-purple-200 border-t-purple-500 animate-spin';
+                        el.style.cssText = 'position:absolute;pointer-events:none;';
+                        holder.appendChild(el);
+                        pool[spot.model] = el;
+                    }
+                    const left = `${Math.round(chart.canvas.offsetLeft + spot.x - 6)}px`;
+                    const top = `${Math.round(chart.canvas.offsetTop + spot.y - 6)}px`;
+                    if (el.style.left !== left) el.style.left = left;
+                    if (el.style.top !== top) el.style.top = top;
+                });
+                Object.keys(pool).forEach(model => {
+                    if (!keep.has(model)) { pool[model].remove(); delete pool[model]; }
+                });
+            };
+
             const modelChartPulsePlugin = {
                 id: 'modelChartPulsePlugin',
                 afterDraw(chart, args, options) {
@@ -3310,6 +3337,7 @@ function doPost(e) {
                     ctx.save();
                     
                     const now = Date.now();
+                    const changingSpots = [];
                     // Smooth breathing pulse (Emerald green)
                     const pulseScale = 0.6 + 0.4 * Math.sin((now / 150) * Math.PI);
                     
@@ -3326,18 +3354,9 @@ function doPost(e) {
                             // ไลน์ไหนเดินรุ่นนี้อยู่ปกติก็ยังเป็นไฟเขียว ถ้าไม่มีไลน์ไหนเดินเลยค่อยเตือน/แสดงพัก
                             const states = lineStates.map(l => l.state);
                             if (!states.includes('running') && states.includes('changing')) {
-                                // กำลังเปลี่ยนรุ่นมาเป็นรุ่นนี้ ยังไม่มีสแกน: วงม่วงหมุนแบบกำลังโหลด
-                                const angle = (now / 180) % (2 * Math.PI);
-                                ctx.beginPath();
-                                ctx.arc(dotX, y, 5, 0, 2 * Math.PI);
-                                ctx.strokeStyle = 'rgba(168, 85, 247, 0.25)';
-                                ctx.lineWidth = 2;
-                                ctx.stroke();
-                                ctx.beginPath();
-                                ctx.arc(dotX, y, 5, angle, angle + Math.PI * 1.2);
-                                ctx.strokeStyle = '#a855f7';
-                                ctx.lineCap = 'round';
-                                ctx.stroke();
+                                // กำลังเปลี่ยนรุ่นมาเป็นรุ่นนี้ ยังไม่มีสแกน: วงม่วงหมุนเป็น element ของ HTML วางทับกราฟ
+                                // (หมุนด้วย CSS เหมือนป้ายด้านบน ลื่นกว่าวาดบน canvas ที่ขึ้นกับรอบวาดกราฟ)
+                                changingSpots.push({ model: modelName, x: dotX, y });
                                 return;
                             }
                             if (!states.includes('running')) {
@@ -3376,6 +3395,7 @@ function doPost(e) {
                     });
                     
                     ctx.restore();
+                    syncChangingSpinners(chart, changingSpots);
                     
                     // Request next frame to keep animating the pulsing dot
                     let hasRunning = false;
