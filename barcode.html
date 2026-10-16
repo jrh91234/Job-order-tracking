@@ -7102,7 +7102,21 @@ function doPost(e) {
                 targetModel && String(inc.model || '').trim() === targetModel
             );
 
-            return summarizeIncidentCategories(exact.concat(byModel));
+            const matched = exact.concat(byModel);
+            if (matched.length === 0) return '';
+
+            // แสดงรายละเอียดทีละเหตุการณ์ (เวลา · หมวด · ไลน์ + ข้อความที่บันทึก) ไม่ใช่แค่ชื่อหมวด
+            // จะได้รู้ว่าติดอะไรจริง ๆ โดยไม่ต้องเปิดรายการเหตุการณ์แยก
+            matched.sort((a, b) => String(a.date).localeCompare(String(b.date)) || ((a.hour || 0) - (b.hour || 0)));
+            const multiDay = new Set(matched.map(inc => inc.date)).size > 1;
+            return matched.map(inc => {
+                const label = inc.categoryText || inc.category || 'อื่น ๆ';
+                const timeText = normalizeIncidentTime(inc.time, inc.hour) || `${String(inc.hour || 0).padStart(2, '0')}:00`;
+                const when = (multiDay ? formatThaiDate(inc.date) + ' ' : '') + timeText + ' น.';
+                const lineText = inc.line && inc.line !== 'All' ? ` · Line ${inc.line}` : '';
+                const notes = String(inc.notes || '').trim();
+                return `${when} · ${label}${lineText}` + (notes ? '\n' + notes : '');
+            }).join('\n');
         }
 
         // เหตุการณ์ล่าสุดที่แจ้งไว้ของ Job นี้ ใช้วิธีจับคู่เดียวกับ summarizeIncidentsForJob
