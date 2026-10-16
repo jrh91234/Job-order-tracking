@@ -7108,14 +7108,12 @@ function doPost(e) {
             // แสดงรายละเอียดทีละเหตุการณ์ (เวลา · หมวด · ไลน์ + ข้อความที่บันทึก) ไม่ใช่แค่ชื่อหมวด
             // จะได้รู้ว่าติดอะไรจริง ๆ โดยไม่ต้องเปิดรายการเหตุการณ์แยก
             matched.sort((a, b) => String(a.date).localeCompare(String(b.date)) || ((a.hour || 0) - (b.hour || 0)));
-            const multiDay = new Set(matched.map(inc => inc.date)).size > 1;
             return matched.map(inc => {
                 const label = inc.categoryText || inc.category || 'อื่น ๆ';
                 const timeText = normalizeIncidentTime(inc.time, inc.hour) || `${String(inc.hour || 0).padStart(2, '0')}:00`;
-                const when = (multiDay ? formatThaiDate(inc.date) + ' ' : '') + timeText + ' น.';
                 const lineText = inc.line && inc.line !== 'All' ? ` · Line ${inc.line}` : '';
                 const notes = String(inc.notes || '').trim();
-                return `${when} · ${label}${lineText}` + (notes ? '\n' + notes : '');
+                return `แจ้ง ${formatThaiDate(inc.date)} ${timeText} น. · ${label}${lineText}` + (notes ? '\n' + notes : '');
             }).join('\n');
         }
 
@@ -7164,7 +7162,8 @@ function doPost(e) {
             // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
             const isStalled = inPeriod === 0 && actual > 0;
 
-            if (noteParts.length > 0) return { text: noteParts.join('\n'), tone: 'text', missing: false };
+            // มีเหตุการณ์ = ใช้โทนสีเตือนเหมือนกรณี "แจ้งล่าสุด" เพื่อให้สะดุดตาเท่ากัน
+            if (noteParts.length > 0) return { text: noteParts.join('\n'), tone: incidentText ? 'warn' : 'text', missing: false };
             if (isStalled) {
                 const latestIncident = findLatestIncidentForJob(incidentsAllTime, job, model);
                 return latestIncident
