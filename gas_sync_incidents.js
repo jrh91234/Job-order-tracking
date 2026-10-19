@@ -143,7 +143,7 @@ function fetchOrganizeAttendanceCounts_() {
   if (body.status !== 'success' || !Array.isArray(body.groups) || !Number.isFinite(Number(body.total))) {
     throw new Error('Attendance API returned an invalid response');
   }
-  return { date: body.date, updatedAt: body.updatedAt, total: Number(body.total), groups: body.groups };
+  return { date: body.date, scope: body.scope || { department: 'Assembly', team: 'H9' }, updatedAt: body.updatedAt, total: Number(body.total), groups: body.groups };
 }
 
 function fetchMaintenanceIncidents_(showOriginalError) {
