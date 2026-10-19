@@ -45,3 +45,11 @@ for(const match of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)) {
  if(!/\bsrc=/.test(match[1])) new vm.Script(match[2]);
 }
 console.log('Manual incidents survive upstream errors; frontend inline scripts compile');
+
+ctx.UrlFetchApp={fetch:()=>{throw new Error('You do not have permission to call UrlFetchApp.fetch. Required permissions: script.external_request')}};
+result=ctx.doPost({postData:{contents:'{"action":"GET_INCIDENTS"}'}});
+assert.equal(result.maintenanceError,'MAINTENANCE_AUTHORIZATION_REQUIRED');
+assert.equal(result.incidents[0].ID,'manual-1');
+ctx.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>'<html>login</html>'})};
+assert.throws(()=>ctx.fetchMaintenanceIncidents_(),/MAINTENANCE_NON_JSON_RESPONSE/);
+console.log('Authorization and invalid-response diagnostics passed');

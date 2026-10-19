@@ -119,6 +119,13 @@ function maintenanceJobsToIncidents_(jobs) {
   }, []);
 }
 
+/** Run once from the Apps Script editor as the deploying account to grant external-request access. */
+function authorizeMaintenanceIntegration() {
+  var incidents = fetchMaintenanceIncidents_();
+  console.log('Maintenance integration OK: ' + incidents.length + ' incidents');
+  return incidents.length;
+}
+
 function fetchMaintenanceIncidents_() {
   var response;
   try { response = UrlFetchApp.fetch(MAINTENANCE_API_URL, {

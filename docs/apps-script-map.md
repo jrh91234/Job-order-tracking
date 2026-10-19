@@ -208,3 +208,9 @@ workflow `.github/workflows/deploy-apps-script.yml` จะใช้ clasp push �
 หาก Apps Script ขอสิทธิ์ `UrlFetchApp` ให้บัญชีที่ deploy อนุญาตสิทธิ์ก่อน
 ทดสอบ mapping/API ด้วย `node tests/maintenance-incidents.test.cjs` จาก root ของ repo
 การทดสอบนี้จำลอง Apps Script services; ต้องตรวจข้อมูลจริงหลัง deploy อีกครั้ง
+
+หาก `GET_INCIDENTS` ส่ง `maintenanceError: MAINTENANCE_AUTHORIZATION_REQUIRED`
+ให้บัญชีที่ใช้ deploy เปิดโปรเจกต์ Incident Sync ใน Apps Script editor
+เลือกฟังก์ชัน `authorizeMaintenanceIntegration` แล้วกด Run และอนุญาตสิทธิ์
+ฟังก์ชันอ่าน API อย่างเดียวและบันทึกจำนวนเหตุการณ์ใน Execution log
+เสร็จแล้วโหลด dashboard ใหม่ ไม่ต้องเปลี่ยน URL หรืออนุญาตให้โปรเจกต์ KPI
