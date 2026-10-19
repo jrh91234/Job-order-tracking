@@ -121,18 +121,21 @@ function maintenanceJobsToIncidents_(jobs) {
 
 /** Run once from the Apps Script editor as the deploying account to grant external-request access. */
 function authorizeMaintenanceIntegration() {
-  var incidents = fetchMaintenanceIncidents_();
+  var incidents = fetchMaintenanceIncidents_(true);
   console.log('Maintenance integration OK: ' + incidents.length + ' incidents');
   return incidents.length;
 }
 
-function fetchMaintenanceIncidents_() {
+function fetchMaintenanceIncidents_(showOriginalError) {
   var response;
   try { response = UrlFetchApp.fetch(MAINTENANCE_API_URL, {
     method: 'post', contentType: 'text/plain;charset=utf-8',
     payload: JSON.stringify({ action: 'getBMJobs', payload: { area: 'ENC H9' } }),
     muteHttpExceptions: true
   }); } catch (err) {
+    // Editor-only diagnostics: keep Google's original error for the owner.
+    // Public API calls omit this flag and receive only a safe diagnostic code.
+    if (showOriginalError === true) throw err;
     var message = String(err);
     if (/permission|authorization|scope|สิทธิ์/i.test(message)) throw new Error('MAINTENANCE_AUTHORIZATION_REQUIRED');
     throw new Error('MAINTENANCE_FETCH_FAILED');

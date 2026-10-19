@@ -53,3 +53,12 @@ assert.equal(result.incidents[0].ID,'manual-1');
 ctx.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>'<html>login</html>'})};
 assert.throws(()=>ctx.fetchMaintenanceIncidents_(),/MAINTENANCE_NON_JSON_RESPONSE/);
 console.log('Authorization and invalid-response diagnostics passed');
+
+const originalError = new Error('Required permissions: https://www.googleapis.com/auth/script.external_request');
+ctx.UrlFetchApp={fetch:()=>{throw originalError}};
+assert.throws(()=>ctx.authorizeMaintenanceIntegration(),err=>err===originalError);
+assert.throws(()=>ctx.fetchMaintenanceIncidents_(),/MAINTENANCE_AUTHORIZATION_REQUIRED/);
+const manifest=JSON.parse(fs.readFileSync('apps-script/incident-sync/appsscript.json','utf8'));
+assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
+assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
+console.log('Editor preserves original errors; manifest declares required service permissions');

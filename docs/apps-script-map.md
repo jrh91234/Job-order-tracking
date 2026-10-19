@@ -214,3 +214,9 @@ workflow `.github/workflows/deploy-apps-script.yml` จะใช้ clasp push �
 เลือกฟังก์ชัน `authorizeMaintenanceIntegration` แล้วกด Run และอนุญาตสิทธิ์
 ฟังก์ชันอ่าน API อย่างเดียวและบันทึกจำนวนเหตุการณ์ใน Execution log
 เสร็จแล้วโหลด dashboard ใหม่ ไม่ต้องเปลี่ยน URL หรืออนุญาตให้โปรเจกต์ KPI
+
+Manifest ของ Incident Sync ระบุ OAuth scopes `spreadsheets` และ
+`script.external_request` ไว้โดยตรง หลังอัปเดต scopes ให้บัญชีที่ deploy
+รีเฟรช Apps Script editor แล้วรัน `authorizeMaintenanceIntegration` อีกครั้ง
+และยอมรับสิทธิ์ที่เพิ่มมา หากยังไม่ผ่าน Execution log จะแสดงข้อผิดพลาดจริงของ Google
+เฉพาะการรันใน editor; API สาธารณะยังแสดงรหัสสรุปโดยไม่เปิดเผยรายละเอียดภายใน
