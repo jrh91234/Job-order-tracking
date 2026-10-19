@@ -88,6 +88,49 @@ function doGet(e) {
   }
 }
 
+// Read-only integration with Maintenance-Management-System (ENC H9 only).
+var MAINTENANCE_API_URL = 'https://script.google.com/macros/s/AKfycbwvqSh_1_VU_YLMI0fBWPa-B6IFXDDId1KIr6VYJAtsh0wUn6Jtln5ryJYR0luxqLc-Ew/exec';
+
+function maintenanceJobsToIncidents_(jobs) {
+  var seen = {};
+  return jobs.reduce(function (out, job) {
+    // ASSY also has numbered machines; never attribute them to H9 lines.
+    if (job.book !== 'ENC' || !job.mtJob || seen[job.mtJob]) return out;
+    var line = String(job.line || '').trim().match(/^(?:Line\s*)?(\d+)$/i);
+    var timestamp = new Date(job.timestamp);
+    if (!line || !job.timestamp || isNaN(timestamp.getTime())) return out;
+    seen[job.mtJob] = true;
+    var hour = Number(Utilities.formatDate(timestamp, 'Asia/Bangkok', 'H'));
+    var time = Utilities.formatDate(timestamp, 'Asia/Bangkok', 'HH:mm');
+    // Before 08:00 belongs to the previous production day.
+    var productionDay = new Date(timestamp.getTime() - 8 * 60 * 60 * 1000);
+    var date = Utilities.formatDate(productionDay, 'Asia/Bangkok', 'yyyy-MM-dd');
+    out.push({
+      ID: date + '_' + hour + '_maintenance_' + job.mtJob,
+      Date: date, Hour: hour, Time: time, Line: String(Number(line[1])), Model: 'All',
+      Shift: hour >= 8 && hour < 20 ? 'Day' : 'Night',
+      Category: 'Breakdown', CategoryText: '🛠️ แจ้งซ่อม (Maintenance)',
+      Notes: [job.mtJob, job.mc ? 'เครื่อง ' + job.mc : '', job.symptom,
+        job.status ? 'สถานะ: ' + job.status : '',
+        job.downtime !== '' && job.downtime != null ? 'หยุดเครื่อง: ' + job.downtime + ' นาที' : ''].filter(Boolean).join(' • '),
+      Source: 'maintenance', SourceId: job.mtJob
+    });
+    return out;
+  }, []);
+}
+
+function fetchMaintenanceIncidents_() {
+  var response = UrlFetchApp.fetch(MAINTENANCE_API_URL, {
+    method: 'post', contentType: 'text/plain;charset=utf-8',
+    payload: JSON.stringify({ action: 'getBMJobs', payload: { area: 'ENC H9' } }),
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) throw new Error('Maintenance API HTTP ' + response.getResponseCode());
+  var body = JSON.parse(response.getContentText());
+  if (!body.success || !Array.isArray(body.data)) throw new Error('Maintenance API returned an invalid response');
+  return maintenanceJobsToIncidents_(body.data);
+}
+
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000); // 10 seconds timeout
@@ -101,12 +144,7 @@ function doPost(e) {
     if (action === "GET_INCIDENTS") {
       var sheetName = "Incidents";
       var sheet = ss.getSheetByName(sheetName);
-      if (!sheet) {
-        return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: []}))
-                             .setMimeType(ContentService.MimeType.JSON);
-      }
-      var range = sheet.getDataRange();
-      var values = range.getValues();
+      var values = sheet ? sheet.getDataRange().getValues() : [];
       var list = [];
       if (values.length > 1) {
         var headers = values[0];
@@ -118,7 +156,10 @@ function doPost(e) {
           list.push(row);
         }
       }
-      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list}))
+      var maintenanceWarning = '';
+      try { list = list.concat(fetchMaintenanceIncidents_()); }
+      catch (err) { maintenanceWarning = 'ดึงแจ้งซ่อมไม่สำเร็จ กรุณาลองโหลดใหม่'; console.warn(String(err)); }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, maintenanceWarning: maintenanceWarning}))
                            .setMimeType(ContentService.MimeType.JSON);
     }
     

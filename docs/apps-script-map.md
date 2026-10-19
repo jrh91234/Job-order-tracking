@@ -189,3 +189,22 @@ workflow `.github/workflows/deploy-apps-script.yml` จะใช้ clasp push �
 - `clasp push` แทนที่ไฟล์ทั้งโปรเจกต์ด้วยชุดที่ stage ไว้ (`Code.js` + `appsscript.json`)
 - ถ้าโค้ดขอสิทธิ์ใหม่ (เช่น `UrlFetchApp` ของ TRANSLATE) เจ้าของโปรเจกต์ต้องเปิดโปรเจกต์ใน editor แล้วรันฟังก์ชันใดก็ได้หนึ่งครั้งเพื่ออนุญาตสิทธิ์ Web App ถึงจะเรียกได้
 - ถ้าตัวแปรหรือ secret ยังไม่ครบ workflow จะข้ามการ deploy พร้อมคำเตือน ไม่ล้มเหลว
+
+## แจ้งซ่อมจาก Maintenance Management System
+
+`GET_INCIDENTS` ใน `gas_sync_incidents.js` อ่าน `getBMJobs` แบบ read-only จาก
+`tomtops43-png/Maintenance-Management-System` (URL ใน `js/config.js` ของต้นทาง)
+และรวมเฉพาะ book `ENC` / พื้นที่ `ENC H9` กับเหตุการณ์เดิม ไม่เขียนงานแจ้งซ่อมลงแท็บ Incidents
+และไม่แก้ไขต้นทาง งาน ASSY จะไม่ถูกรวมเข้ากับไลน์ H9
+
+หนึ่ง MT Job เป็นหนึ่งเหตุการณ์ ณ ชั่วโมงที่แจ้ง (`timestamp`) ใช้เวลา Asia/Bangkok
+วันผลิตเริ่ม 08:00; เวลาก่อน 08:00 นับเป็นวันผลิตก่อนหน้า `Line 5` แปลงเป็น `5`
+เพื่อใช้ตัวกรองไลน์เดิม ข้อมูลแสดงเลขแจ้งซ่อม เครื่อง อาการ สถานะ และ downtime
+ไม่กระจายรายการไปทุกชั่วโมงที่ซ่อม และไม่ใช้เวลา accept/finish แทนเวลาแจ้ง
+รายการแสดงว่า “จากระบบแจ้งซ่อม” และแก้ไขจากระบบต้นทางเท่านั้น
+หาก API ล้มเหลว หน้าจอแจ้งเตือนและเก็บรายการแจ้งซ่อมล่าสุดในเครื่องไว้
+
+ต้อง deploy Incident Sync เวอร์ชันใหม่เพื่อเปิดใช้ โดยไม่แก้หรือ deploy โปรเจกต์ KPI
+หาก Apps Script ขอสิทธิ์ `UrlFetchApp` ให้บัญชีที่ deploy อนุญาตสิทธิ์ก่อน
+ทดสอบ mapping/API ด้วย `node tests/maintenance-incidents.test.cjs` จาก root ของ repo
+การทดสอบนี้จำลอง Apps Script services; ต้องตรวจข้อมูลจริงหลัง deploy อีกครั้ง
