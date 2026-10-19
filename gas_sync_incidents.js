@@ -120,13 +120,20 @@ function maintenanceJobsToIncidents_(jobs) {
 }
 
 function fetchMaintenanceIncidents_() {
-  var response = UrlFetchApp.fetch(MAINTENANCE_API_URL, {
+  var response;
+  try { response = UrlFetchApp.fetch(MAINTENANCE_API_URL, {
     method: 'post', contentType: 'text/plain;charset=utf-8',
     payload: JSON.stringify({ action: 'getBMJobs', payload: { area: 'ENC H9' } }),
     muteHttpExceptions: true
-  });
+  }); } catch (err) {
+    var message = String(err);
+    if (/permission|authorization|scope|สิทธิ์/i.test(message)) throw new Error('MAINTENANCE_AUTHORIZATION_REQUIRED');
+    throw new Error('MAINTENANCE_FETCH_FAILED');
+  }
   if (response.getResponseCode() !== 200) throw new Error('Maintenance API HTTP ' + response.getResponseCode());
-  var body = JSON.parse(response.getContentText());
+  var body;
+  try { body = JSON.parse(response.getContentText()); }
+  catch (err) { throw new Error('MAINTENANCE_NON_JSON_RESPONSE'); }
   if (!body.success || !Array.isArray(body.data)) throw new Error('Maintenance API returned an invalid response');
   return maintenanceJobsToIncidents_(body.data);
 }
@@ -157,9 +164,15 @@ function doPost(e) {
         }
       }
       var maintenanceWarning = '';
+      var maintenanceError = '';
       try { list = list.concat(fetchMaintenanceIncidents_()); }
-      catch (err) { maintenanceWarning = 'ดึงแจ้งซ่อมไม่สำเร็จ กรุณาลองโหลดใหม่'; console.warn(String(err)); }
-      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, maintenanceWarning: maintenanceWarning}))
+      catch (err) {
+        maintenanceWarning = 'ดึงแจ้งซ่อมไม่สำเร็จ กรุณาลองโหลดใหม่';
+        var reason = err && err.message ? String(err.message) : '';
+        maintenanceError = /^(MAINTENANCE_[A-Z_]+|Maintenance API HTTP \d{3}|Maintenance API returned an invalid response)$/.test(reason) ? reason : 'MAINTENANCE_MAPPING_FAILED';
+        console.warn(String(err));
+      }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, maintenanceWarning: maintenanceWarning, maintenanceError: maintenanceError}))
                            .setMimeType(ContentService.MimeType.JSON);
     }
     
