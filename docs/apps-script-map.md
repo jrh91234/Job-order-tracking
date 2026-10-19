@@ -220,3 +220,10 @@ Manifest ของ Incident Sync ระบุ OAuth scopes `spreadsheets` แล
 รีเฟรช Apps Script editor แล้วรัน `authorizeMaintenanceIntegration` อีกครั้ง
 และยอมรับสิทธิ์ที่เพิ่มมา หากยังไม่ผ่าน Execution log จะแสดงข้อผิดพลาดจริงของ Google
 เฉพาะการรันใน editor; API สาธารณะยังแสดงรหัสสรุปโดยไม่เปิดเผยรายละเอียดภายใน
+
+## จำนวนผู้เช็คเข้างาน
+
+Dashboard อ่านเฉพาะ aggregate action `getAttendanceCounts` ของระบบ `-Organize`
+และแสดงยอดวันนี้ตามแผนก/แผนกย่อย/กะ แหล่งข้อมูลไม่บันทึกไลน์ผลิต จึงไม่เอายอดนี้
+ไปแทนกำลังคนรายไลน์หรือคำนวณ PCS/คน/ชม. นับเฉพาะ check-in ประเภท work
+ช่วงวันผลิต 08:00–08:00 และแสดงเฉพาะจำนวน ไม่รับหรือเก็บชื่อและรหัสบุคคล

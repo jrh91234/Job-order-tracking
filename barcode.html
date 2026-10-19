@@ -593,6 +593,24 @@
             </div>
         </div>
 
+        <!-- Aggregate check-in count from HR Auto Organize -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i data-lucide="user-check" class="w-5 h-5 text-emerald-600"></i>ยอดคนเช็คเข้างานวันนี้</h3>
+                    <p class="mt-1 text-xs text-slate-400">สรุปตามแผนกย่อยและกะ จากระบบเช็คชื่อ · รอบวันผลิต 08:00–08:00 · ไม่ระบุรายไลน์</p>
+                </div>
+                <div class="shrink-0 text-right"><div id="attendance-summary-total" class="text-2xl font-black text-emerald-700">—</div><div class="text-[10px] text-slate-400">คน</div></div>
+            </div>
+            <div id="attendance-summary-status" class="text-xs text-slate-500">กำลังโหลดข้อมูลเช็คชื่อ…</div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50 text-slate-500"><tr><th class="p-2 text-left">แผนก</th><th class="p-2 text-left">ทีม</th><th class="p-2 text-center">กะ</th><th class="p-2 text-right">เข้างาน</th></tr></thead>
+                    <tbody id="attendance-summary-tbody" class="divide-y divide-slate-100"><tr><td colspan="4" class="p-3 text-center text-slate-400">กำลังโหลด…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Today's Incident Log Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-slate-100">
@@ -1408,6 +1426,7 @@ function doPost(e) {
         // Key เป็นรูปแบบ "YYYY-MM-DD_กะ_ไลน์" เช่น "2026-08-10_Day_Line 5"
         // ขึ้นต้นด้วยวันที่เหมือนคีย์ของบันทึกเหตุการณ์ จึงใช้ normalizeIncidentDate ร่วมกันได้
         let manpowerLogs = {};
+        let attendanceSummary = null;
 
         // การโอนยอดเข้ากะ: ผู้ใช้ระบุเองว่าช่วงชั่วโมงไหนของไลน์ไหน ต้องนับเข้ากะอะไร
         // จำเป็นเพราะระบบตัดกะจากเลขชั่วโมงล้วน ๆ (20:00 เป็นต้นไป = กะดึกเสมอ)
@@ -4395,6 +4414,23 @@ function doPost(e) {
             return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
         }
 
+        function renderAttendanceSummary(summary, errorMessage = '') {
+            const total = document.getElementById('attendance-summary-total');
+            const status = document.getElementById('attendance-summary-status');
+            const tbody = document.getElementById('attendance-summary-tbody');
+            if (!total || !status || !tbody) return;
+            if (!summary) {
+                status.textContent = errorMessage || 'ยังไม่มีข้อมูลจำนวนคนเช็คเข้างาน';
+                status.className = 'text-xs text-amber-700';
+                return;
+            }
+            total.textContent = String(Number(summary.total) || 0);
+            const rows = Array.isArray(summary.groups) ? summary.groups : [];
+            status.textContent = `วันที่ ${summary.date || 'วันนี้'} · อัปเดต ${summary.updatedAt ? new Date(summary.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '—'}`;
+            status.className = 'text-xs text-slate-500';
+            tbody.innerHTML = rows.length ? rows.map(group => `<tr><td class="p-2">${escapeHtml(group.department || '-')}</td><td class="p-2">${escapeHtml(group.team || '-')}</td><td class="p-2 text-center">${escapeHtml(group.shift === 'Unassigned' ? 'ไม่ระบุกะ' : `กะ ${group.shift}`)}</td><td class="p-2 text-right font-bold">${Number(group.count) || 0}</td></tr>`).join('') : '<tr><td colspan="4" class="p-3 text-center text-slate-400">ยังไม่มีผู้เช็คเข้างานในรอบนี้</td></tr>';
+        }
+
         function fetchIncidentsFromAppsScript() {
             if (!appsScriptUrl) return Promise.resolve();
             return fetch(appsScriptUrl, {
@@ -4404,6 +4440,8 @@ function doPost(e) {
             .then(res => res.json())
             .then(data => {
                 if (data && data.result === 'success' && data.incidents) {
+                    if (data.attendanceSummary) { attendanceSummary = data.attendanceSummary; renderAttendanceSummary(attendanceSummary); }
+                    else if (data.attendanceWarning) renderAttendanceSummary(attendanceSummary, data.attendanceWarning);
                     if (data.maintenanceWarning) showIncidentToast('warning', data.maintenanceWarning, 'แสดงข้อมูลแจ้งซ่อมที่เก็บไว้ล่าสุด');
                     const cloudIncidents = {};
                     if (data.maintenanceWarning) Object.values(incidentLogs).filter(inc => inc.source === 'maintenance').forEach(inc => { cloudIncidents[inc.id] = inc; });

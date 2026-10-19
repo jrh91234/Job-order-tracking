@@ -126,6 +126,26 @@ function authorizeMaintenanceIntegration() {
   return incidents.length;
 }
 
+// Aggregate-only attendance feed from HR Auto Organize; never returns employee data.
+var ORGANIZE_API_URL = 'https://script.google.com/macros/s/AKfycbxYxBWD4blG_bP9hdTm_W8RP9PtM9CLZovmSFQVVsQTcBl18uxcaAxrhW5lZKFmEj8H/exec';
+
+function fetchOrganizeAttendanceCounts_() {
+  var response;
+  try { response = UrlFetchApp.fetch(ORGANIZE_API_URL, {
+    method: 'post', contentType: 'text/plain;charset=utf-8',
+    payload: JSON.stringify({ action: 'getAttendanceCounts' }),
+    muteHttpExceptions: true
+  }); } catch (err) { throw new Error('ATTENDANCE_FETCH_FAILED'); }
+  if (response.getResponseCode() !== 200) throw new Error('Attendance API HTTP ' + response.getResponseCode());
+  var body;
+  try { body = JSON.parse(response.getContentText()); }
+  catch (err) { throw new Error('ATTENDANCE_NON_JSON_RESPONSE'); }
+  if (body.status !== 'success' || !Array.isArray(body.groups) || !Number.isFinite(Number(body.total))) {
+    throw new Error('Attendance API returned an invalid response');
+  }
+  return { date: body.date, updatedAt: body.updatedAt, total: Number(body.total), groups: body.groups };
+}
+
 function fetchMaintenanceIncidents_(showOriginalError) {
   var response;
   try { response = UrlFetchApp.fetch(MAINTENANCE_API_URL, {
@@ -173,6 +193,10 @@ function doPost(e) {
           list.push(row);
         }
       }
+      var attendanceSummary = null;
+      var attendanceWarning = '';
+      try { attendanceSummary = fetchOrganizeAttendanceCounts_(); }
+      catch (attendanceErr) { attendanceWarning = 'โหลดจำนวนคนเช็คเข้างานไม่สำเร็จ'; console.warn(String(attendanceErr)); }
       var maintenanceWarning = '';
       var maintenanceError = '';
       try { list = list.concat(fetchMaintenanceIncidents_()); }
@@ -182,7 +206,7 @@ function doPost(e) {
         maintenanceError = /^(MAINTENANCE_[A-Z_]+|Maintenance API HTTP \d{3}|Maintenance API returned an invalid response)$/.test(reason) ? reason : 'MAINTENANCE_MAPPING_FAILED';
         console.warn(String(err));
       }
-      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, maintenanceWarning: maintenanceWarning, maintenanceError: maintenanceError}))
+      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, maintenanceWarning: maintenanceWarning, maintenanceError: maintenanceError, attendanceSummary: attendanceSummary, attendanceWarning: attendanceWarning}))
                            .setMimeType(ContentService.MimeType.JSON);
     }
     
