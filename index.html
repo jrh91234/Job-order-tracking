@@ -1083,13 +1083,38 @@
         // AUTH SYSTEM
         // ==========================================
 
-        function checkAuth() {
+        async function checkAuth() {
             const isLoggedIn = localStorage.getItem('job_tracker_auth');
             if (isLoggedIn === 'true') {
                 els.loginOverlay.style.display = 'none';
                 startApp();
-            } else {
-                setTimeout(() => els.pinInput.focus(), 500);
+                return;
+            }
+            // Super App SSO: login จาก Assembly Super App แทน PIN ถ้ามีสิทธิ์แอปนี้
+            if (await superAppSsoUser('job-order-tracking')) {
+                localStorage.setItem('job_tracker_auth', 'true');
+                els.loginOverlay.style.display = 'none';
+                startApp();
+                return;
+            }
+            setTimeout(() => els.pinInput.focus(), 500);
+        }
+
+        // session จาก Assembly Super App (localStorage SUPERAPP_SSO) → ถาม auth กลางว่ามีสิทธิ์แอปนี้ไหม
+        async function superAppSsoUser(appId) {
+            let s = null;
+            try { s = JSON.parse(localStorage.getItem('SUPERAPP_SSO') || 'null'); } catch (e) {}
+            if (!s || !s.token || !s.authUrl || !(s.expiresAt > Date.now())) return null;
+            try {
+                const res = await fetch(s.authUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'verify', token: s.token, app: appId })
+                });
+                const data = await res.json();
+                return data.success ? data.user : null;
+            } catch (e) {
+                return null;
             }
         }
 
