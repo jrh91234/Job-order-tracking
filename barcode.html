@@ -518,7 +518,7 @@
                 </table>
             </div>
             <p id="job-progress-allmodel-note" class="hidden text-[11px] text-slate-500"></p>
-            <p class="text-[10px] text-slate-400 leading-relaxed">เหตุผลที่ยังค้าง: ใช้หลักเดียวกับรายงาน PDF · รวม Remark จากชีต Plan กับเหตุการณ์ที่บันทึกไว้ในช่วงวันที่ที่เลือก (ระบุ Job ไว้ = จับคู่ตรงตัว, ไม่ได้ระบุ = เดาจากรุ่น) · Job ที่เคยเดินแล้วหยุดและไม่มีเหตุการณ์ในช่วงนี้ จะแสดงเหตุการณ์ที่แจ้งไว้ล่าสุด (ขึ้นต้นว่า "แจ้งล่าสุด") · <span class="text-rose-500 font-semibold">ยังไม่มีบันทึกสาเหตุ</span> = หยุดค้างโดยยังไม่มีใครแจ้งว่าติดอะไร ควรตามก่อน</p>
+            <p class="text-[10px] text-slate-400 leading-relaxed">เหตุผลที่ยังค้าง: ใช้หลักเดียวกับรายงาน PDF · รวมเหตุการณ์ของ Job/รุ่นในช่วงวันที่ที่เลือก โดยวัตถุดิบขาดแคลนหรือปัญหาคุณภาพจะแสดงก่อนและเรียงรายการล่าสุดไว้บน · Job ที่เคยเดินแล้วหยุดและไม่มีเหตุการณ์ในช่วงนี้ จะแสดงปัญหาที่เกี่ยวข้องล่าสุดก่อน (ขึ้นต้นว่า "แจ้งล่าสุด") · <span class="text-rose-500 font-semibold">ยังไม่มีบันทึกสาเหตุ</span> = หยุดค้างโดยยังไม่มีใครแจ้งว่าติดอะไร ควรตามก่อน</p>
         </div>
 
         <!-- Shift Transfer Panel -->
@@ -7134,6 +7134,23 @@ function doPost(e) {
                 .join('\n');
         }
 
+        // วัตถุดิบขาดแคลนและคุณภาพเป็นสาเหตุที่ต้องเห็นก่อนเรื่องทั่วไป
+        // บางปัญหาคุณภาพถูกบันทึกในหมวด Other จึงดูทั้งหมวดและรายละเอียดประกอบ
+        function isMaterialOrQualityIncident(inc) {
+            const text = [inc.category, inc.categoryText, inc.notes].join(' ').toLowerCase();
+            return /material|วัตถุดิบ|quality|คุณภาพ/.test(text);
+        }
+
+        function compareJobIncidentPriorityAndRecency(a, b) {
+            const priority = Number(isMaterialOrQualityIncident(b)) - Number(isMaterialOrQualityIncident(a));
+            if (priority) return priority;
+            const dateOrder = String(b.date || '').localeCompare(String(a.date || ''));
+            if (dateOrder) return dateOrder;
+            const timeA = normalizeIncidentTime(a.time, a.hour) || `${String(a.hour || 0).padStart(2, '0')}:00`;
+            const timeB = normalizeIncidentTime(b.time, b.hour) || `${String(b.hour || 0).padStart(2, '0')}:00`;
+            return timeB.localeCompare(timeA);
+        }
+
         // จับคู่เหตุการณ์เข้ากับ Job: ถ้าเหตุการณ์ระบุ Job order ไว้ก็ใช้ตัวนั้นตรง ๆ
         // ถ้าไม่ได้ระบุ (เช่น บันทึกไว้ก่อนมีช่องนี้) ค่อยถอยไปเดาจากรุ่นสินค้าเหมือนเดิม
         // เหตุการณ์ที่กระทบทุกรุ่นแยกไปสรุปใต้ตาราง ไม่งั้นจะขึ้นซ้ำทุกแถวจนแยกแยะอะไรไม่ได้
@@ -7153,7 +7170,7 @@ function doPost(e) {
 
             // แสดงรายละเอียดทีละเหตุการณ์ (เวลา · หมวด · ไลน์ + ข้อความที่บันทึก) ไม่ใช่แค่ชื่อหมวด
             // จะได้รู้ว่าติดอะไรจริง ๆ โดยไม่ต้องเปิดรายการเหตุการณ์แยก
-            matched.sort((a, b) => String(a.date).localeCompare(String(b.date)) || ((a.hour || 0) - (b.hour || 0)));
+            matched.sort(compareJobIncidentPriorityAndRecency);
             const multiDay = new Set(matched.map(inc => inc.date)).size > 1;
             return matched.map(inc => {
                 const label = inc.categoryText || inc.category || 'อื่น ๆ';
@@ -7178,10 +7195,8 @@ function doPost(e) {
             });
             if (matched.length === 0) return null;
 
-            return matched.reduce((latest, inc) => {
-                const cmp = String(inc.date).localeCompare(String(latest.date)) || ((inc.hour || 0) - (latest.hour || 0));
-                return cmp > 0 ? inc : latest;
-            });
+            matched.sort(compareJobIncidentPriorityAndRecency);
+            return matched[0];
         }
 
         // ข้อความสาเหตุล่าสุดสำหรับคอลัมน์หมายเหตุ บอกวันเวลาที่แจ้งไว้ด้วย
@@ -7202,9 +7217,10 @@ function doPost(e) {
         // tone: 'text' = มีข้อมูลในช่วงนี้, 'warn' = งานหยุดค้าง, 'muted' = ไม่มีอะไรต้องอธิบาย
         function describeJobPendingReason(job, model, remark, inPeriod, actual, incidentsInScope, incidentsAllTime) {
             const noteParts = [];
-            if (remark) noteParts.push(remark);
             const incidentText = summarizeIncidentsForJob(incidentsInScope, job, model);
+            // แสดงปัญหาวัตถุดิบ/คุณภาพก่อน แล้วค่อยแสดง Remark จากแผน
             if (incidentText) noteParts.push(incidentText);
+            if (remark) noteParts.push(remark);
 
             // เตือนเฉพาะงานที่ "เคยเดินแล้วหยุด" ซึ่งควรมีคนอธิบายได้ว่าติดอะไร
             // งานที่ยังไม่เริ่มเลยอาจแค่ยังไม่ถึงคิว ไม่ใช่ปัญหา จึงไม่ตีตราว่าขาดข้อมูล
