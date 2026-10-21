@@ -322,6 +322,7 @@
                     <span class="text-xs font-bold text-slate-400 block mb-1">ประสิทธิภาพผลิต (Eff%)</span>
                     <span id="kpi-eff-percent" class="text-2xl font-black text-violet-600 font-mono">0%</span>
                     <span class="text-[10px] text-slate-400 block mt-1">เทียบกับเป้าสะสม</span>
+                    <button type="button" onclick="showEffCalculation()" class="mt-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2">ดูรายการคำนวณ</button>
                 </div>
                 <div class="w-12 h-12 bg-violet-50 rounded-2xl flex items-center justify-center text-violet-600">
                     <i data-lucide="percent" class="w-6 h-6"></i>
@@ -345,14 +346,14 @@
                 </div>
                 <!-- Target Calculation Details Panel -->
                 <div class="border-t border-slate-100 pt-3 space-y-2">
-                    <button onclick="toggleTargetCalcPanel()" class="w-full flex justify-between items-center text-xs font-bold text-slate-700 hover:text-indigo-600 focus:outline-none transition-colors">
+                    <button id="target-calc-toggle" type="button" aria-expanded="false" aria-controls="target-calc-content" onclick="toggleTargetCalcPanel()" class="w-full flex justify-between items-center text-xs font-bold text-slate-700 hover:text-indigo-600 focus:outline-none transition-colors">
                         <span class="flex items-center gap-1.5">
                             <i data-lucide="calculator" class="w-4 h-4 text-indigo-500"></i>
-                            สูตรคำนวณและรายละเอียดเป้าหมายรายชั่วโมง (Dynamic Target)
+                            ที่มาของ Eff% และสูตรเป้าหมายรายชั่วโมง (Dynamic Target)
                         </span>
                         <i id="target-calc-chevron" data-lucide="chevron-down" class="w-4 h-4 transition-transform"></i>
                     </button>
-                    <div id="target-calc-content" class="hidden pt-2 max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                    <div id="target-calc-content" class="hidden pt-2 max-h-72 overflow-y-auto space-y-1.5 pr-1">
                         <!-- Calculation items will be populated here -->
                     </div>
                 </div>
@@ -2805,7 +2806,40 @@ function doPost(e) {
             });
 
             // Build target calculation panel details list
-            let calcListHtml = '';
+            const effSummary = lastHourlySummary;
+            const effRows = effSummary
+                ? effSummary.hourSequence.map((hr, idx) => ({
+                    hour: hr,
+                    actual: effSummary.actuals[idx] || 0,
+                    target: effSummary.targets[idx] || 0,
+                    completed: effSummary.completed[idx]
+                })).filter(row => row.completed && row.actual > 0)
+                : [];
+            const actualTerms = effRows.map(row => row.actual.toLocaleString()).join(' + ');
+            const targetTerms = effRows.map(row => row.target.toLocaleString()).join(' + ');
+            const effValue = effSummary && effSummary.totalTargetVal > 0
+                ? Math.round((effSummary.totalActualVal / effSummary.totalTargetVal) * 100)
+                : null;
+            const effCalculationHtml = effSummary ? `
+                <div class="rounded-xl border border-violet-100 bg-violet-50/70 p-2.5 space-y-1.5">
+                    <div class="text-[10px] font-bold text-violet-800">ที่มาของ Eff% · ชั่วโมงที่นำมาคิด</div>
+                    <div class="font-mono text-[10px] font-bold text-slate-700">Eff% = ยอดผลิตจริง ÷ เป้าหมายสะสม × 100</div>
+                    <div class="font-mono text-xs font-black text-violet-700">${effSummary.totalActualVal.toLocaleString()} PCS ÷ ${effSummary.totalTargetVal.toLocaleString()} PCS × 100 = ${effValue === null ? '-' : `${effValue}%`}</div>
+                    ${effRows.length ? `
+                        <div class="text-[9px] text-slate-500">ยอดจริง: ${actualTerms} = ${effSummary.totalActualVal.toLocaleString()} PCS</div>
+                        <div class="text-[9px] text-slate-500">เป้าสะสม: ${targetTerms} = ${effSummary.totalTargetVal.toLocaleString()} PCS</div>
+                        <div class="pt-1 border-t border-violet-100 space-y-0.5">
+                            ${effRows.map(row => {
+                                const hourEff = row.target > 0 ? `${((row.actual / row.target) * 100).toFixed(1)}%` : '-';
+                                return `<div class="flex justify-between gap-2 text-[9px] font-mono text-slate-600"><span>${String(row.hour).padStart(2, '0')}:00</span><span class="text-right">${row.actual.toLocaleString()} ÷ ${row.target.toLocaleString()} PCS = ${hourEff}</span></div>`;
+                            }).join('')}
+                        </div>
+                    ` : '<div class="text-[9px] text-slate-500">ยังไม่มีชั่วโมงที่จบแล้วและมีสแกน OK สำหรับคำนวณ</div>'}
+                    <div class="text-[9px] text-slate-400">รวมเฉพาะชั่วโมงที่จบแล้วและมีสแกน OK; ชั่วโมงที่ยังไม่มีสแกนไม่รวมในตัวหาร</div>
+                </div>
+                <div class="pt-1 text-[10px] font-bold text-slate-600">สูตรเป้าหมายรายชั่วโมง (Dynamic Target)</div>
+            ` : '';
+            let calcListHtml = effCalculationHtml;
             hourSequence.forEach((hr, idx) => {
                 const hrStr = `${String(hr).padStart(2, '0')}:00`;
                 const hourScans = okScans.filter(s => s.hour === hr);
@@ -8039,13 +8073,23 @@ function doPost(e) {
         function toggleTargetCalcPanel() {
             const panel = document.getElementById('target-calc-content');
             const chevron = document.getElementById('target-calc-chevron');
+            const toggle = document.getElementById('target-calc-toggle');
             if (panel.classList.contains('hidden')) {
                 panel.classList.remove('hidden');
                 if (chevron) chevron.style.transform = 'rotate(180deg)';
+                if (toggle) toggle.setAttribute('aria-expanded', 'true');
             } else {
                 panel.classList.add('hidden');
                 if (chevron) chevron.style.transform = 'rotate(0deg)';
+                if (toggle) toggle.setAttribute('aria-expanded', 'false');
             }
+        }
+
+        function showEffCalculation() {
+            const panel = document.getElementById('target-calc-content');
+            if (!panel) return;
+            if (panel.classList.contains('hidden')) toggleTargetCalcPanel();
+            requestAnimationFrame(() => panel.scrollIntoView({ behavior: 'smooth', block: 'center' }));
         }
 
         // อ่านชีต Plan ให้ได้แผนงานรายใบสั่งผลิต ชื่อคอลัมน์ในชีตจริงมีหลายแบบ จึงค้นแบบยืดหยุ่น
