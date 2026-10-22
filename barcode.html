@@ -143,6 +143,9 @@
                     <a href="barcode.html" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold transition-all">
                         Barcode Real-time
                     </a>
+                    <a href="line-balance.html" class="px-3 py-1.5 rounded-lg text-indigo-100 transition-all hover:bg-indigo-700">
+                        Line Balance
+                    </a>
                 </nav>
             </div>
             <div class="flex items-center gap-2">
@@ -1395,6 +1398,7 @@ function doPost(e) {
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
         let showChartValues = true;  // Toggle state to show/hide value labels on horizontal chart
         let capacityAuditorSort = null; // null = ลำดับตามที่พบข้อมูล, 'asc'/'desc' = เรียงตามชื่อรุ่นสินค้า
+        let capacityAuditorExpandedModel = null; // รุ่นที่เปิดรายการคำนวณอยู่ในตาราง Capacity Auditor
         let isDemoMode = false;
 
         // Incident Events Pools
@@ -3645,12 +3649,23 @@ function doPost(e) {
                 // การตัดออกจึงเป็นการซ่อน loss ที่ต้องการวัดพอดี ตอนนี้นับทุกชั่วโมงตามจริง
                 const totalQty = hourlyRates.reduce((sum, val) => sum + val, 0);
                 const avgRate = hourlyRates.length > 0 ? Math.round(totalQty / hourlyRates.length) : 0;
+                const hourlyDetails = Object.entries(hourlyCountsMap)
+                    .map(([key, qty]) => {
+                        const [prodDate, hour] = key.split('_');
+                        return { prodDate, hour: Number(hour), qty };
+                    })
+                    .sort((a, b) => a.prodDate.localeCompare(b.prodDate) || a.hour - b.hour);
 
                 // 3. คำนวณเปอร์เซ็นต์ประสิทธิภาพการผลิต (Eff %)
                 const eff = (stdCap > 0 && avgRate > 0) ? (avgRate / stdCap) * 100 : null;
 
-                return { modelName, stdCap, avgRate, peakCap, avgCycleTime, cycleTimeText, eff };
+                return { modelName, stdCap, avgRate, peakCap, avgCycleTime, cycleTimeText, totalQty, activeHours: hourlyRates.length, hourlyDetails, eff };
             });
+        }
+
+        function toggleCapacityAuditorDetails(modelName) {
+            capacityAuditorExpandedModel = capacityAuditorExpandedModel === modelName ? null : modelName;
+            renderCapacityAuditor();
         }
 
         function toggleCapacityAuditorSort() {
@@ -3747,6 +3762,7 @@ function doPost(e) {
         function tableToRows(table) {
             const rows = [];
             table.querySelectorAll('tr').forEach(tr => {
+                if (tr.dataset.exportIgnore === 'true') return;
                 if (tr.offsetParent === null && tr.closest('tbody')) return;
                 const isHead = !!tr.closest('thead');
                 const cells = Array.from(tr.children).filter(td => td.tagName === 'TD' || td.tagName === 'TH');
@@ -3754,7 +3770,9 @@ function doPost(e) {
                 // แถวแจ้ง "ไม่มีข้อมูล" ที่มีคอลัมน์เดียวคร่อมทั้งตาราง ไม่ต้องใส่ลงไฟล์
                 if (!isHead && cells.length === 1 && cells[0].colSpan > 1) return;
                 rows.push(cells.map(td => {
-                    const text = td.innerText.replace(/\s*\n\s*/g, ' ').trim();
+                    const exportCell = td.cloneNode(true);
+                    exportCell.querySelectorAll('[data-export-ignore]').forEach(el => el.remove());
+                    const text = exportCell.innerText.replace(/\s*\n\s*/g, ' ').trim();
                     return isHead ? text : toExcelValue(text);
                 }));
             });
@@ -3869,10 +3887,13 @@ function doPost(e) {
 
             let rows = computeCapacityRows();
             if (rows.length === 0) {
+                capacityAuditorExpandedModel = null;
                 tbody.innerHTML = `<tr><td colspan="6" class="text-center p-4 text-slate-400">ไม่มีข้อมูลการผลิต</td></tr>`;
                 if (window.lucide) lucide.createIcons();
                 return;
             }
+
+            if (!rows.some(row => row.modelName === capacityAuditorExpandedModel)) capacityAuditorExpandedModel = null;
 
             if (capacityAuditorSort) {
                 rows = [...rows].sort((a, b) => {
@@ -3882,25 +3903,59 @@ function doPost(e) {
             }
 
             let html = '';
-            rows.forEach(({ modelName, stdCap, avgRate, peakCap, cycleTimeText, eff }) => {
+            rows.forEach(({ modelName, stdCap, avgRate, peakCap, cycleTimeText, totalQty, activeHours, hourlyDetails, eff }) => {
                 const effText = eff === null ? '-' : `${eff.toFixed(1)}%`;
                 const effClass = eff === null
                     ? 'text-slate-400'
                     : eff < 80 ? 'text-rose-600' : eff < 95 ? 'text-amber-500' : 'text-emerald-600';
+                const isExpanded = capacityAuditorExpandedModel === modelName;
+                const effFormula = eff === null ? 'คำนวณไม่ได้' : `${avgRate.toLocaleString()} ÷ ${stdCap.toLocaleString()} × 100`;
+                const hourlyItems = hourlyDetails.map(({ prodDate, hour, qty }) => `
+                    <div class="flex justify-between gap-4 border-b border-indigo-100/70 py-1 last:border-0">
+                        <span>${escapeHtml(formatThaiDate(prodDate))} · ${String(hour).padStart(2, '0')}:00</span>
+                        <span class="font-mono font-semibold">${qty.toLocaleString()} PCS</span>
+                    </div>
+                `).join('');
 
                 html += `
                     <tr class="hover:bg-slate-50/50 transition-colors">
-                        <td class="p-3 font-semibold text-slate-700">${modelName}</td>
+                        <td class="p-3 font-semibold text-slate-700">${escapeHtml(modelName)}</td>
                         <td class="p-3 text-center font-mono text-slate-500">${stdCap} PCS/Hr</td>
                         <td class="p-3 text-center font-mono text-indigo-600">${avgRate > 0 ? avgRate + ' PCS/Hr' : '-'}</td>
                         <td class="p-3 text-center font-mono text-amber-600">${peakCap > 0 ? peakCap + ' PCS/Hr' : '-'}</td>
                         <td class="p-3 text-center font-mono text-slate-600">${cycleTimeText}</td>
-                        <td class="p-3 text-center font-mono font-bold ${effClass}">${effText}</td>
+                        <td class="p-3 text-center">
+                            <div class="font-mono font-bold ${effClass}">${effText}</div>
+                            <div data-export-ignore class="mt-0.5 text-[9px] font-mono font-normal text-slate-400">${effFormula}</div>
+                            <button type="button" data-capacity-auditor-model="${escapeHtml(modelName)}" data-export-ignore
+                                aria-expanded="${isExpanded}" title="แสดงรายการคำนวณของ ${escapeHtml(modelName)}"
+                                class="mt-1 rounded-md px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                                ${isExpanded ? 'ซ่อนรายการ' : 'รายการคำนวณ'}
+                            </button>
+                        </td>
                     </tr>
+                    ${isExpanded ? `
+                        <tr data-export-ignore="true">
+                            <td colspan="6" class="px-4 pb-4 pt-1">
+                                <div class="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-left text-[10px] text-slate-600 space-y-2">
+                                    <div class="font-bold text-indigo-800">รายการคำนวณ Eff% · ${escapeHtml(modelName)}</div>
+                                    <div class="font-mono">เฉลี่ยจริง = ${totalQty.toLocaleString()} PCS ÷ ${activeHours.toLocaleString()} ชั่วโมง = ${avgRate.toLocaleString()} PCS/Hr (ปัดเศษ)</div>
+                                    <div class="font-mono font-semibold">Eff% = เฉลี่ยจริง ÷ กำลังผลิต 100% × 100 = ${avgRate.toLocaleString()} ÷ ${stdCap.toLocaleString()} × 100 = ${effText}</div>
+                                    <div class="border-t border-indigo-100 pt-2">
+                                        <div class="mb-1 font-semibold text-slate-700">ยอดผลิตรายชั่วโมงที่ใช้หาเฉลี่ย (${activeHours.toLocaleString()} ชั่วโมง · รวม ${totalQty.toLocaleString()} PCS)</div>
+                                        <div class="max-h-48 overflow-y-auto pr-1">${hourlyItems}</div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    ` : ''}
                 `;
             });
 
             tbody.innerHTML = html;
+            tbody.querySelectorAll('[data-capacity-auditor-model]').forEach(button => {
+                button.addEventListener('click', () => toggleCapacityAuditorDetails(button.dataset.capacityAuditorModel));
+            });
             if (window.lucide) lucide.createIcons();
         }
 

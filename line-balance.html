@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line Balance | Job Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Prompt', sans-serif; -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+        .number-input { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+    <header class="sticky top-0 z-30 bg-gradient-to-r from-indigo-700 to-indigo-900 px-4 py-3 text-white shadow-lg">
+        <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+                <h1 class="flex items-center gap-2 text-lg font-bold sm:text-xl">
+                    <i data-lucide="git-compare-arrows" class="h-6 w-6 text-indigo-200"></i>
+                    Line Balance
+                </h1>
+                <nav class="flex items-center gap-1 rounded-xl border border-indigo-500/20 bg-indigo-950/40 p-1 text-xs">
+                    <a href="index.html" class="rounded-lg px-3 py-1.5 text-indigo-100 transition hover:bg-indigo-700">Job Monitor</a>
+                    <a href="barcode.html" class="rounded-lg px-3 py-1.5 text-indigo-100 transition hover:bg-indigo-700">Barcode Real-time</a>
+                    <a href="line-balance.html" aria-current="page" class="rounded-lg bg-indigo-600 px-3 py-1.5 font-semibold text-white">Line Balance</a>
+                </nav>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+                <span id="source-status" class="rounded-full border border-indigo-400/50 bg-indigo-950/30 px-3 py-1.5 text-indigo-100">กำลังโหลดข้อมูลชีต…</span>
+                <button id="reset-button" type="button" class="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 font-semibold transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50" disabled>
+                    <i data-lucide="rotate-ccw" class="h-4 w-4"></i> คืนค่าเริ่มต้น
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">ตั้งค่ารุ่นและสมมติฐานการผลิต</h2>
+                    <p class="mt-1 text-sm text-slate-500">เวลามาตรฐานและสถานะเครื่องจักรเริ่มจากชีต Cap และ Line Balance แก้ตัวเลขบนหน้านี้ได้โดยไม่เขียนกลับไปที่ชีต</p>
+                </div>
+                <a href="https://docs.google.com/spreadsheets/d/1PYcAatoJ4QX28uQ_LF8dDC6oTiMWbfPs5TZDfGJVa4U/edit?gid=403916397#gid=403916397" target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                    <i data-lucide="external-link" class="h-4 w-4"></i> เปิด Google Sheet
+                </a>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <label class="text-xs font-semibold text-slate-600">รุ่นสินค้า (Model)
+                    <select id="model-select" class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" disabled></select>
+                    <span id="model-line" class="mt-1 block font-normal text-slate-400">Line: -</span>
+                </label>
+                <label class="text-xs font-semibold text-slate-600">จำนวนพนักงาน (คน)
+                    <input id="headcount-input" type="number" min="0" step="1" class="number-input mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" disabled>
+                </label>
+                <label class="text-xs font-semibold text-slate-600">ชั่วโมงทำงานสุทธิ / วัน
+                    <input id="shift-input" type="number" min="0" step="0.1" class="number-input mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" disabled>
+                </label>
+                <label class="text-xs font-semibold text-slate-600">OEE (0–1)
+                    <input id="oee-input" type="number" min="0" max="1" step="0.01" class="number-input mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" disabled>
+                </label>
+                <label class="text-xs font-semibold text-slate-600">เวลาเดิน/เปลี่ยนสถานี (วินาที)
+                    <input id="walk-input" type="number" min="0" step="0.1" class="number-input mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-medium outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" disabled>
+                </label>
+            </div>
+            <p class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                หมายเหตุ: คงสูตรจากชีตต้นฉบับไว้ โดย Ideal TAKT ใช้ผลรวม Effective CT ÷ จำนวนกลุ่ม Operator สูงสุด (MAX กลุ่ม) ไม่ได้หารด้วยจำนวนพนักงานที่กรอกไว้ จำนวนพนักงานจึงแสดงเป็นข้อมูลประกอบตามชีต
+            </p>
+        </section>
+
+        <section id="summary-cards" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5" aria-live="polite"></section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">สมดุลภาระงานรายกลุ่ม</h2>
+                    <p class="text-xs text-slate-500">โหลดรวม = ผลรวม Effective CT ของสถานีในกลุ่ม + เวลาเดินระหว่างสถานี</p>
+                </div>
+                <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">กลุ่มตามสูตรในชีต</span>
+            </div>
+            <div id="operator-groups" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"></div>
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="flex flex-wrap items-end justify-between gap-3 px-5 pb-3 pt-5 sm:px-6">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">รายละเอียดรายสถานี</h2>
+                    <p class="text-xs text-slate-500">แก้ Manual CT หรือกด MC? เพื่อคำนวณผลใหม่ทันที (การแก้ไขอยู่ในหน้านี้เท่านั้น)</p>
+                </div>
+                <span id="station-count" class="text-xs text-slate-500"></span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-[1050px] w-full border-collapse text-left text-xs">
+                    <thead class="bg-slate-50 text-slate-600">
+                        <tr>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">สถานี</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Manual CT (วินาที)</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold">MC? (Y/N)</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Ideal CT</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Effective CT</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">สะสม (วินาที)</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-center font-semibold">กลุ่ม Operator</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">สะสมในกลุ่ม</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">การคำนวณกลุ่ม</th>
+                        </tr>
+                    </thead>
+                    <tbody id="station-rows" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <details class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <summary class="cursor-pointer list-none px-5 py-4 font-bold text-slate-800 sm:px-6">
+                <span class="inline-flex items-center gap-2"><i data-lucide="calculator" class="h-5 w-5 text-indigo-600"></i>รายการคำนวณและค่าระหว่างทาง</span>
+                <span class="mt-1 block text-xs font-normal text-slate-500">แสดงสูตรพร้อมแทนค่าจริงของแต่ละสถานี รวมถึงวิธีคิด TAKT, โหลดกลุ่ม, UPH และเป้าผลิต</span>
+            </summary>
+            <div id="calculation-details" class="space-y-5 border-t border-slate-100 px-5 py-5 sm:px-6"></div>
+        </details>
+
+        <p class="pb-4 text-center text-[11px] text-slate-400">ข้อมูลต้นทางเป็น CSV แบบอ่านอย่างเดียวจากชีตที่เผยแพร่ · ค่าที่แก้ในหน้านี้ไม่เปลี่ยน Google Sheet</p>
+    </main>
+
+    <script>
+        const PUBLISHED_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRlXWxz5TKmlYhh7oxo3Fz2KgWK36xlJD8k9NTNK6XUFs5c1RRnYIkAYizQUzJHJofOGFAQaVvy47gT/pub?output=csv';
+        const CAP_GID = '1140596720';
+        const LINE_BALANCE_GID = '403916397';
+        const SOURCE_MODEL_CELL = { row: 4, col: 1 };
+        const STATION_COUNT = 22;
+        const $ = (id) => document.getElementById(id);
+        let modelData = [];
+        let stationFlagMap = {};
+        let lineSheetDefaults = {};
+        let sourceModelName = '';
+        let sourceOverridesByModel = {};
+        let manualOverridesByModel = {};
+        let machineOverridesByModel = {};
+        let currentStations = [];
+        let selectedModel = null;
+        let inputs = { headcount: 10, shiftHours: 10.5, oee: 0.75, walk: 6 };
+        let sourceInputs = { ...inputs };
+
+        function csvUrl(gid) {
+            const url = new URL(PUBLISHED_SHEET_URL);
+            url.searchParams.set('gid', gid);
+            url.searchParams.set('single', 'true');
+            url.searchParams.set('output', 'csv');
+            return url.toString();
+        }
+
+        async function fetchCsv(gid) {
+            const response = await fetch(csvUrl(gid), { cache: 'no-store' });
+            if (!response.ok) throw new Error(`โหลดชีต gid=${gid} ไม่สำเร็จ (HTTP ${response.status})`);
+            const text = await response.text();
+            const parsed = Papa.parse(text, { skipEmptyLines: false });
+            if (parsed.errors.length && !parsed.data.length) throw new Error(parsed.errors[0].message);
+            return parsed.data;
+        }
+
+        function clean(value) { return String(value ?? '').replace(/^\uFEFF/, '').trim(); }
+        function num(value) {
+            const normalized = clean(value).replace(/,/g, '');
+            if (!normalized) return null;
+            const parsed = Number(normalized);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+        function fmt(value, digits = 1) {
+            if (value === null || value === undefined || !Number.isFinite(value)) return '–';
+            return new Intl.NumberFormat('th-TH', { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(value);
+        }
+        function esc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+        }
+        function modelKey(name) { return clean(name).toUpperCase(); }
+        function modelLine(row) { return clean(row?.[13]); }
+        function capTime(row, stationIndex) { return num(row?.[15 + stationIndex]); }
+
+        function parseSourceData(capRows, lineRows) {
+            const header = capRows[3] || [];
+            const seen = new Set();
+            modelData = capRows.slice(4).filter((row) => clean(row[0])).map((row) => ({
+                name: clean(row[0]), line: modelLine(row), row
+            })).filter((model) => {
+                const key = modelKey(model.name);
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+            if (!modelData.length || clean(header[0]).toLowerCase() !== 'model') throw new Error('ไม่พบรายการรุ่นสินค้าในชีต Cap');
+
+            sourceModelName = clean(lineRows[SOURCE_MODEL_CELL.row]?.[SOURCE_MODEL_CELL.col]);
+            inputs = {
+                headcount: num(lineRows[0]?.[1]) ?? 10,
+                shiftHours: num(lineRows[1]?.[1]) ?? 10.5,
+                oee: num(lineRows[2]?.[1]) ?? 0.75,
+                walk: num(lineRows[3]?.[1]) ?? 6
+            };
+            sourceInputs = { ...inputs };
+            const flagHeader = lineRows[7] || [];
+            const sourceStations = {};
+            for (let index = 0; index < STATION_COUNT; index++) {
+                const row = lineRows[8 + index] || [];
+                const name = clean(row[0]) || `ST${index + 1}`;
+                sourceStations[name] = num(row[1]);
+                const lineFlags = {};
+                for (let col = 22; col <= 25; col++) {
+                    const lineName = clean(flagHeader[col]);
+                    if (lineName) lineFlags[lineName] = clean(row[col]).toUpperCase() === 'Y';
+                }
+                stationFlagMap[name] = lineFlags;
+            }
+            lineSheetDefaults = sourceStations;
+
+            const sourceModel = modelData.find((model) => modelKey(model.name) === modelKey(sourceModelName));
+            if (sourceModel) {
+                const overrides = {};
+                for (let index = 0; index < STATION_COUNT; index++) {
+                    const stationName = `ST${index + 1}`;
+                    const fromLineSheet = sourceStations[stationName];
+                    const fromCap = capTime(sourceModel.row, index);
+                    if (fromLineSheet !== null && (fromCap === null || Math.abs(fromLineSheet - fromCap) > 0.001)) overrides[stationName] = fromLineSheet;
+                }
+                sourceOverridesByModel[modelKey(sourceModel.name)] = overrides;
+            }
+        }
+
+        function getModel(name) { return modelData.find((model) => modelKey(model.name) === modelKey(name)) || null; }
+
+        function baseStations(model) {
+            const sourceModel = modelKey(model.name) === modelKey(sourceModelName);
+            const overrides = sourceOverridesByModel[modelKey(model.name)] || {};
+            return Array.from({ length: STATION_COUNT }, (_, index) => {
+                const name = `ST${index + 1}`;
+                let manual = capTime(model.row, index);
+                if (sourceModel) manual = lineSheetDefaults[name];
+                if (Object.prototype.hasOwnProperty.call(overrides, name)) manual = overrides[name];
+                const flagsForLine = stationFlagMap[name] || {};
+                return { name, manual, machine: !!flagsForLine[model.line] };
+            });
+        }
+
+        function loadModel(name) {
+            selectedModel = getModel(name);
+            if (!selectedModel) return;
+            let stations = baseStations(selectedModel);
+            const key = modelKey(selectedModel.name);
+            const manualEdits = manualOverridesByModel[key];
+            const machineEdits = machineOverridesByModel[key];
+            if (manualEdits) stations = stations.map((station) => Object.prototype.hasOwnProperty.call(manualEdits, station.name) ? { ...station, manual: manualEdits[station.name] } : station);
+            if (machineEdits) stations = stations.map((station) => Object.prototype.hasOwnProperty.call(machineEdits, station.name) ? { ...station, machine: machineEdits[station.name] } : station);
+            currentStations = stations;
+            $('model-select').value = selectedModel.name;
+            $('model-line').textContent = `Line: ${selectedModel.line || 'ไม่มีข้อมูล'}`;
+            render();
+        }
+
+        function saveCurrentEdits() {
+            if (!selectedModel) return;
+            const key = modelKey(selectedModel.name);
+            manualOverridesByModel[key] = Object.fromEntries(currentStations.map((station) => [station.name, station.manual]));
+            machineOverridesByModel[key] = Object.fromEntries(currentStations.map((station) => [station.name, station.machine]));
+        }
+
+        function calculate() {
+            const maxManual = Math.max(0, ...currentStations.map((station) => station.manual ?? 0));
+            const threshold = maxManual + 0.9;
+            let cumulative = 0;
+            let previousGroup = null;
+            let previousGroupCum = 0;
+            const stations = currentStations.map((station, index) => {
+                const manual = station.manual;
+                if (manual === null) return { ...station, ideal: null, effective: null, cumulative: null, group: null, groupCum: null, groupingText: 'ไม่มี Manual CT จึงไม่จัดกลุ่ม' };
+                const effective = station.machine ? 0 : manual;
+                cumulative += effective;
+                let group = null;
+                let groupCum = null;
+                let groupingText = '';
+                const testValue = previousGroupCum + manual + inputs.walk;
+                if (effective === 0) {
+                    group = previousGroup;
+                    groupCum = previousGroupCum;
+                    groupingText = `Effective CT=0${station.machine ? ' (MC?=Y)' : ''} → คงกลุ่มก่อนหน้า ${group ?? 'ว่าง'} และยอดกลุ่ม ${fmt(groupCum)} วินาที`;
+                } else if (testValue < threshold) {
+                    group = previousGroup;
+                    groupCum = previousGroupCum + effective + inputs.walk;
+                    groupingText = `(${fmt(previousGroupCum)} + ${fmt(manual)} + ${fmt(inputs.walk)}) = ${fmt(testValue)} < ${fmt(maxManual)} + 0.9 = ${fmt(threshold)} → คงกลุ่ม ${group ?? 'ว่าง'}; ยอดกลุ่ม = ${fmt(previousGroupCum)} + ${fmt(effective)} + ${fmt(inputs.walk)} = ${fmt(groupCum)} วินาที`;
+                } else {
+                    group = (previousGroup ?? 0) + 1;
+                    groupCum = effective;
+                    groupingText = `(${fmt(previousGroupCum)} + ${fmt(manual)} + ${fmt(inputs.walk)}) = ${fmt(testValue)} ≥ ${fmt(threshold)} → เริ่มกลุ่ม ${group}; ยอดกลุ่ม = ${fmt(effective)} วินาที`;
+                }
+                previousGroup = group;
+                previousGroupCum = groupCum;
+
+                let ideal = manual;
+                let idealText = `เท่ากับ Manual CT ${fmt(manual)} วินาที`;
+                if (index >= 1 && index <= 8) {
+                    const segment = currentStations.slice(1, 9).map((item) => item.manual).filter((value) => value !== null);
+                    ideal = segment.length ? segment.reduce((sum, value) => sum + value, 0) / segment.length : null;
+                    idealText = `ค่าเฉลี่ย ST2–ST9 = ${fmt(segment.reduce((sum, value) => sum + value, 0))} ÷ ${segment.length} = ${fmt(ideal)} วินาที`;
+                } else if (index === 14 || index === 15) {
+                    const segment = currentStations.slice(14, 16).map((item) => item.manual).filter((value) => value !== null);
+                    ideal = segment.length ? segment.reduce((sum, value) => sum + value, 0) / segment.length : null;
+                    idealText = `ค่าเฉลี่ย ST15–ST16 = ${fmt(segment.reduce((sum, value) => sum + value, 0))} ÷ ${segment.length} = ${fmt(ideal)} วินาที`;
+                }
+                return { ...station, ideal, idealText, effective, cumulative, group, groupCum, groupingText };
+            });
+
+            const grouped = new Map();
+            stations.forEach((station) => {
+                if (station.group === null || station.group === undefined || station.effective <= 0) return;
+                const current = grouped.get(station.group) || { number: station.group, stations: [], effectiveSum: 0 };
+                current.stations.push(station.name);
+                current.effectiveSum += station.effective;
+                grouped.set(station.group, current);
+            });
+            const groups = [...grouped.values()].sort((a, b) => a.number - b.number).map((group) => {
+                group.walkOverhead = Math.max(0, group.stations.length - 1) * inputs.walk;
+                group.totalLoad = group.effectiveSum + group.walkOverhead;
+                return group;
+            });
+            groups.forEach((group, index) => {
+                group.diffPrevious = index > 0 ? group.totalLoad - groups[index - 1].totalLoad : null;
+                group.diffNext = index < groups.length - 1 ? group.totalLoad - groups[index + 1].totalLoad : null;
+            });
+            const groupCount = Math.max(0, ...stations.map((station) => station.group ?? 0));
+            const effectiveTotal = stations.reduce((sum, station) => sum + (station.effective ?? 0), 0);
+            const manualTotal = stations.reduce((sum, station) => sum + (station.manual ?? 0), 0);
+            const idealTakt = groupCount > 0 ? effectiveTotal / groupCount : null;
+            const maxGroupTime = groups.length ? Math.max(...groups.map((group) => group.totalLoad)) : null;
+            const uph = maxGroupTime > 0 ? (3600 / maxGroupTime) * inputs.oee : null;
+            const dailyTarget = uph === null ? null : uph * inputs.shiftHours;
+            return { stations, groups, groupCount, effectiveTotal, manualTotal, idealTakt, maxGroupTime, uph, dailyTarget, maxManual, threshold };
+        }
+
+        function summaryCard(title, value, unit, subtitle, color) {
+            return `<article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p class="text-xs font-semibold text-slate-500">${title}</p><p class="mt-2 text-2xl font-bold ${color}">${value}<span class="ml-1 text-sm font-medium">${unit}</span></p><p class="mt-1 text-[11px] text-slate-400">${subtitle}</p></article>`;
+        }
+
+        function renderSummary(data) {
+            $('summary-cards').innerHTML = [
+                summaryCard('Total Manual CT', fmt(data.manualTotal), 'วินาที', 'Σ Manual CT ทุกสถานี (รวมสถานีที่เป็น MC)', 'text-slate-800'),
+                summaryCard('Ideal TAKT', fmt(data.idealTakt), 'วินาที/ชิ้น', `${fmt(data.effectiveTotal)} ÷ ${data.groupCount} กลุ่ม`, 'text-indigo-700'),
+                summaryCard('Max Group Time', fmt(data.maxGroupTime), 'วินาที', 'ค่าสูงสุดของโหลดรวมรายกลุ่ม', 'text-orange-600'),
+                summaryCard('UPH', fmt(data.uph), 'ชิ้น/ชม.', `(3,600 ÷ ${fmt(data.maxGroupTime)}) × OEE ${fmt(inputs.oee * 100)}%`, 'text-blue-700'),
+                summaryCard('Daily Target', fmt(data.dailyTarget), 'ชิ้น/วัน', `${fmt(data.uph)} × ${fmt(inputs.shiftHours)} ชั่วโมง`, 'text-emerald-700')
+            ].join('');
+        }
+
+        function renderGroups(data) {
+            if (!data.groups.length) {
+                $('operator-groups').innerHTML = '<p class="text-sm text-slate-500">ยังไม่มีกลุ่มสำหรับคำนวณ ป้อน Manual CT อย่างน้อยหนึ่งสถานี</p>';
+                return;
+            }
+            const takt = data.idealTakt || 0;
+            $('operator-groups').innerHTML = data.groups.map((group) => {
+                const variance = group.totalLoad - takt;
+                const bar = data.maxGroupTime ? Math.max(4, Math.min(100, (group.totalLoad / data.maxGroupTime) * 100)) : 0;
+                const stationList = group.stations.join(', ');
+                return `<article class="rounded-xl border border-slate-200 p-4">
+                    <div class="flex items-start justify-between gap-2"><div><p class="text-sm font-bold text-slate-800">Operator Group ${group.number}</p><p class="mt-1 text-xs text-slate-500">${esc(stationList)}</p></div><span class="rounded-lg bg-indigo-50 px-2.5 py-1 text-sm font-bold text-indigo-700">${fmt(group.totalLoad)} s</span></div>
+                    <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full ${variance > 0 ? 'bg-rose-500' : 'bg-emerald-500'}" style="width:${bar}%"></div></div>
+                    <div class="mt-3 grid grid-cols-2 gap-y-1 text-[11px] text-slate-500"><span>จำนวนสถานีที่ทำงาน</span><b class="text-right text-slate-700">${group.stations.length}</b><span>ผลรวม Effective CT</span><b class="text-right text-slate-700">${fmt(group.effectiveSum)} s</b><span>เวลาเดิน ${Math.max(0, group.stations.length - 1)} × ${fmt(inputs.walk)}</span><b class="text-right text-slate-700">${fmt(group.walkOverhead)} s</b><span>โหลดเทียบ Ideal TAKT</span><b class="text-right ${variance > 0 ? 'text-rose-600' : 'text-emerald-700'}">${variance > 0 ? '+' : ''}${fmt(variance)} s</b><span>ส่วนต่างโหลดจากกลุ่มก่อน / ถัดไป</span><b class="text-right text-slate-700">${group.diffPrevious === null ? '–' : `${group.diffPrevious > 0 ? '+' : ''}${fmt(group.diffPrevious)}`} / ${group.diffNext === null ? '–' : `${group.diffNext > 0 ? '+' : ''}${fmt(group.diffNext)}`} s</b></div>
+                </article>`;
+            }).join('');
+        }
+
+        function renderStations(data) {
+            $('station-count').textContent = `${data.stations.filter((station) => station.manual !== null).length} สถานีมี Manual CT · ${data.stations.length} สถานีทั้งหมด`;
+            $('station-rows').innerHTML = data.stations.map((station) => {
+                const machineCell = `<label class="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-2 py-1 ${station.machine ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-500'}"><input type="checkbox" data-machine="${station.name}" ${station.machine ? 'checked' : ''} class="h-3.5 w-3.5 accent-indigo-600"><span>${station.machine ? 'Y' : 'N'}</span></label>`;
+                const manualCell = `<input type="number" min="0" step="0.1" data-manual="${station.name}" value="${station.manual ?? ''}" placeholder="–" class="number-input w-24 rounded-md border border-slate-200 px-2 py-1 text-right text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">`;
+                const group = station.group == null ? '–' : `<span class="rounded-md bg-indigo-50 px-2 py-1 font-semibold text-indigo-700">${station.group}</span>`;
+                return `<tr class="hover:bg-slate-50/70"><td class="whitespace-nowrap px-4 py-2.5 font-semibold text-slate-700">${station.name}</td><td class="px-4 py-2.5 text-right">${manualCell}</td><td class="px-4 py-2.5 text-center">${machineCell}</td><td class="whitespace-nowrap px-4 py-2.5 text-right text-slate-500">${station.ideal === null ? '–' : `${fmt(station.ideal)} s`}</td><td class="whitespace-nowrap px-4 py-2.5 text-right font-semibold ${station.effective === 0 ? 'text-amber-600' : 'text-indigo-700'}">${station.effective === null ? '–' : `${fmt(station.effective)} s`}</td><td class="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">${station.cumulative === null ? '–' : `${fmt(station.cumulative)} s`}</td><td class="px-4 py-2.5 text-center">${group}</td><td class="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">${station.groupCum === null ? '–' : `${fmt(station.groupCum)} s`}</td><td class="min-w-[340px] px-4 py-2.5 leading-relaxed text-slate-500">${esc(station.groupingText)}</td></tr>`;
+            }).join('');
+            document.querySelectorAll('[data-manual]').forEach((input) => input.addEventListener('change', (event) => {
+                const station = currentStations.find((item) => item.name === event.target.dataset.manual);
+                if (!station) return;
+                const value = num(event.target.value);
+                if (value !== null && value < 0) {
+                    event.target.value = station.manual ?? '';
+                    return;
+                }
+                station.manual = value;
+                saveCurrentEdits();
+                render();
+            }));
+            document.querySelectorAll('[data-machine]').forEach((input) => input.addEventListener('change', (event) => {
+                const station = currentStations.find((item) => item.name === event.target.dataset.machine);
+                if (!station) return;
+                station.machine = event.target.checked;
+                saveCurrentEdits();
+                render();
+            }));
+        }
+
+        function renderCalculations(data) {
+            const groupLines = data.groups.map((group) => `<li><b>กลุ่ม ${group.number}:</b> ${esc(group.stations.join(', '))} → Σ Effective CT ${fmt(group.effectiveSum)} + max(0, ${group.stations.length} − 1) × ${fmt(inputs.walk)} = ${fmt(group.totalLoad)} วินาที; ส่วนต่างโหลดกับกลุ่มก่อน/ถัดไป = ${group.diffPrevious === null ? '–' : `${group.diffPrevious > 0 ? '+' : ''}${fmt(group.diffPrevious)}`} / ${group.diffNext === null ? '–' : `${group.diffNext > 0 ? '+' : ''}${fmt(group.diffNext)}`} วินาที</li>`).join('');
+            const stationLines = data.stations.map((station) => `<li class="rounded-lg bg-slate-50 px-3 py-2"><b>${station.name}</b>: ${station.manual === null ? 'ไม่มี Manual CT จึงข้ามการคำนวณ' : `Ideal CT = ${esc(station.idealText)}; Effective CT = ${station.effective === 0 ? `0 (${station.machine ? 'MC?=Y' : 'Manual CT=0'})` : `${fmt(station.manual)} (MC?=N)`}; สะสม = Σ Effective CT ถึง ${station.name} = ${fmt(station.cumulative)} วินาที; ${esc(station.groupingText)}.`}</li>`).join('');
+            $('calculation-details').innerHTML = `<div class="grid gap-4 lg:grid-cols-2">
+                <article class="rounded-xl border border-slate-200 p-4"><h3 class="font-bold text-slate-800">สูตรสรุปผล</h3><ul class="mt-2 space-y-2 text-xs leading-relaxed text-slate-600"><li><b>Total Manual CT</b> = Σ Manual CT = ${fmt(data.manualTotal)} วินาที</li><li><b>ผลรวม Effective CT</b> = Σ (MC?=Y ? 0 : Manual CT) = ${fmt(data.effectiveTotal)} วินาที</li><li><b>Ideal TAKT</b> = ${fmt(data.effectiveTotal)} ÷ MAX(Operator Group) ${data.groupCount} = ${fmt(data.idealTakt)} วินาที/ชิ้น</li><li><b>Max Group Time</b> = MAX(Σ Effective CT + Walk Overhead) = ${fmt(data.maxGroupTime)} วินาที</li><li><b>UPH</b> = (3,600 ÷ ${fmt(data.maxGroupTime)}) × OEE ${fmt(inputs.oee * 100)}% = ${fmt(data.uph)} ชิ้น/ชั่วโมง</li><li><b>Daily Target</b> = ${fmt(data.uph)} × ${fmt(inputs.shiftHours)} ชั่วโมง = ${fmt(data.dailyTarget)} ชิ้น/วัน</li></ul></article>
+                <article class="rounded-xl border border-slate-200 p-4"><h3 class="font-bold text-slate-800">การคิดโหลดแต่ละกลุ่ม</h3><ul class="mt-2 list-inside list-disc space-y-2 text-xs leading-relaxed text-slate-600">${groupLines || '<li>ไม่มีรายการกลุ่ม</li>'}</ul></article>
+            </div><article class="rounded-xl border border-slate-200 p-4"><h3 class="font-bold text-slate-800">การคำนวณรายสถานีและการจัดกลุ่ม</h3><p class="mt-1 text-[11px] leading-relaxed text-slate-500">เงื่อนไขแบ่งกลุ่มตามชีต: เปรียบเทียบ (ยอดกลุ่มก่อนหน้า + Manual CT ปัจจุบัน + เวลาเดิน) กับ (Manual CT สูงสุด + 0.9) ถ้าต่ำกว่าให้คงกลุ่มเดิม ถ้าเท่ากว่าหรือสูงกว่าให้เริ่มกลุ่มใหม่; เมื่อ Effective CT เป็นศูนย์ ให้คงกลุ่มและยอดกลุ่มก่อนหน้า</p><ol class="mt-3 grid gap-2 text-xs leading-relaxed text-slate-600 md:grid-cols-2">${stationLines}</ol></article>`;
+        }
+
+        function render() {
+            if (!selectedModel) return;
+            const data = calculate();
+            renderSummary(data);
+            renderGroups(data);
+            renderStations(data);
+            renderCalculations(data);
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function bindInputs() {
+            const fields = [
+                ['headcount-input', 'headcount', 0],
+                ['shift-input', 'shiftHours', 0],
+                ['oee-input', 'oee', 0],
+                ['walk-input', 'walk', 0]
+            ];
+            fields.forEach(([id, key, minimum]) => $(id).addEventListener('change', (event) => {
+                const value = num(event.target.value);
+                if (value === null || value < minimum || (key === 'oee' && value > 1)) {
+                    event.target.value = inputs[key];
+                    return;
+                }
+                inputs[key] = value;
+                render();
+            }));
+            $('model-select').addEventListener('change', (event) => {
+                saveCurrentEdits();
+                loadModel(event.target.value);
+            });
+            $('reset-button').addEventListener('click', () => {
+                if (!selectedModel) return;
+                const key = modelKey(selectedModel.name);
+                delete manualOverridesByModel[key];
+                delete machineOverridesByModel[key];
+                inputs = { ...sourceInputs };
+                $('headcount-input').value = inputs.headcount;
+                $('shift-input').value = inputs.shiftHours;
+                $('oee-input').value = inputs.oee;
+                $('walk-input').value = inputs.walk;
+                loadModel(selectedModel.name);
+            });
+        }
+
+        async function init() {
+            if (window.lucide) lucide.createIcons();
+            bindInputs();
+            try {
+                const [capRows, lineRows] = await Promise.all([fetchCsv(CAP_GID), fetchCsv(LINE_BALANCE_GID)]);
+                parseSourceData(capRows, lineRows);
+                $('model-select').innerHTML = modelData.map((model) => `<option value="${esc(model.name)}">${esc(model.name)}</option>`).join('');
+                const initialModel = getModel(sourceModelName) || modelData[0];
+                $('model-select').disabled = false;
+                ['headcount-input', 'shift-input', 'oee-input', 'walk-input', 'reset-button'].forEach((id) => { $(id).disabled = false; });
+                $('headcount-input').value = inputs.headcount;
+                $('shift-input').value = inputs.shiftHours;
+                $('oee-input').value = inputs.oee;
+                $('walk-input').value = inputs.walk;
+                $('source-status').textContent = `โหลดข้อมูลแล้ว · ${modelData.length} รุ่น · อ่านอย่างเดียว`;
+                $('source-status').className = 'rounded-full border border-emerald-400/50 bg-emerald-500/20 px-3 py-1.5 text-emerald-100';
+                loadModel(initialModel.name);
+            } catch (error) {
+                console.error(error);
+                $('source-status').textContent = 'โหลดข้อมูลไม่สำเร็จ';
+                $('source-status').className = 'rounded-full border border-rose-300/50 bg-rose-500/20 px-3 py-1.5 text-rose-100';
+                $('summary-cards').innerHTML = `<div class="col-span-full rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">${esc(error.message)} — ตรวจการเชื่อมต่อชีตที่เผยแพร่แล้วโหลดหน้าใหม่</div>`;
+            }
+        }
+        init();
+    </script>
+</body>
+</html>
