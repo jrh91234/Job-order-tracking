@@ -7918,6 +7918,14 @@ function doPost(e) {
                 return [...heading, pdfNote('ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่ ไลน์ และกะที่เลือก')];
             }
 
+            // Downtime ของแต่ละเหตุการณ์ ตัวเลขชุดเดียวกับตารางสรุปด้านบน (เหตุการณ์ "ทุกไลน์" รวมทุกไลน์)
+            const incidentKey = inc => inc.id || `${inc.date}_${inc.hour}_${inc.line}_${inc.model}`;
+            const downtimeById = new Map();
+            computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue).records.forEach(r => {
+                const key = incidentKey(r.incident);
+                downtimeById.set(key, (downtimeById.get(key) || 0) + r.lostMin);
+            });
+
             const body = [[
                 pdfHeaderCell('วันผลิต', 'center'),
                 pdfHeaderCell('ช่วงเวลา', 'center'),
@@ -7925,6 +7933,7 @@ function doPost(e) {
                 pdfHeaderCell('รุ่นสินค้า'),
                 pdfHeaderCell('Job Order'),
                 pdfHeaderCell('ประเภทปัญหา'),
+                pdfHeaderCell('Downtime (นาที)', 'right'),
                 pdfHeaderCell('รายละเอียดบันทึก')
             ]];
 
@@ -7940,6 +7949,10 @@ function doPost(e) {
                     pdfCell(inc.model === 'All' ? 'ทุกรุ่น' : (inc.model || '-')),
                     pdfCell(inc.jobOrder || '-', 'left', inc.jobOrder ? PDF_COLOR.text : PDF_COLOR.muted),
                     pdfCell(inc.categoryText || inc.category || '-'),
+                    // ไม่มีตัวเลข = ไม่ได้นับ (เช่น แจ้งหลังเลิกงานโดยไม่มี OT)
+                    downtimeById.has(incidentKey(inc))
+                        ? pdfCell(Math.round(downtimeById.get(incidentKey(inc))).toLocaleString(), 'right', PDF_COLOR.bad, true)
+                        : pdfCell('-', 'right', PDF_COLOR.muted),
                     pdfCell(inc.notes || '-')
                 ]);
             });
@@ -7948,7 +7961,7 @@ function doPost(e) {
                 ...heading,
                 ...buildReportIncidentDowntimeSummary(scope),
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [56, 66, 40, 70, 84, 78, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [50, 50, 36, 64, 80, 74, 42, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
