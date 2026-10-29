@@ -492,6 +492,7 @@
                     </div>
                 </div>
             </div>
+            <div id="incident-downtime-bars" class="space-y-2"></div>
             <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
                 <table class="w-full text-left border-collapse text-xs">
                     <thead id="incident-downtime-thead" class="bg-slate-50 sticky top-0 z-10"></thead>
@@ -4430,6 +4431,22 @@ function doPost(e) {
                     `<span class="block text-[10px] font-normal text-slate-400">${data.records.length.toLocaleString()} รายการ (นับแยกต่อไลน์)</span>`;
             }
 
+            // สรุปรายสาเหตุแบบแท่ง แสดงตลอดไม่ว่าเลือกแท็บไหน จะได้เห็นทันทีว่าสาเหตุไหนกินเวลามากสุด
+            const barsEl = document.getElementById('incident-downtime-bars');
+            if (barsEl) {
+                const maxLost = data.byCategory.reduce((m, g) => Math.max(m, g.lostMin), 0);
+                barsEl.innerHTML = data.byCategory.map(g => {
+                    const share = data.totalLostMin > 0 ? (g.lostMin / data.totalLostMin) * 100 : 0;
+                    const width = maxLost > 0 ? Math.max(1, (g.lostMin / maxLost) * 100) : 0;
+                    return `
+                        <div class="grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-3 text-xs">
+                            <div class="font-semibold text-slate-700 truncate" title="${escapeHtml(g.categoryText)}">${escapeHtml(g.categoryText)}</div>
+                            <div class="h-3 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-rose-400 rounded-full" style="width:${width.toFixed(1)}%"></div></div>
+                            <div class="text-right font-mono whitespace-nowrap"><span class="font-bold text-slate-800">${formatLostMinutes(g.lostMin)}</span> <span class="text-slate-400">· ${share.toFixed(1)}% · ${g.count.toLocaleString()} ครั้ง</span></div>
+                        </div>`;
+                }).join('');
+            }
+
             const lineLabel = line => line === '-' ? 'ไม่ระบุไลน์' : `Line ${escapeHtml(line)}`;
             const lostCls = m => m >= 60 ? 'text-rose-600' : m >= 15 ? 'text-amber-500' : 'text-slate-600';
 
@@ -7836,11 +7853,59 @@ function doPost(e) {
 
             return [
                 ...heading,
+                ...buildReportIncidentDowntimeSummary(scope),
                 {
                     table: { headerRows: 1, dontBreakRows: true, widths: [56, 66, 40, 70, 84, 78, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
+            ];
+        }
+
+        // ตารางสรุป Downtime รายสาเหตุ วางไว้หัวหัวข้อบันทึกเหตุการณ์ ใช้ตัวเลขชุดเดียวกับการ์ดบนหน้าจอ
+        function buildReportIncidentDowntimeSummary(scope) {
+            const data = computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
+            if (data.byCategory.length === 0) return [];
+
+            const body = [[
+                pdfHeaderCell('สาเหตุ'),
+                pdfHeaderCell('จำนวนครั้ง', 'right'),
+                pdfHeaderCell('Downtime (นาที)', 'right'),
+                pdfHeaderCell('ชั่วโมง', 'right'),
+                pdfHeaderCell('สัดส่วน', 'right'),
+                pdfHeaderCell('เฉลี่ย/ครั้ง (นาที)', 'right')
+            ]];
+            data.byCategory.forEach(g => {
+                const share = data.totalLostMin > 0 ? (g.lostMin / data.totalLostMin) * 100 : 0;
+                body.push([
+                    pdfCell(g.categoryText),
+                    pdfCell(g.count.toLocaleString(), 'right'),
+                    pdfCell(Math.round(g.lostMin).toLocaleString(), 'right', g.lostMin > 0 ? PDF_COLOR.bad : PDF_COLOR.text, true),
+                    pdfCell((g.lostMin / 60).toFixed(1), 'right'),
+                    pdfCell(share.toFixed(1) + '%', 'right'),
+                    pdfCell(Math.round(g.lostMin / g.count).toLocaleString(), 'right')
+                ]);
+            });
+            const totalCount = data.byCategory.reduce((s, g) => s + g.count, 0);
+            body.push([
+                pdfTotalCell('รวม'),
+                pdfTotalCell(totalCount.toLocaleString(), 'right'),
+                pdfTotalCell(Math.round(data.totalLostMin).toLocaleString(), 'right', PDF_COLOR.bad),
+                pdfTotalCell((data.totalLostMin / 60).toFixed(1), 'right'),
+                pdfTotalCell('100%', 'right'),
+                pdfTotalCell('', 'right')
+            ]);
+
+            return [
+                { text: pdfText('สรุป Downtime ตามสาเหตุที่แจ้ง'), fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 0, 0, 4] },
+                {
+                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 50, 70, 46, 46, 70], body: body },
+                    layout: PDF_TABLE_LAYOUT
+                },
+                pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
+                    '(หรือสิ้นกะ ถ้าไม่กลับมา) หักเวลาพักและ Cycle Time 1 รอบ · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
+                    'เหตุการณ์ "ทุกไลน์" นับแยกทุกไลน์ที่เดิน จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
+                { text: '', margin: [0, 0, 0, 8] }
             ];
         }
 
