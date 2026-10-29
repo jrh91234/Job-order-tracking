@@ -499,7 +499,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -4267,6 +4267,9 @@ function doPost(e) {
         // ช่วงเวลาทำงานปกตินับจากต้นกะ: สุทธิ 8 ชม. + พัก 1 ชม. = เลิก 17:00 (กะเช้า) / 05:00 (กะดึก)
         // ตรงกับ OT_THRESHOLD_NET_HOURS และช่วงพักใน BREAK_MINUTES_BY_HOUR
         const NORMAL_SHIFT_SPAN_HOURS = 9;
+        // ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึงกี่นาที ถือว่าตอนแจ้งไลน์ยังเดินอยู่ ให้ไปหาช่วงหยุดรอบ ๆ แทน
+        const INCIDENT_NEARBY_MIN_LOST = 5;
+        const INCIDENT_NEARBY_WINDOW_MIN = 60; // ค้นช่วงหยุดในระยะ ± กี่นาทีจากเวลาที่แจ้ง
 
         function setIncidentDowntimeTab(tab) {
             incidentDowntimeTab = tab;
@@ -4287,6 +4290,7 @@ function doPost(e) {
          *   - ถือว่าทำ OT เมื่อ opts.hasOT(date, shift, line) บอกว่าใช่ (กรอกคนช่วง OT) หรือมีสแกนหลังเลิกงานปกติ
          *   - หลายเหตุการณ์ตกในช่วงหยุดเดียวกัน แบ่งช่วงตามลำดับเวลาที่แจ้ง ไม่นับเวลาเดียวกันซ้ำ
          *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
+         *   - ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึง 5 นาที (แจ้งตอนไลน์ยังสแกนอยู่) ใช้ช่องว่างที่ยาวสุดในช่วง ±60 นาทีแทน
          */
         function computeIncidentDowntimeCore(incidents, scans, opts) {
             const nowMs = opts.nowMs;
@@ -4354,7 +4358,7 @@ function doPost(e) {
                     }
                     // เหตุการณ์ในช่วงหยุดเดียวกันมีสแกนก่อน/หลังตัวเดียวกัน ใช้เป็นคีย์รวมกลุ่ม
                     const key = `${line}|${prev ? prev.ts : 'S' + shiftStart}|${next ? next.ts : 'E' + workEnd}`;
-                    if (!gaps.has(key)) gaps.set(key, { line, prev, next, workEnd, hasOT, items: [] });
+                    if (!gaps.has(key)) gaps.set(key, { line, prev, next, shiftStart, workEnd, hasOT, items: [] });
                     gaps.get(key).items.push({ inc, reportTs });
                 });
             });
@@ -4384,6 +4388,11 @@ function doPost(e) {
                         endBy: !isLast ? 'next' : (gap.next ? 'resumed' : 'open'),
                         // ไม่กลับมาเดิน: นับถึงเลิกงานปกติ หรือถึงสิ้นกะถ้าไลน์ทำ OT
                         hasOT: gap.hasOT,
+                        // report = ช่องว่างที่ครอบเวลาที่แจ้ง · nearby = ช่องว่างที่ยาวสุดในช่วง ±60 นาทีรอบเวลาที่แจ้ง
+                        matchedBy: 'report',
+                        soleInGap: gap.items.length === 1,
+                        shiftStart: gap.shiftStart,
+                        workEnd: gap.workEnd,
                         gapMin,
                         breakMin,
                         cycleMin,
@@ -4391,6 +4400,57 @@ function doPost(e) {
                     });
                 });
             });
+            // ผู้ใช้มักแจ้งหลังไลน์หยุดไปแล้ว (หรือก่อนหยุดจริง) ตอนแจ้งไลน์จึงยังสแกนอยู่ ช่องว่างที่ครอบเวลาที่แจ้งสั้นมาก
+            // กรณีนั้นให้หาช่องว่างที่ยาวสุดของไลน์เดียวกันในช่วง ±60 นาทีรอบเวลาที่แจ้ง (ภายในเวลาทำงานของกะ)
+            // แทน ช่องว่างหนึ่งถูกใช้ได้ครั้งเดียว ไม่ทับกับช่องว่างที่เหตุการณ์อื่นครอบอยู่แล้ว
+            const lostOf = (fromTs, toTs, model) => {
+                const gapMin = (toTs - fromTs) / 60000;
+                const breakMin = breakOverlap(fromTs, toTs) / 60000;
+                const cycleMin = (cycleSecondsByModel[model] || 0) / 60;
+                return { gapMin, breakMin, cycleMin, lostMin: Math.max(0, gapMin - breakMin - cycleMin) };
+            };
+            const claimed = new Set();
+            gaps.forEach(gap => {
+                if (!gap.next) return;
+                // ช่องว่างที่เหตุการณ์ครอบอยู่แล้วและกินเวลาจริง ห้ามเหตุการณ์อื่นมาหยิบซ้ำ
+                if (gap.prev) claimed.add(`${gap.line}|${gap.prev.ts}|${gap.next.ts}`);
+                else if (gap.items.some(it => (gap.next.ts - it.reportTs) >= INCIDENT_NEARBY_MIN_LOST * 60000)) {
+                    claimed.add(`${gap.line}|S${gap.shiftStart}|${gap.next.ts}`);
+                }
+            });
+            records
+                .filter(r => r.soleInGap && r.endBy !== 'open' && r.lostMin < INCIDENT_NEARBY_MIN_LOST)
+                .sort((a, b) => a.reportTs - b.reportTs)
+                .forEach(r => {
+                    const lo = Math.max(r.shiftStart, r.reportTs - INCIDENT_NEARBY_WINDOW_MIN * 60000);
+                    const hi = Math.min(r.workEnd, r.reportTs + INCIDENT_NEARBY_WINDOW_MIN * 60000);
+                    const list = scansByLine[r.line] || [];
+                    let best = null;
+                    const consider = (fromTs, b, key) => {
+                        if (b.ts <= lo || fromTs >= hi || claimed.has(key)) return;
+                        const calc = lostOf(fromTs, b.ts, b.model);
+                        if (!best || calc.lostMin > best.calc.lostMin) best = { fromTs, b, key, calc };
+                    };
+                    // ต้นกะถึงสแกนแรกของกะ ก็นับเป็นช่วงหยุดได้ (ไลน์เริ่มช้าเพราะปัญหาที่แจ้ง)
+                    const firstInShift = list.find(sc => sc.ts >= r.shiftStart && sc.ts < r.workEnd);
+                    if (firstInShift) consider(r.shiftStart, firstInShift, `${r.line}|S${r.shiftStart}|${firstInShift.ts}`);
+                    for (let i = 1; i < list.length; i++) {
+                        const a = list[i - 1];
+                        const b = list[i];
+                        if (a.ts < r.shiftStart || b.ts > r.workEnd) continue;
+                        consider(a.ts, b, `${r.line}|${a.ts}|${b.ts}`);
+                    }
+                    if (!best || best.calc.lostMin < INCIDENT_NEARBY_MIN_LOST) return;
+                    claimed.add(best.key);
+                    Object.assign(r, best.calc, {
+                        startTs: best.fromTs,
+                        endTs: best.b.ts,
+                        startFrom: 'scan',
+                        endBy: 'resumed',
+                        matchedBy: 'nearby'
+                    });
+                });
+
             records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
             return records;
         }
@@ -4524,7 +4584,9 @@ function doPost(e) {
                 tbody.innerHTML = [...data.records].sort((a, b) => b.lostMin - a.lostMin).map(r => {
                     const inc = r.incident;
                     const shift = getIncidentShift(inc);
-                    const startCell = r.startFrom === 'scan'
+                    const startCell = r.matchedBy === 'nearby'
+                        ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-indigo-500 font-sans" title="ตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±${INCIDENT_NEARBY_WINDOW_MIN} นาทีรอบเวลาที่แจ้ง">หยุดนานสุดช่วง ±${INCIDENT_NEARBY_WINDOW_MIN} นาที</div>`
+                        : r.startFrom === 'scan'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
                         : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
                     const endCell = r.endBy === 'resumed'
@@ -7955,7 +8017,8 @@ function doPost(e) {
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
-                    '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
+                    '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
+                    'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกทุกไลน์ที่เดิน จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
                 { text: '', margin: [0, 0, 0, 8] }
             ];

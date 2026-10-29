@@ -21,6 +21,8 @@ vm.createContext(ctx);
 vm.runInContext(
   html.match(/const BREAK_MINUTES_BY_HOUR = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const NORMAL_SHIFT_SPAN_HOURS = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  html.match(/const INCIDENT_NEARBY_MIN_LOST = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  html.match(/const INCIDENT_NEARBY_WINDOW_MIN = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   ['breakOverlapMs', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
   ctx
 );
@@ -119,3 +121,35 @@ assert.equal(r[0].startFrom, 'report');
 assert.equal(Math.round(r[0].lostMin), 29);
 
 console.log('Incident downtime: gaps, breaks, full-shift stop, split incidents, night shift, All lines passed');
+
+// 8) แจ้งตอนไลน์ยังสแกนอยู่ (ตรงเวลาที่แจ้งหยุดไม่ถึง 5 นาที) → ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาที
+//    สแกน 03:20 หยุดถึง 03:41 (21 นาที) แล้วเดินต่อ แจ้งตอน 04:00 ขณะสแกนอยู่
+const busy = ['03:00', '03:10', '03:20', '03:41', '03:50', '03:59', '04:00', '04:01', '04:10']
+  .map(hm => ({ line: '5', ts: at('2026-10-23', hm), prodDate: '2026-10-22', model: 'A' }));
+r = run([{ id: 'p', date: '2026-10-22', time: '04:00', line: '5', category: 'Material' }], busy);
+assert.equal(r[0].matchedBy, 'nearby');
+assert.equal(r[0].startTs, at('2026-10-23', '03:20'));
+assert.equal(r[0].endTs, at('2026-10-23', '03:41'));
+assert.equal(Math.round(r[0].lostMin), 20); // 21 − CT 1
+// 8b) ไม่มีช่วงหยุดนานพอในระยะ ±60 นาที → คงช่องว่างเดิม (≈0)
+const steady = Array.from({ length: 19 }, (_, i) => ({ line: '5', ts: at('2026-10-23', '03:00') + i * 4 * 60000, prodDate: '2026-10-22', model: 'A' }));
+r = run([{ id: 'q', date: '2026-10-22', time: '04:00', line: '5', category: 'Material' }], steady);
+assert.equal(r[0].matchedBy, 'report');
+// 8c) สองเหตุการณ์ใกล้กันไม่หยิบช่วงหยุดเดียวกันซ้ำ: อันแรกได้ช่วงยาวสุด อันที่สองได้ช่วงถัดไป
+// สแกนต่อเนื่องตั้งแต่ต้นกะ ทุก 4 นาที ช่วงต้นกะจึงไม่ใช่ช่วงหยุด
+const busy2 = Array.from({ length: 15 }, (_, i) => ({ line: '5', ts: at('2026-10-28', '08:00') + i * 4 * 60000, prodDate: '2026-10-28', model: 'A' }))
+  .concat(['09:00', '09:20', '09:21', '09:22', '09:35', '09:36', '09:37', '10:00'].map(hm => scan('5', '2026-10-28', hm)));
+r = run([{ id: 'x1', date: '2026-10-28', time: '09:21', line: '5', category: 'Material' },
+         { id: 'x2', date: '2026-10-28', time: '09:36', line: '5', category: 'Breakdown' }], busy2);
+const byId = Object.fromEntries(r.map(x => [x.incident.id, x]));
+assert.equal(byId.x1.matchedBy, 'nearby');
+assert.equal(byId.x2.matchedBy, 'nearby');
+assert.equal(byId.x1.startTs, at('2026-10-28', '09:37')); // ยาวสุด 23 นาที ตกเป็นของเหตุการณ์ที่แจ้งก่อน
+assert.equal(byId.x2.startTs, at('2026-10-28', '09:00')); // อันที่สองได้ช่วงยาวสุดที่เหลือ
+// 8d) ต้นกะยังไม่มีสแกน แจ้ง 09:00 สแกนแรก 09:00:28 → ใช้ช่วงต้นกะ 08:00 ถึงสแกนแรก
+r = run([{ id: 'y', date: '2026-10-03', time: '09:00', line: '5', category: 'Breakdown' }],
+  [{ line: '5', ts: at('2026-10-03', '09:00') + 28000, prodDate: '2026-10-03', model: 'A' }, scan('5', '2026-10-03', '09:05')]);
+assert.equal(r[0].matchedBy, 'nearby');
+assert.equal(r[0].startTs, at('2026-10-03', '08:00'));
+assert.equal(Math.round(r[0].lostMin), 59);
+console.log('Incident downtime: nearby stop matching when reported while still scanning passed');
