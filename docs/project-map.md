@@ -11,6 +11,7 @@ Update this file whenever a new major folder or service is added.
 ## Areas
 - `docs/`: operational docs and agent guidance.
 - `tests/maintenance-incidents.test.cjs`: Node-based tests for read-only maintenance incident integration.
+- `tests/incident-downtime.test.cjs`: ทดสอบการคิดเวลาที่หายไปตามสาเหตุที่แจ้ง (`computeIncidentDowntimeCore` ใน `barcode.html`) รันด้วย `node tests/incident-downtime.test.cjs`
 - `docs/apps-script-map.md`: **อ่านก่อนแตะโค้ดฝั่ง Google Apps Script ทุกครั้ง**
   ระบบนี้มี Apps Script 2 โปรเจกต์แยกกันโดยตั้งใจ (ลงยอด และ บันทึกเหตุการณ์)
   ไฟล์นั้นบอกว่าโปรเจกต์ไหนอยู่ที่ไหน URL อะไร เขียนแท็บอะไร และห้ามทำอะไร
