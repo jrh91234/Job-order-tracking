@@ -473,6 +473,33 @@
             </div>
         </div>
 
+        <!-- Incident Downtime Panel -->
+        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
+                        เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
+                    </h3>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าไม่กลับมาสแกนในกะนั้น นับถึงสิ้นกะ (หรือถึงตอนนี้ถ้ากะยังไม่จบ) · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                </div>
+                <div class="flex items-start gap-3 flex-wrap">
+                    <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
+                    <div id="incident-downtime-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
+                        <button type="button" data-tab="category" onclick="setIncidentDowntimeTab('category')" class="px-2.5 py-1 rounded-md">ตามสาเหตุ</button>
+                        <button type="button" data-tab="line" onclick="setIncidentDowntimeTab('line')" class="px-2.5 py-1 rounded-md">ตามไลน์ × สาเหตุ</button>
+                        <button type="button" data-tab="event" onclick="setIncidentDowntimeTab('event')" class="px-2.5 py-1 rounded-md">รายครั้ง</button>
+                    </div>
+                </div>
+            </div>
+            <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead id="incident-downtime-thead" class="bg-slate-50 sticky top-0 z-10"></thead>
+                    <tbody id="incident-downtime-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Job Order Progress Panel -->
         <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
@@ -1636,7 +1663,7 @@ function doPost(e) {
                 .finally(() => {
                     // Load Incidents and render
                     loadIncidents();
-                    renderIncidentTable();
+                    renderIncidentTable(); renderIncidentDowntime();
                     loadCategories();
                     loadCategoriesFromCloud();
                     fetchIncidentsFromAppsScript();
@@ -1942,6 +1969,7 @@ function doPost(e) {
             renderShiftTransferTable();
             renderJobProgressTable();
             renderChangeoverLost();
+            renderIncidentDowntime();
         }
 
         // ==========================================
@@ -4207,6 +4235,286 @@ function doPost(e) {
             }).join('');
         }
 
+        // ==========================================
+        // INCIDENT DOWNTIME (เวลาที่หายไปตามสาเหตุที่แจ้ง คำนวณจากบันทึกปัญหา + สแกน)
+        // ==========================================
+        let incidentDowntimeTab = 'category';
+
+        function setIncidentDowntimeTab(tab) {
+            incidentDowntimeTab = tab;
+            renderIncidentDowntime();
+        }
+
+        /**
+         * เวลาที่หายไปของแต่ละเหตุการณ์ (ฟังก์ชันล้วน ไม่แตะ DOM หรือตัวแปรของหน้า จึงทดสอบแยกได้)
+         *
+         * incidents: บันทึกปัญหาที่กรองช่วงแล้ว ต้องมี date (วันผลิต), time "HH:mm" หรือ hour, line ("All" = ทุกไลน์)
+         * scans:     สแกน OK { line, ts, prodDate, model }
+         * opts:      { nowMs, cycleSecondsByModel, onlyLine, breakOverlap(fromMs, toMs) }
+         *
+         * กติกา: ไลน์หยุดตั้งแต่สแกนสุดท้ายก่อนเวลาที่แจ้ง จนถึงสแกนแรกหลังเวลาที่แจ้ง ภายในกะเดียวกัน
+         *   - กะนั้นยังไม่มีสแกนก่อนเวลาที่แจ้ง (เช่น ขาดวัตถุดิบตั้งแต่ต้นกะ) เริ่มนับจากเวลาที่แจ้ง
+         *   - ไม่กลับมาสแกนในกะนั้น นับถึงสิ้นกะ หรือถึง nowMs ถ้ากะยังไม่จบ
+         *   - หลายเหตุการณ์ตกในช่วงหยุดเดียวกัน แบ่งช่วงตามลำดับเวลาที่แจ้ง ไม่นับเวลาเดียวกันซ้ำ
+         *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
+         */
+        function computeIncidentDowntimeCore(incidents, scans, opts) {
+            const nowMs = opts.nowMs;
+            const cycleSecondsByModel = opts.cycleSecondsByModel || {};
+            const breakOverlap = opts.breakOverlap;
+
+            const scansByLine = {};
+            const linesByDate = {};
+            const allLines = new Set();
+            scans.forEach(s => {
+                if (!s.line || s.line === '-') return;
+                (scansByLine[s.line] || (scansByLine[s.line] = [])).push(s);
+                (linesByDate[s.prodDate] || (linesByDate[s.prodDate] = new Set())).add(s.line);
+                allLines.add(s.line);
+            });
+            Object.values(scansByLine).forEach(list => list.sort((a, b) => a.ts - b.ts));
+
+            // วันผลิต + "HH:mm" -> เวลาจริง ช่วง 00:00-07:59 เป็นกะดึกของวันผลิตก่อนหน้า จึงเลื่อนไปวันถัดไป
+            const toTs = (date, h, m) => {
+                const [y, mo, d] = String(date).split('-').map(Number);
+                return new Date(y, mo - 1, d + (h < 8 ? 1 : 0), h, m, 0, 0).getTime();
+            };
+
+            const gaps = new Map();
+            incidents.forEach(inc => {
+                const tm = /^(\d{1,2}):(\d{2})/.exec(String(inc.time || ''));
+                const h = tm ? parseInt(tm[1], 10) : parseInt(inc.hour, 10);
+                const m = tm ? parseInt(tm[2], 10) : 0;
+                if (!inc.date || !Number.isFinite(h) || h < 0 || h > 23) return;
+                const reportTs = toTs(inc.date, h, m);
+                if (!Number.isFinite(reportTs)) return;
+
+                const isNight = h < 8 || h >= 20;
+                const shiftStart = toTs(inc.date, isNight ? 20 : 8, 0);
+                const shiftEnd = shiftStart + 12 * 3600000;
+
+                let lines;
+                if (!inc.line || inc.line === 'All') {
+                    const dayLines = linesByDate[inc.date];
+                    lines = Array.from(dayLines && dayLines.size ? dayLines : allLines);
+                } else {
+                    lines = [String(inc.line)];
+                }
+                if (opts.onlyLine && opts.onlyLine !== 'All') lines = lines.filter(l => l === String(opts.onlyLine));
+
+                lines.forEach(line => {
+                    const list = scansByLine[line] || [];
+                    let prev = null;
+                    let next = null;
+                    for (const s of list) {
+                        if (s.ts <= reportTs) {
+                            if (s.ts >= shiftStart) prev = s;
+                        } else {
+                            if (s.ts < shiftEnd) next = s;
+                            break;
+                        }
+                    }
+                    // เหตุการณ์ในช่วงหยุดเดียวกันมีสแกนก่อน/หลังตัวเดียวกัน ใช้เป็นคีย์รวมกลุ่ม
+                    const key = `${line}|${prev ? prev.ts : 'S' + shiftStart}|${next ? next.ts : 'E' + shiftEnd}`;
+                    if (!gaps.has(key)) gaps.set(key, { line, prev, next, shiftEnd, items: [] });
+                    gaps.get(key).items.push({ inc, reportTs });
+                });
+            });
+
+            const records = [];
+            gaps.forEach(gap => {
+                gap.items.sort((a, b) => a.reportTs - b.reportTs);
+                const gapEnd = gap.next ? gap.next.ts : Math.min(gap.shiftEnd, nowMs);
+                gap.items.forEach((item, i) => {
+                    const isFirst = i === 0;
+                    const isLast = i === gap.items.length - 1;
+                    const startTs = isFirst && gap.prev ? gap.prev.ts : item.reportTs;
+                    const endTs = Math.max(startTs, isLast ? gapEnd : gap.items[i + 1].reportTs);
+                    const gapMin = (endTs - startTs) / 60000;
+                    const breakMin = breakOverlap(startTs, endTs) / 60000;
+                    const cycleMin = isLast && gap.next ? (cycleSecondsByModel[gap.next.model] || 0) / 60 : 0;
+                    records.push({
+                        incident: item.inc,
+                        line: gap.line,
+                        prodDate: item.inc.date,
+                        reportTs: item.reportTs,
+                        startTs,
+                        endTs,
+                        // scan = นับจากสแกนสุดท้ายก่อนแจ้ง · report = นับจากเวลาที่แจ้ง
+                        startFrom: isFirst && gap.prev ? 'scan' : 'report',
+                        // resumed = จบที่สแกนแรกที่กลับมาเดิน · next = จบที่เหตุการณ์ถัดไป · open = ไม่กลับมาสแกนในกะนั้น
+                        endBy: !isLast ? 'next' : (gap.next ? 'resumed' : 'open'),
+                        gapMin,
+                        breakMin,
+                        cycleMin,
+                        lostMin: Math.max(0, gapMin - breakMin - cycleMin)
+                    });
+                });
+            });
+            records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
+            return records;
+        }
+
+        // รวมเวลาที่หายไปตามสาเหตุ (หรือตามไลน์ × สาเหตุ เมื่อ byLine = true) เรียงจากเสียมากไปน้อย
+        function summarizeIncidentDowntime(records, byLine) {
+            const groups = {};
+            records.forEach(r => {
+                const inc = r.incident;
+                const category = inc.category || 'Other';
+                const key = byLine ? `${r.line}\u0000${category}` : category;
+                const g = groups[key] || (groups[key] = {
+                    line: byLine ? r.line : null,
+                    category,
+                    categoryText: inc.categoryText || category,
+                    count: 0, lostMin: 0, maxMin: 0, openCount: 0
+                });
+                g.count++;
+                g.lostMin += r.lostMin;
+                g.maxMin = Math.max(g.maxMin, r.lostMin);
+                if (r.endBy === 'open') g.openCount++;
+            });
+            return Object.values(groups).sort((a, b) => b.lostMin - a.lostMin);
+        }
+
+        /**
+         * ดึงข้อมูล Downtime ตามสาเหตุที่แจ้ง ตามตัวกรองบนหน้าจอ (หรือส่งช่วงเองก็ได้)
+         * คืน { records: รายครั้ง, byCategory: รวมตามสาเหตุ, byLineCategory: รวมตามไลน์ × สาเหตุ, totalLostMin }
+         */
+        function computeIncidentDowntime(startDate, endDate, activeLine, activeShift) {
+            startDate = startDate || els.filterStartDate.value;
+            endDate = endDate || els.filterEndDate.value || startDate;
+            activeLine = activeLine || (els.filterLine ? els.filterLine.value : 'All');
+            activeShift = activeShift || (els.filterShift ? els.filterShift.value : 'All');
+
+            const incidents = getIncidentsInRange(startDate, endDate, activeLine, activeShift)
+                .map(inc => ({ ...inc, time: normalizeIncidentTime(inc.time, inc.hour) }));
+            const scans = processedScans
+                .filter(s => s.status.toUpperCase() === 'OK')
+                .map(s => ({ line: s.line, ts: s.ts, prodDate: s.prodDate, model: s.model }));
+            const records = computeIncidentDowntimeCore(incidents, scans, {
+                nowMs: Date.now(),
+                cycleSecondsByModel: modelCycleSecondsCache,
+                onlyLine: activeLine,
+                breakOverlap: breakOverlapMs
+            });
+            return {
+                records,
+                byCategory: summarizeIncidentDowntime(records, false),
+                byLineCategory: summarizeIncidentDowntime(records, true),
+                totalLostMin: records.reduce((sum, r) => sum + r.lostMin, 0)
+            };
+        }
+
+        function renderIncidentDowntime() {
+            const thead = document.getElementById('incident-downtime-thead');
+            const tbody = document.getElementById('incident-downtime-tbody');
+            if (!thead || !tbody) return;
+
+            const startDate = els.filterStartDate.value;
+            const endDate = els.filterEndDate.value || startDate;
+            setRangeLabel('incident-downtime-range-label', startDate, endDate);
+
+            document.querySelectorAll('#incident-downtime-tabs button').forEach(btn => {
+                const active = btn.dataset.tab === incidentDowntimeTab;
+                btn.classList.toggle('bg-white', active);
+                btn.classList.toggle('text-indigo-600', active);
+                btn.classList.toggle('shadow-sm', active);
+                btn.classList.toggle('text-slate-500', !active);
+            });
+
+            const data = computeIncidentDowntime(startDate, endDate);
+            const summaryEl = document.getElementById('incident-downtime-summary');
+            if (summaryEl) {
+                summaryEl.innerHTML = data.records.length === 0 ? '' :
+                    `เสียรวม <span class="font-mono text-rose-600">${formatLostMinutes(data.totalLostMin)}</span>` +
+                    `<span class="block text-[10px] font-normal text-slate-400">${data.records.length.toLocaleString()} รายการ (นับแยกต่อไลน์)</span>`;
+            }
+
+            const lineLabel = line => line === '-' ? 'ไม่ระบุไลน์' : `Line ${escapeHtml(line)}`;
+            const lostCls = m => m >= 60 ? 'text-rose-600' : m >= 15 ? 'text-amber-500' : 'text-slate-600';
+
+            if (incidentDowntimeTab === 'event') {
+                thead.innerHTML = `
+                    <tr class="text-slate-500 border-b border-slate-100 font-semibold">
+                        <th class="p-3">วันผลิต / กะ</th>
+                        <th class="p-3">ไลน์</th>
+                        <th class="p-3">สาเหตุที่แจ้ง</th>
+                        <th class="p-3 text-center">เวลาที่แจ้ง</th>
+                        <th class="p-3 text-center">เริ่มหยุด</th>
+                        <th class="p-3 text-center">กลับมาเดิน</th>
+                        <th class="p-3 text-right">ช่องว่าง</th>
+                        <th class="p-3 text-right">หักพัก</th>
+                        <th class="p-3 text-right">หัก CT</th>
+                        <th class="p-3 text-right">เสีย</th>
+                    </tr>`;
+                if (data.records.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="10" class="text-center p-6 text-slate-400 italic">ไม่มีบันทึกปัญหาผลิตในช่วงที่เลือก</td></tr>`;
+                    return;
+                }
+                const fmtMin = m => m > 0 ? `${Math.round(m)} นาที` : '<span class="text-slate-300">-</span>';
+                tbody.innerHTML = [...data.records].sort((a, b) => b.lostMin - a.lostMin).map(r => {
+                    const inc = r.incident;
+                    const shift = getIncidentShift(inc);
+                    const startCell = r.startFrom === 'scan'
+                        ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
+                        : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
+                    const endCell = r.endBy === 'resumed'
+                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
+                        : r.endBy === 'next'
+                            ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-slate-400 font-sans">แจ้งปัญหาถัดไป</div>`
+                            : `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-rose-500 font-sans">ไม่กลับมาสแกนในกะนี้</div>`;
+                    const notes = inc.notes ? `<div class="text-[10px] text-slate-400 font-normal whitespace-pre-wrap max-w-xs">${escapeHtml(inc.notes)}</div>` : '';
+                    return `
+                        <tr class="hover:bg-slate-50/50 transition-colors">
+                            <td class="p-3 text-slate-600 whitespace-nowrap">${formatThaiDate(r.prodDate)} <span class="text-slate-400">${shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก'}</span></td>
+                            <td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${lineLabel(r.line)}${inc.line === 'All' ? '<div class="text-[10px] text-slate-400 font-normal">แจ้งว่าทุกไลน์</div>' : ''}</td>
+                            <td class="p-3 font-semibold text-slate-700">${escapeHtml(inc.categoryText || inc.category || '-')}${notes}</td>
+                            <td class="p-3 text-center font-mono text-slate-700 whitespace-nowrap">${formatScanDateTime(r.reportTs)}</td>
+                            <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${startCell}</td>
+                            <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${endCell}</td>
+                            <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">${Math.round(r.gapMin)} นาที</td>
+                            <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${fmtMin(r.breakMin)}</td>
+                            <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${r.cycleMin > 0 ? r.cycleMin.toFixed(1) + ' นาที' : '<span class="text-slate-300">-</span>'}</td>
+                            <td class="p-3 text-right font-mono font-bold whitespace-nowrap ${lostCls(r.lostMin)}">${Math.round(r.lostMin)} นาที</td>
+                        </tr>`;
+                }).join('');
+                return;
+            }
+
+            const byLine = incidentDowntimeTab === 'line';
+            const rows = byLine ? data.byLineCategory : data.byCategory;
+            thead.innerHTML = `
+                <tr class="text-slate-500 border-b border-slate-100 font-semibold">
+                    ${byLine ? '<th class="p-3">ไลน์</th>' : ''}
+                    <th class="p-3">สาเหตุ</th>
+                    <th class="p-3 text-right">จำนวนครั้ง</th>
+                    <th class="p-3 text-right">เวลาที่เสียรวม</th>
+                    <th class="p-3 text-right">สัดส่วน</th>
+                    <th class="p-3 text-right">เฉลี่ย/ครั้ง</th>
+                    <th class="p-3 text-right">นานสุด</th>
+                    <th class="p-3 text-right" title="ไลน์ไม่กลับมาสแกนในกะนั้น นับถึงสิ้นกะ">ไม่กลับมาเดิน</th>
+                </tr>`;
+            if (rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${byLine ? 8 : 7}" class="text-center p-6 text-slate-400 italic">ไม่มีบันทึกปัญหาผลิตในช่วงที่เลือก</td></tr>`;
+                return;
+            }
+            const total = data.totalLostMin;
+            tbody.innerHTML = rows.map(g => {
+                const share = total > 0 ? (g.lostMin / total) * 100 : 0;
+                return `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        ${byLine ? `<td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${lineLabel(g.line)}</td>` : ''}
+                        <td class="p-3 font-semibold text-slate-700">${escapeHtml(g.categoryText)}</td>
+                        <td class="p-3 text-right font-mono text-slate-700">${g.count.toLocaleString()}</td>
+                        <td class="p-3 text-right font-mono font-bold ${lostCls(g.lostMin)}">${formatLostMinutes(g.lostMin)}</td>
+                        <td class="p-3 text-right font-mono text-slate-500">${share.toFixed(1)}%</td>
+                        <td class="p-3 text-right font-mono text-slate-600">${Math.round(g.lostMin / g.count)} นาที</td>
+                        <td class="p-3 text-right font-mono text-slate-500">${Math.round(g.maxMin)} นาที</td>
+                        <td class="p-3 text-right font-mono ${g.openCount ? 'text-rose-500 font-bold' : 'text-slate-300'}">${g.openCount || '-'}</td>
+                    </tr>`;
+            }).join('');
+        }
+
         function renderManpowerTable() {
             const tbody = document.getElementById('manpower-tbody');
             if (!tbody) return;
@@ -4514,7 +4822,7 @@ function doPost(e) {
                     incidentLogs = cloudIncidents;
                     saveIncidentsLocal();
                     if (hourlyChartObj) hourlyChartObj.update();
-                    renderIncidentTable();
+                    renderIncidentTable(); renderIncidentDowntime();
                 }
             })
             .catch(err => {
@@ -5809,7 +6117,7 @@ function doPost(e) {
             if (hourlyChartObj) {
                 hourlyChartObj.update();
             }
-            renderIncidentTable();
+            renderIncidentTable(); renderIncidentDowntime();
         }
 
         function deleteIncident() {
@@ -5832,7 +6140,7 @@ function doPost(e) {
             if (hourlyChartObj) {
                 hourlyChartObj.update();
             }
-            renderIncidentTable();
+            renderIncidentTable(); renderIncidentDowntime();
 
             // ถ้าลบบนชีตไม่สำเร็จต้องเอารายการกลับคืนในเครื่อง ไม่งั้นพอโหลดหน้าใหม่แล้วดึงข้อมูลจากคลาวด์
             // รายการจะกลับมาเองโดยไม่มีคำอธิบาย ซึ่งดูเหมือน "กดลบไม่ติด"
@@ -5841,7 +6149,7 @@ function doPost(e) {
                     incidentLogs[targetId] = incident;
                     saveIncidentsLocal();
                     if (hourlyChartObj) hourlyChartObj.update();
-                    renderIncidentTable();
+                    renderIncidentTable(); renderIncidentDowntime();
                 }
             });
         }
@@ -6338,7 +6646,7 @@ function doPost(e) {
                             Object.values(incidentLogs).filter(inc => inc.source === 'maintenance').forEach(inc => { cloudIncidents[inc.id] = inc; });
                             incidentLogs = cloudIncidents;
                             saveIncidentsLocal();
-                            renderIncidentTable();
+                            renderIncidentTable(); renderIncidentDowntime();
                         }
                     });
                 }
