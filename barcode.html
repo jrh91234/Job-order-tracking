@@ -330,24 +330,6 @@
             </div>
         </div>
 
-        <!-- Dashboard: Downtime ตามสาเหตุ (ตัวเลขชุดเดียวกับการ์ด Incident Downtime ด้านล่าง) -->
-        <div id="dashboard-downtime-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-3">
-            <div class="flex justify-between items-start gap-3 flex-wrap">
-                <div>
-                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
-                        <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
-                        Downtime ตามสาเหตุที่แจ้ง
-                    </h3>
-                    <p class="text-xs text-slate-400">ช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้งปัญหา หักเวลาพักแล้ว · ตามตัวกรองด้านบน</p>
-                </div>
-                <div class="text-right">
-                    <div id="dashboard-downtime-total" class="text-2xl font-black text-rose-600 font-mono">—</div>
-                    <button type="button" onclick="document.getElementById('incident-downtime-card').scrollIntoView({ behavior: 'smooth', block: 'start' })" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2">ดูรายละเอียด</button>
-                </div>
-            </div>
-            <div id="dashboard-downtime-bars" class="space-y-2"></div>
-        </div>
-
         <!-- Charts Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Chart 1: Hourly Production Rate -->
@@ -4553,11 +4535,8 @@ function doPost(e) {
                     `<span class="block text-[10px] font-normal text-slate-400">${data.records.length.toLocaleString()} รายการ (นับแยกต่อไลน์)</span>`;
             }
 
-            // สรุปรายสาเหตุแบบแท่ง แสดงตลอดไม่ว่าเลือกแท็บไหน และแสดงซ้ำที่การ์ดสรุปบน Dashboard ด้วย
+            // สรุปรายสาเหตุแบบแท่ง แสดงตลอดไม่ว่าเลือกแท็บไหน
             renderIncidentDowntimeBars(document.getElementById('incident-downtime-bars'), data);
-            renderIncidentDowntimeBars(document.getElementById('dashboard-downtime-bars'), data);
-            const dashTotalEl = document.getElementById('dashboard-downtime-total');
-            if (dashTotalEl) dashTotalEl.innerHTML = data.records.length === 0 ? '0 นาที' : formatLostMinutes(data.totalLostMin);
 
             const lineLabel = line => line === '-' ? 'ไม่ระบุไลน์' : `Line ${escapeHtml(line)}`;
             const lostCls = m => m >= 60 ? 'text-rose-600' : m >= 15 ? 'text-amber-500' : 'text-slate-600';
