@@ -499,7 +499,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าไม่กลับมาสแกนในกะนั้น นับถึงสิ้นกะ (หรือถึงตอนนี้ถ้ากะยังไม่จบ) · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -4264,6 +4264,9 @@ function doPost(e) {
         // INCIDENT DOWNTIME (เวลาที่หายไปตามสาเหตุที่แจ้ง คำนวณจากบันทึกปัญหา + สแกน)
         // ==========================================
         let incidentDowntimeTab = 'category';
+        // ช่วงเวลาทำงานปกตินับจากต้นกะ: สุทธิ 8 ชม. + พัก 1 ชม. = เลิก 17:00 (กะเช้า) / 05:00 (กะดึก)
+        // ตรงกับ OT_THRESHOLD_NET_HOURS และช่วงพักใน BREAK_MINUTES_BY_HOUR
+        const NORMAL_SHIFT_SPAN_HOURS = 9;
 
         function setIncidentDowntimeTab(tab) {
             incidentDowntimeTab = tab;
@@ -4275,11 +4278,13 @@ function doPost(e) {
          *
          * incidents: บันทึกปัญหาที่กรองช่วงแล้ว ต้องมี date (วันผลิต), time "HH:mm" หรือ hour, line ("All" = ทุกไลน์)
          * scans:     สแกน OK { line, ts, prodDate, model }
-         * opts:      { nowMs, cycleSecondsByModel, onlyLine, breakOverlap(fromMs, toMs) }
+         * opts:      { nowMs, cycleSecondsByModel, onlyLine, breakOverlap(fromMs, toMs), hasOT(date, shift, line) }
          *
          * กติกา: ไลน์หยุดตั้งแต่สแกนสุดท้ายก่อนเวลาที่แจ้ง จนถึงสแกนแรกหลังเวลาที่แจ้ง ภายในกะเดียวกัน
          *   - กะนั้นยังไม่มีสแกนก่อนเวลาที่แจ้ง (เช่น ขาดวัตถุดิบตั้งแต่ต้นกะ) เริ่มนับจากเวลาที่แจ้ง
-         *   - ไม่กลับมาสแกนในกะนั้น นับถึงสิ้นกะ หรือถึง nowMs ถ้ากะยังไม่จบ
+         *   - ไม่กลับมาสแกนในกะนั้น นับถึงเลิกงานปกติ (17:00 / 05:00) หรือถึงสิ้นกะ (20:00 / 08:00) ถ้าไลน์นั้นทำ OT
+         *     หรือถึง nowMs ถ้ายังไม่ถึงเวลานั้น · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ
+         *   - ถือว่าทำ OT เมื่อ opts.hasOT(date, shift, line) บอกว่าใช่ (กรอกคนช่วง OT) หรือมีสแกนหลังเลิกงานปกติ
          *   - หลายเหตุการณ์ตกในช่วงหยุดเดียวกัน แบ่งช่วงตามลำดับเวลาที่แจ้ง ไม่นับเวลาเดียวกันซ้ำ
          *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
          */
@@ -4315,8 +4320,11 @@ function doPost(e) {
                 if (!Number.isFinite(reportTs)) return;
 
                 const isNight = h < 8 || h >= 20;
+                const shift = isNight ? 'Night' : 'Day';
                 const shiftStart = toTs(inc.date, isNight ? 20 : 8, 0);
                 const shiftEnd = shiftStart + 12 * 3600000;
+                // เลิกงานปกติหลังทำงานสุทธิครบ 8 ชม. (รวมพัก 1 ชม.) คือ 17:00 / 05:00 หลังจากนั้นเป็นช่วง OT
+                const normalEnd = shiftStart + NORMAL_SHIFT_SPAN_HOURS * 3600000;
 
                 let lines;
                 if (!inc.line || inc.line === 'All') {
@@ -4329,19 +4337,24 @@ function doPost(e) {
 
                 lines.forEach(line => {
                     const list = scansByLine[line] || [];
+                    // หลังเลิกงานไม่นับ ยกเว้นไลน์นั้นทำ OT (กรอกคนช่วง OT ไว้ หรือมีสแกนหลังเวลาเลิกงาน)
+                    const hasOT = (opts.hasOT && opts.hasOT(inc.date, shift, line)) ||
+                        list.some(s => s.ts >= normalEnd && s.ts < shiftEnd);
+                    const workEnd = hasOT ? shiftEnd : normalEnd;
+                    if (reportTs >= workEnd) return; // แจ้งหลังเลิกงานและไม่มี OT ไม่ใช่เวลาที่ควรผลิต
                     let prev = null;
                     let next = null;
                     for (const s of list) {
                         if (s.ts <= reportTs) {
                             if (s.ts >= shiftStart) prev = s;
                         } else {
-                            if (s.ts < shiftEnd) next = s;
+                            if (s.ts < workEnd) next = s;
                             break;
                         }
                     }
                     // เหตุการณ์ในช่วงหยุดเดียวกันมีสแกนก่อน/หลังตัวเดียวกัน ใช้เป็นคีย์รวมกลุ่ม
-                    const key = `${line}|${prev ? prev.ts : 'S' + shiftStart}|${next ? next.ts : 'E' + shiftEnd}`;
-                    if (!gaps.has(key)) gaps.set(key, { line, prev, next, shiftEnd, items: [] });
+                    const key = `${line}|${prev ? prev.ts : 'S' + shiftStart}|${next ? next.ts : 'E' + workEnd}`;
+                    if (!gaps.has(key)) gaps.set(key, { line, prev, next, workEnd, hasOT, items: [] });
                     gaps.get(key).items.push({ inc, reportTs });
                 });
             });
@@ -4349,7 +4362,7 @@ function doPost(e) {
             const records = [];
             gaps.forEach(gap => {
                 gap.items.sort((a, b) => a.reportTs - b.reportTs);
-                const gapEnd = gap.next ? gap.next.ts : Math.min(gap.shiftEnd, nowMs);
+                const gapEnd = gap.next ? gap.next.ts : Math.min(gap.workEnd, nowMs);
                 gap.items.forEach((item, i) => {
                     const isFirst = i === 0;
                     const isLast = i === gap.items.length - 1;
@@ -4369,6 +4382,8 @@ function doPost(e) {
                         startFrom: isFirst && gap.prev ? 'scan' : 'report',
                         // resumed = จบที่สแกนแรกที่กลับมาเดิน · next = จบที่เหตุการณ์ถัดไป · open = ไม่กลับมาสแกนในกะนั้น
                         endBy: !isLast ? 'next' : (gap.next ? 'resumed' : 'open'),
+                        // ไม่กลับมาเดิน: นับถึงเลิกงานปกติ หรือถึงสิ้นกะถ้าไลน์ทำ OT
+                        hasOT: gap.hasOT,
                         gapMin,
                         breakMin,
                         cycleMin,
@@ -4420,7 +4435,11 @@ function doPost(e) {
                 nowMs: Date.now(),
                 cycleSecondsByModel: modelCycleSecondsCache,
                 onlyLine: activeLine,
-                breakOverlap: breakOverlapMs
+                breakOverlap: breakOverlapMs,
+                hasOT: (date, shift, line) => {
+                    const mp = manpowerLogs[manpowerKey(date, shift, line)];
+                    return !!mp && ((mp.otAssembler || 0) + (mp.otFeeder || 0) + (mp.otLeader || 0)) > 0;
+                }
             });
             return {
                 records,
@@ -4512,7 +4531,7 @@ function doPost(e) {
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
                         : r.endBy === 'next'
                             ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-slate-400 font-sans">แจ้งปัญหาถัดไป</div>`
-                            : `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-rose-500 font-sans">ไม่กลับมาสแกนในกะนี้</div>`;
+                            : `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-rose-500 font-sans">ไม่กลับมาสแกน · นับถึง${r.hasOT ? 'สิ้น OT' : 'เลิกงาน'}</div>`;
                     const notes = inc.notes ? `<div class="text-[10px] text-slate-400 font-normal whitespace-pre-wrap max-w-xs">${escapeHtml(inc.notes)}</div>` : '';
                     return `
                         <tr class="hover:bg-slate-50/50 transition-colors">
@@ -4542,7 +4561,7 @@ function doPost(e) {
                     <th class="p-3 text-right">สัดส่วน</th>
                     <th class="p-3 text-right">เฉลี่ย/ครั้ง</th>
                     <th class="p-3 text-right">นานสุด</th>
-                    <th class="p-3 text-right" title="ไลน์ไม่กลับมาสแกนในกะนั้น นับถึงสิ้นกะ">ไม่กลับมาเดิน</th>
+                    <th class="p-3 text-right" title="ไลน์ไม่กลับมาสแกน นับถึงเลิกงาน หรือสิ้น OT ถ้าไลน์ทำ OT">ไม่กลับมาเดิน</th>
                 </tr>`;
             if (rows.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="${byLine ? 8 : 7}" class="text-center p-6 text-slate-400 italic">ไม่มีบันทึกปัญหาผลิตในช่วงที่เลือก</td></tr>`;
@@ -7936,7 +7955,7 @@ function doPost(e) {
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
-                    '(หรือสิ้นกะ ถ้าไม่กลับมา) หักเวลาพักและ Cycle Time 1 รอบ · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
+                    '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกทุกไลน์ที่เดิน จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
                 { text: '', margin: [0, 0, 0, 8] }
             ];

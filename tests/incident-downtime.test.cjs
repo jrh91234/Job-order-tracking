@@ -20,6 +20,7 @@ const ctx = {};
 vm.createContext(ctx);
 vm.runInContext(
   html.match(/const BREAK_MINUTES_BY_HOUR = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  html.match(/const NORMAL_SHIFT_SPAN_HOURS = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   ['breakOverlapMs', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
   ctx
 );
@@ -40,11 +41,32 @@ assert.equal(r[0].endBy, 'resumed');
 assert.equal(Math.round(r[0].gapMin), 40);
 assert.equal(Math.round(r[0].lostMin), 39);
 
-// 2) ไม่มีการผลิตทั้งกะเช้า: แจ้ง 08:00 ไม่มีสแกนเลย → 08:00-20:00 หักพัก 12:00 (60) และ 17:00 (30) = 630 นาที
-r = run([{ id: 'b', date: '2026-10-28', time: '08:00', line: '4', category: 'Material' }], []);
+// 2) ไม่มีการผลิตทั้งกะเช้า ไม่มี OT: แจ้ง 08:00 ไม่มีสแกนเลย → นับถึงเลิกงาน 17:00 หักพักเที่ยง = 480 นาที
+const fullDay = [{ id: 'b', date: '2026-10-28', time: '08:00', line: '4', category: 'Material' }];
+r = run(fullDay, []);
 assert.equal(r[0].startFrom, 'report');
 assert.equal(r[0].endBy, 'open');
+assert.equal(r[0].hasOT, false);
+assert.equal(r[0].endTs, at('2026-10-28', '17:00'));
+assert.equal(Math.round(r[0].lostMin), 480);
+// 2b) วันเดียวกันแต่กรอกคนช่วง OT ไว้ → นับถึง 20:00 หักพัก 12:00 (60) และ 17:00 (30) = 630 นาที
+r = run(fullDay, [], { hasOT: (d, sh, l) => d === '2026-10-28' && sh === 'Day' && l === '4' });
+assert.equal(r[0].hasOT, true);
 assert.equal(Math.round(r[0].lostMin), 630);
+// 2c) กะดึกไม่มี OT: แจ้ง 20:10 → นับถึง 05:00 หักพักเที่ยงคืน = 530 − 60 = 470
+r = run([{ id: 'n', date: '2026-10-26', time: '20:10', line: '4', category: 'Other' }], []);
+assert.equal(r[0].endTs, at('2026-10-27', '05:00'));
+assert.equal(Math.round(r[0].lostMin), 470);
+// 2d) มีสแกนหลังเลิกงาน (ทำ OT จริง) ถือว่าเป็นชั่วโมงทำงาน: สแกน 16:00 แจ้ง 16:30 กลับมา 18:00
+r = run(
+  [{ id: 'o', date: '2026-10-28', time: '16:30', line: '5', category: 'Material' }],
+  [scan('5', '2026-10-28', '16:00'), scan('5', '2026-10-28', '18:00')]
+);
+assert.equal(r[0].endBy, 'resumed');
+assert.equal(Math.round(r[0].lostMin), 120 - 30 - 1);
+// 2e) แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับเป็น downtime
+r = run([{ id: 'late', date: '2026-10-28', time: '18:00', line: '5', category: 'Other' }], [scan('5', '2026-10-28', '16:00')]);
+assert.equal(r.length, 0);
 
 // 3) หยุดคร่อมพักเที่ยง: 11:30 → 13:30 = 120 − พัก 60 − CT 1 = 59
 r = run(
