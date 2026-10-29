@@ -6330,7 +6330,7 @@ function doPost(e) {
                         <td class="p-3 text-center font-semibold text-slate-600 whitespace-nowrap">${formatThaiDate(inc.date)}</td>
                         <td class="p-3 text-center font-bold text-slate-700">${timeLabel}</td>
                         <td class="p-3 text-center text-indigo-600 font-bold">${lineName}</td>
-                        <td class="p-3 text-slate-700 font-semibold">${modelName}</td>
+                        <td class="p-3 text-slate-700 font-semibold">${escapeHtml(modelName)}${inc.modelInferred ? '<div class="text-[10px] text-slate-400 font-normal" title="แจ้งซ่อมไม่ระบุรุ่น ระบบเติมจากรุ่นที่ไลน์นี้สแกนอยู่ ณ เวลาที่แจ้ง">(จากสแกน)</div>' : ''}</td>
                         <td class="p-3 text-slate-500 font-mono text-[11px]">${inc.jobOrder ? escapeHtml(inc.jobOrder) : '-'}</td>
                         <td class="p-3 text-slate-700 font-semibold">${escapeHtml(inc.categoryText)}</td>
                         <td class="p-3 text-slate-500 whitespace-pre-wrap">${escapeHtml(inc.notes || '-')}</td>
@@ -7095,6 +7095,50 @@ function doPost(e) {
             return shiftTransferTargetFor(inc.date, inc.line, inc.hour) || base;
         }
 
+        // สแกน OK แยกตามไลน์ เรียงตามเวลา สร้างใหม่เมื่อ processedScans เปลี่ยน (ใช้หาว่าไลน์ผลิตรุ่นไหนอยู่)
+        let producingIndexCache = { source: null, byLine: {} };
+
+        /**
+         * รุ่นและ Job ที่ไลน์กำลังผลิต ณ เวลาหนึ่ง (วันผลิต + "HH:mm") ภายในกะเดียวกัน
+         * ใช้สแกนล่าสุดก่อนเวลานั้น ถ้ากะนั้นยังไม่มีสแกนก่อนหน้า ใช้สแกนแรกหลังเวลานั้นแทน ไม่เจอคืน null
+         */
+        function findProducingAt(date, time, hourHint, line) {
+            if (!date || !line || line === 'All') return null;
+            if (producingIndexCache.source !== processedScans) {
+                const byLine = {};
+                processedScans.forEach(sc => {
+                    if (String(sc.status).toUpperCase() !== 'OK' || !sc.model || sc.model === '-') return;
+                    (byLine[sc.line] || (byLine[sc.line] = [])).push(sc);
+                });
+                Object.values(byLine).forEach(arr => arr.sort((a, b) => a.ts - b.ts));
+                producingIndexCache = { source: processedScans, byLine };
+            }
+            const list = producingIndexCache.byLine[String(line)];
+            if (!list || list.length === 0) return null;
+
+            const tm = /^(\d{1,2}):(\d{2})/.exec(String(time || ''));
+            const h = tm ? parseInt(tm[1], 10) : parseInt(hourHint, 10);
+            const m = tm ? parseInt(tm[2], 10) : 0;
+            if (!Number.isFinite(h)) return null;
+            const [y, mo, d] = String(date).split('-').map(Number);
+            const at = new Date(y, mo - 1, d + (h < 8 ? 1 : 0), h, m, 0, 0).getTime();
+            const isNight = h < 8 || h >= 20;
+            const shiftStart = new Date(y, mo - 1, d, isNight ? 20 : 8, 0, 0, 0).getTime();
+            const shiftEnd = shiftStart + 12 * 3600000;
+
+            // ค้นแบบ binary search หาสแกนสุดท้ายที่ไม่เกินเวลาที่แจ้ง
+            let lo = 0, hi = list.length - 1, idx = -1;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                if (list[mid].ts <= at) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+            }
+            const pick = (idx >= 0 && list[idx].ts >= shiftStart) ? list[idx]
+                : (idx + 1 < list.length && list[idx + 1].ts < shiftEnd) ? list[idx + 1] : null;
+            if (!pick) return null;
+            const job = String(pick.jobOrder || '').trim();
+            return { model: pick.model, jobOrder: job && job !== 'MANUAL_MODE' ? job : '' };
+        }
+
         function getIncidentsInRange(startDate, endDate, activeLine, activeShift) {
             loadIncidents();
             const list = [];
@@ -7110,7 +7154,18 @@ function doPost(e) {
                 // กะคิดจากวันผลิตที่แปลงแล้ว ไม่ใช่ inc.date ดิบ เพราะคีย์ของการโอนยอดใช้วันผลิตเหมือนกัน
                 const incShift = getIncidentShift({ ...inc, date: incDate });
                 if (activeShift && activeShift !== 'All' && incShift !== activeShift) return;
-                list.push({ ...inc, date: incDate, shift: incShift });
+                const item = { ...inc, date: incDate, shift: incShift };
+                // แจ้งซ่อมมาจากระบบแจ้งซ่อมซึ่งไม่รู้ว่าไลน์กำลังผลิตรุ่นไหน จึงมาเป็น "ทุกรุ่น" เสมอ
+                // เติมรุ่น (และ Job ถ้ายังว่าง) จากสแกนของไลน์นั้น ณ เวลาที่แจ้ง
+                if (inc.source === 'maintenance' && (!inc.model || inc.model === 'All')) {
+                    const producing = findProducingAt(item.date, normalizeIncidentTime(inc.time, inc.hour), inc.hour, inc.line);
+                    if (producing) {
+                        item.model = producing.model;
+                        if (!item.jobOrder) item.jobOrder = producing.jobOrder;
+                        item.modelInferred = true;
+                    }
+                }
+                list.push(item);
             });
             list.sort((a, b) =>
                 String(a.date).localeCompare(String(b.date)) ||

@@ -169,3 +169,24 @@ assert.equal(r.map(x => x.line).join(','), '5');
 // 23:30 → 01:10 = 100 − พักเที่ยงคืน 60 − CT 1 = 39
 assert.equal(Math.round(r[0].lostMin), 39);
 console.log('Incident downtime: All-lines incidents only count lines running near the report passed');
+
+// 10) แจ้งซ่อมไม่มีรุ่น → เติมรุ่นที่ไลน์สแกนอยู่ ณ เวลาที่แจ้ง (findProducingAt)
+const ctx2 = {};
+vm.createContext(ctx2);
+vm.runInContext('var processedScans = [];\n' + html.match(/let producingIndexCache = [^;]+;/)[0].replace('let ', 'var ') + '\n' + extract('findProducingAt'), ctx2);
+const mk = (line, d, hm, model, jobOrder = 'J-' + model) => ({ line, ts: at(d, hm), status: 'OK', model, jobOrder });
+ctx2.processedScans = [
+  mk('5', '2026-10-13', '08:30', 'AAA'), mk('5', '2026-10-13', '09:00', 'AAA'),
+  mk('5', '2026-10-13', '09:30', 'BBB'), mk('4', '2026-10-13', '09:05', 'CCC'),
+  mk('5', '2026-10-13', '21:10', 'NIGHT'), { line: '5', ts: at('2026-10-14', '02:00'), status: 'OK', model: 'NIGHT2', jobOrder: 'MANUAL_MODE' }
+];
+let p = ctx2.findProducingAt('2026-10-13', '09:07', 9, '5');
+assert.equal(p.model, 'AAA'); assert.equal(p.jobOrder, 'J-AAA');           // สแกนล่าสุดก่อนแจ้ง
+assert.equal(ctx2.findProducingAt('2026-10-13', '09:40', 9, '5').model, 'BBB');
+assert.equal(ctx2.findProducingAt('2026-10-13', '08:10', 8, '5').model, 'AAA'); // ยังไม่สแกนในกะ → สแกนแรกหลังแจ้ง
+assert.equal(ctx2.findProducingAt('2026-10-13', '09:07', 9, '4').model, 'CCC'); // ไลน์ต่างกันไม่ปนกัน
+p = ctx2.findProducingAt('2026-10-13', '02:30', 2, '5');                          // กะดึกหลังเที่ยงคืน
+assert.equal(p.model, 'NIGHT2'); assert.equal(p.jobOrder, '');
+assert.equal(ctx2.findProducingAt('2026-10-13', '20:05', 20, '5').model, 'NIGHT'); // ไม่ใช้สแกนกะเช้าข้ามมากะดึก
+assert.equal(ctx2.findProducingAt('2026-10-13', '09:00', 9, 'All'), null);
+console.log('Maintenance incidents: model at report time inferred from scans passed');
