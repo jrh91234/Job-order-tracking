@@ -330,6 +330,24 @@
             </div>
         </div>
 
+        <!-- Dashboard: Downtime ตามสาเหตุ (ตัวเลขชุดเดียวกับการ์ด Incident Downtime ด้านล่าง) -->
+        <div id="dashboard-downtime-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-3">
+            <div class="flex justify-between items-start gap-3 flex-wrap">
+                <div>
+                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
+                        Downtime ตามสาเหตุที่แจ้ง
+                    </h3>
+                    <p class="text-xs text-slate-400">ช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้งปัญหา หักเวลาพักแล้ว · ตามตัวกรองด้านบน</p>
+                </div>
+                <div class="text-right">
+                    <div id="dashboard-downtime-total" class="text-2xl font-black text-rose-600 font-mono">—</div>
+                    <button type="button" onclick="document.getElementById('incident-downtime-card').scrollIntoView({ behavior: 'smooth', block: 'start' })" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2">ดูรายละเอียด</button>
+                </div>
+            </div>
+            <div id="dashboard-downtime-bars" class="space-y-2"></div>
+        </div>
+
         <!-- Charts Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Chart 1: Hourly Production Rate -->
@@ -474,7 +492,7 @@
         </div>
 
         <!-- Incident Downtime Panel -->
-        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
+        <div id="incident-downtime-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
                 <div>
                     <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
@@ -796,7 +814,7 @@
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="file-down" class="text-emerald-600 w-5 h-5"></i>
-                    ส่งออกรายงานการผลิตเป็น PDF
+                    ส่งออกรายงานการผลิต (PDF / Excel)
                 </h3>
                 <button onclick="closeExportModal()" class="text-slate-400 hover:text-slate-600 p-1">
                     <i data-lucide="x" class="w-5 h-5"></i>
@@ -906,14 +924,19 @@
 
             <div class="text-[10px] text-slate-500 bg-amber-50 border border-amber-200 rounded-xl p-2.5 leading-relaxed">
                 <b class="text-amber-700">หมายเหตุ:</b>
-                กดปุ่มด้านล่างแล้วไฟล์ PDF จะถูกดาวน์โหลดลงเครื่องให้อัตโนมัติ
-                ครั้งแรกอาจใช้เวลาสักครู่เพราะระบบต้องโหลดตัวสร้างเอกสารก่อน ครั้งถัดไปจะเร็วขึ้น
+                กดปุ่มด้านล่างแล้วไฟล์จะถูกดาวน์โหลดลงเครื่องให้อัตโนมัติ
+                ครั้งแรกอาจใช้เวลาสักครู่เพราะระบบต้องโหลดตัวสร้างเอกสารก่อน ครั้งถัดไปจะเร็วขึ้น ·
+                ไฟล์ Excel ใช้หัวข้อชุดเดียวกับ PDF แยกหัวข้อละ 1 ชีต (กราฟจะส่งออกเป็นตัวเลขแทนรูป)
             </div>
             </div>
 
             <div class="modal-actions flex gap-3 border-t border-slate-100 text-xs">
                 <button onclick="closeExportModal()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors">
                     ยกเลิก
+                </button>
+                <button onclick="generateExcelReport()" class="flex-1 py-2.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 shrink-0"></i>
+                    <span class="whitespace-nowrap">ดาวน์โหลด Excel</span>
                 </button>
                 <button onclick="generatePdfReport()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-colors flex items-center justify-center gap-1.5">
                     <i data-lucide="download" class="w-4 h-4 shrink-0"></i>
@@ -3766,7 +3789,8 @@ function doPost(e) {
                 }
             }));
             // กว้างคอลัมน์ตามข้อความที่ยาวสุด อ่านง่ายตั้งแต่เปิดไฟล์
-            ws['!cols'] = (rows[0] || []).map((_, ci) => ({
+            // ใช้จำนวนคอลัมน์ของแถวที่ยาวสุด ไม่ใช่แถวแรก (ชีตจากรายงานอาจขึ้นต้นด้วยแถวหมายเหตุคอลัมน์เดียว)
+            ws['!cols'] = Array.from({ length: Math.max(0, ...rows.map(r => r.length)) }).map((_, ci) => ({
                 wch: Math.min(50, Math.max(8, ...rows.map(r => String((r[ci] && typeof r[ci] === 'object') ? r[ci].v : (r[ci] ?? '')).length + 2)))
             }));
             return ws;
@@ -4406,6 +4430,25 @@ function doPost(e) {
             };
         }
 
+        function renderIncidentDowntimeBars(el, data) {
+            if (!el) return;
+            if (data.byCategory.length === 0) {
+                el.innerHTML = '<p class="text-xs text-slate-400 italic">ไม่มีบันทึกปัญหาผลิตในช่วงที่เลือก</p>';
+                return;
+            }
+            const maxLost = data.byCategory.reduce((m, g) => Math.max(m, g.lostMin), 0);
+            el.innerHTML = data.byCategory.map(g => {
+                const share = data.totalLostMin > 0 ? (g.lostMin / data.totalLostMin) * 100 : 0;
+                const width = maxLost > 0 ? Math.max(1, (g.lostMin / maxLost) * 100) : 0;
+                return `
+                    <div class="grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-3 text-xs">
+                        <div class="font-semibold text-slate-700 truncate" title="${escapeHtml(g.categoryText)}">${escapeHtml(g.categoryText)}</div>
+                        <div class="h-3 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-rose-400 rounded-full" style="width:${width.toFixed(1)}%"></div></div>
+                        <div class="text-right font-mono whitespace-nowrap"><span class="font-bold text-slate-800">${formatLostMinutes(g.lostMin)}</span> <span class="text-slate-400">· ${share.toFixed(1)}% · ${g.count.toLocaleString()} ครั้ง</span></div>
+                    </div>`;
+            }).join('');
+        }
+
         function renderIncidentDowntime() {
             const thead = document.getElementById('incident-downtime-thead');
             const tbody = document.getElementById('incident-downtime-tbody');
@@ -4431,21 +4474,11 @@ function doPost(e) {
                     `<span class="block text-[10px] font-normal text-slate-400">${data.records.length.toLocaleString()} รายการ (นับแยกต่อไลน์)</span>`;
             }
 
-            // สรุปรายสาเหตุแบบแท่ง แสดงตลอดไม่ว่าเลือกแท็บไหน จะได้เห็นทันทีว่าสาเหตุไหนกินเวลามากสุด
-            const barsEl = document.getElementById('incident-downtime-bars');
-            if (barsEl) {
-                const maxLost = data.byCategory.reduce((m, g) => Math.max(m, g.lostMin), 0);
-                barsEl.innerHTML = data.byCategory.map(g => {
-                    const share = data.totalLostMin > 0 ? (g.lostMin / data.totalLostMin) * 100 : 0;
-                    const width = maxLost > 0 ? Math.max(1, (g.lostMin / maxLost) * 100) : 0;
-                    return `
-                        <div class="grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-3 text-xs">
-                            <div class="font-semibold text-slate-700 truncate" title="${escapeHtml(g.categoryText)}">${escapeHtml(g.categoryText)}</div>
-                            <div class="h-3 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-rose-400 rounded-full" style="width:${width.toFixed(1)}%"></div></div>
-                            <div class="text-right font-mono whitespace-nowrap"><span class="font-bold text-slate-800">${formatLostMinutes(g.lostMin)}</span> <span class="text-slate-400">· ${share.toFixed(1)}% · ${g.count.toLocaleString()} ครั้ง</span></div>
-                        </div>`;
-                }).join('');
-            }
+            // สรุปรายสาเหตุแบบแท่ง แสดงตลอดไม่ว่าเลือกแท็บไหน และแสดงซ้ำที่การ์ดสรุปบน Dashboard ด้วย
+            renderIncidentDowntimeBars(document.getElementById('incident-downtime-bars'), data);
+            renderIncidentDowntimeBars(document.getElementById('dashboard-downtime-bars'), data);
+            const dashTotalEl = document.getElementById('dashboard-downtime-total');
+            if (dashTotalEl) dashTotalEl.innerHTML = data.records.length === 0 ? '0 นาที' : formatLostMinutes(data.totalLostMin);
 
             const lineLabel = line => line === '-' ? 'ไม่ระบุไลน์' : `Line ${escapeHtml(line)}`;
             const lostCls = m => m >= 60 ? 'text-rose-600' : m >= 15 ? 'text-amber-500' : 'text-slate-600';
@@ -8017,31 +8050,38 @@ function doPost(e) {
             if (modal) modal.classList.add('hidden');
         }
 
-        // ประกอบเอกสารทั้งฉบับตามหัวข้อที่ผู้ใช้ติ๊กเลือก
-        function buildReportDoc(scope) {
+        // หัวข้อตามที่ผู้ใช้ติ๊กเลือก ใช้ร่วมกันทั้งไฟล์ PDF และ Excel ให้เนื้อหาตรงกัน
+        // คืน [{ id, nodes }] เฉพาะหัวข้อที่มีข้อมูล nodes[0] คือหัวข้อที่ใส่เลขลำดับแล้ว
+        function buildReportSections(scope) {
             const opt = id => {
                 const el = document.getElementById(id);
                 return el ? el.checked : false;
             };
 
             const sections = [];
-            if (opt('export-opt-kpi'))       sections.push(buildReportKpiContent());
-            if (opt('export-opt-charts'))    sections.push(buildReportChartsContent());
-            if (opt('export-opt-hourly'))    sections.push(buildReportHourlyContent());
-            if (opt('export-opt-line'))      sections.push(buildReportLineContent());
-            if (opt('export-opt-model'))     sections.push(buildReportModelContent());
-            if (opt('export-opt-jobs'))      sections.push(buildReportJobStatusContent(scope));
-            if (opt('export-opt-capacity'))  sections.push(buildReportCapacityContent());
-            if (opt('export-opt-manpower'))  sections.push(buildReportManpowerContent(scope));
-            if (opt('export-opt-incidents')) sections.push(buildReportIncidentsContent(scope));
-            if (opt('export-opt-rawscans'))  sections.push(buildReportRawScansContent());
+            const add = (id, build) => { if (opt(id)) sections.push({ id, nodes: build() }); };
+            add('export-opt-kpi',       () => buildReportKpiContent());
+            add('export-opt-charts',    () => buildReportChartsContent());
+            add('export-opt-hourly',    () => buildReportHourlyContent());
+            add('export-opt-line',      () => buildReportLineContent());
+            add('export-opt-model',     () => buildReportModelContent());
+            add('export-opt-jobs',      () => buildReportJobStatusContent(scope));
+            add('export-opt-capacity',  () => buildReportCapacityContent());
+            add('export-opt-manpower',  () => buildReportManpowerContent(scope));
+            add('export-opt-incidents', () => buildReportIncidentsContent(scope));
+            add('export-opt-rawscans',  () => buildReportRawScansContent());
 
             // ไล่เลขหัวข้อหลังจากรู้แล้วว่าหัวข้อไหนมีข้อมูลจริงบ้าง เลขจะได้เรียง 1,2,3... ไม่มีข้าม
-            const filled = sections.filter(section => section.length > 0);
+            const filled = sections.filter(section => section.nodes.length > 0);
             filled.forEach((section, idx) => {
-                section[0].text = `${idx + 1}. ${section[0].text}`;
+                section.nodes[0].text = `${idx + 1}. ${section.nodes[0].text}`;
             });
+            return filled;
+        }
 
+        // ประกอบเอกสารทั้งฉบับตามหัวข้อที่ผู้ใช้ติ๊กเลือก
+        function buildReportDoc(scope) {
+            const filled = buildReportSections(scope).map(section => section.nodes);
             if (filled.length === 0) return null;
 
             return {
@@ -8257,6 +8297,148 @@ function doPost(e) {
                     icon: 'error',
                     title: 'สร้างไฟล์ PDF ไม่สำเร็จ',
                     text: `${err.message || err} — หากเครื่องนี้ต่ออินเทอร์เน็ตไม่ได้ ระบบจะโหลดตัวสร้าง PDF ไม่ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่ครับ`
+                });
+            }
+        }
+
+        // ข้อความทั้งหมดในโหนดของ pdfmake (text อาจเป็นสตริง อาร์เรย์ หรือโหนดซ้อน) รวมเป็นสตริงเดียว
+        function pdfNodeText(node) {
+            if (node === null || node === undefined) return '';
+            if (typeof node === 'string' || typeof node === 'number') return String(node);
+            if (Array.isArray(node)) return node.map(pdfNodeText).join('');
+            if (typeof node === 'object') {
+                if (node.text !== undefined) return pdfNodeText(node.text);
+                if (node.stack) return node.stack.map(pdfNodeText).filter(Boolean).join('\n');
+                if (node.columns) return node.columns.map(pdfNodeText).filter(Boolean).join(' ');
+            }
+            return '';
+        }
+
+        // แปลงเนื้อหาหัวข้อหนึ่งของรายงาน PDF เป็นแถวของ Excel
+        // ตาราง = แถวตามตาราง (หัวตารางเป็นข้อความ เนื้อหาแปลงเป็นตัวเลขถ้าได้) · ข้อความ/หมายเหตุ = แถวคอลัมน์เดียว
+        // รูปและเส้นคั่นข้ามไป
+        function pdfSectionToRows(nodes) {
+            const rows = [];
+            const walk = node => {
+                if (!node || typeof node !== 'object') {
+                    if (typeof node === 'string' && node.trim()) rows.push([node.trim()]);
+                    return;
+                }
+                if (Array.isArray(node)) { node.forEach(walk); return; }
+                if (node.image || node.canvas || node.svg) return;
+                if (node.table) {
+                    const headerRows = node.table.headerRows || 0;
+                    node.table.body.forEach((r, ri) => rows.push(r.map(cell => {
+                        const text = pdfNodeText(cell).replace(/\s*\n\s*/g, ' ').trim();
+                        return ri < headerRows ? text : toExcelValue(text);
+                    })));
+                    rows.push([]);
+                    return;
+                }
+                if (node.stack) { node.stack.forEach(walk); return; }
+                if (node.columns) { node.columns.forEach(walk); return; }
+                const text = pdfNodeText(node).trim();
+                if (text) rows.push([text]);
+            };
+            nodes.slice(1).forEach(walk); // nodes[0] คือหัวข้อ ใช้เป็นชื่อชีตแทน
+            while (rows.length && rows[rows.length - 1].length === 0) rows.pop();
+            return rows;
+        }
+
+        // ส่งออกรายงานเป็น Excel: หัวข้อตามที่ติ๊กเลือกในหน้าต่างส่งออก หัวข้อละ 1 ชีต เนื้อหาเดียวกับ PDF
+        async function generateExcelReport() {
+            if (filteredScans.length === 0) {
+                return Swal.fire({
+                    icon: 'warning',
+                    title: 'ยังไม่มีข้อมูลให้ออกรายงาน',
+                    text: 'กรุณาเลือกช่วงวันที่ที่มีข้อมูลการสแกนก่อนสร้างรายงานครับ'
+                });
+            }
+
+            const langEl = document.querySelector('input[name="export-lang"]:checked');
+            reportLang = langEl && langEl.value === 'en' ? 'en' : 'th';
+
+            const scope = getReportScope();
+            const sections = buildReportSections(scope);
+            if (sections.length === 0) {
+                return Swal.fire({
+                    icon: 'warning',
+                    title: 'ยังไม่ได้เลือกหัวข้อรายงาน',
+                    text: 'กรุณาติ๊กเลือกอย่างน้อย 1 หัวข้อที่มีข้อมูลก่อนสร้างรายงานครับ'
+                });
+            }
+
+            closeExportModal();
+            Swal.fire({
+                title: 'กำลังสร้างไฟล์ Excel',
+                text: 'ระบบกำลังประกอบข้อมูลและจะดาวน์โหลดให้อัตโนมัติเมื่อเสร็จครับ',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            const toWord = reportLang === 'en' ? '_to_' : '_ถึง_';
+            const fileName = `H9-Production-Report${reportLang === 'en' ? '-EN' : ''}_${scope.startDate}${scope.endDate !== scope.startDate ? toWord + scope.endDate : ''}.xlsx`;
+
+            try {
+                let untranslated = 0;
+                if (reportLang === 'en') {
+                    Swal.update({ title: 'Translating to English...', text: 'กำลังแปลหัวข้อและบันทึกเหตุการณ์เป็นภาษาอังกฤษ' });
+                    // แปลทับโหนดเดิมในที่ ชีตจะได้ข้อความภาษาอังกฤษชุดเดียวกับไฟล์ PDF
+                    untranslated = await translateReportDocToEnglish({ content: sections.map(section => section.nodes) });
+                }
+                const XLSX = await loadSheetJs();
+                const wb = XLSX.utils.book_new();
+                const usedNames = new Set();
+                const sheetNameFor = title => {
+                    let full = pdfText(title).replace(/[\\/?*[\]:]/g, ' ').replace(/\s+/g, ' ').trim();
+                    // ชื่อชีตยาวได้ไม่เกิน 31 ตัว ถ้าเกินให้ตัดวงเล็บภาษาอังกฤษท้ายชื่อออกก่อน ชื่อจะไม่ขาดกลางคำ
+                    if (full.length > 31) full = full.replace(/\s*\([^()]*\)\s*$/, '');
+                    const base = full.slice(0, 31).trim() || 'Sheet';
+                    let name = base;
+                    for (let n = 2; usedNames.has(name.toLowerCase()); n++) name = `${base.slice(0, 26).trim()} (${n})`;
+                    usedNames.add(name.toLowerCase());
+                    return name;
+                };
+
+                sections.forEach(section => {
+                    const title = pdfNodeText(section.nodes[0]);
+                    // กราฟใน PDF เป็นรูป ใน Excel ส่งออกเป็นตัวเลขที่อยู่เบื้องหลังกราฟแทน
+                    let rows;
+                    if (section.id === 'export-opt-charts') {
+                        rows = [];
+                        [[hourlyChartObj, 'แนวโน้มการสแกนรายชั่วโมง (PCS/Hour)'], [modelChartObj, 'ยอดผลิตแยกรายรุ่น (PCS)']].forEach(([chart, label]) => {
+                            const chartRows = chartToRows(chart);
+                            if (chartRows.length > 1) rows.push([label], ...chartRows, []);
+                        });
+                    } else {
+                        rows = pdfSectionToRows(section.nodes);
+                    }
+                    if (rows.length === 0) return;
+                    XLSX.utils.book_append_sheet(wb, rowsToSheet(XLSX, rows, [[pdfText(title)], []]), sheetNameFor(title));
+                });
+
+                // ชีตแรกบอกช่วงวันที่และตัวกรองที่ใช้ เหมือนหัวกระดาษของ PDF
+                const metaTitle = reportLang === 'en' ? 'H9 Production Report' : 'รายงานการผลิต H9';
+                const metaSheet = rowsToSheet(XLSX, [], excelMetaRows(metaTitle, scope.startDate, scope.endDate));
+                XLSX.utils.book_append_sheet(wb, metaSheet, reportLang === 'en' ? 'Report info' : 'ข้อมูลรายงาน');
+                wb.SheetNames.unshift(wb.SheetNames.pop());
+
+                XLSX.writeFile(wb, fileName);
+                Swal.fire({
+                    icon: 'success',
+                    title: 'ดาวน์โหลดรายงานแล้ว',
+                    text: untranslated > 0
+                        ? `${fileName} — แปลไม่สำเร็จ ${untranslated} ข้อความ (ยังเป็นภาษาไทยในไฟล์ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่)`
+                        : fileName,
+                    timer: untranslated > 0 ? 6000 : 2600,
+                    showConfirmButton: false
+                });
+            } catch (err) {
+                console.error('สร้างไฟล์ Excel ไม่สำเร็จ:', err);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'สร้างไฟล์ Excel ไม่สำเร็จ',
+                    text: `${err.message || err} — หากเครื่องนี้ต่ออินเทอร์เน็ตไม่ได้ ระบบจะโหลดตัวสร้าง Excel ไม่ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่ครับ`
                 });
             }
         }
