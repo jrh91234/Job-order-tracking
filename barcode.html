@@ -481,7 +481,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -4273,6 +4273,7 @@ function doPost(e) {
          *   - หลายเหตุการณ์ตกในช่วงหยุดเดียวกัน แบ่งช่วงตามลำดับเวลาที่แจ้ง ไม่นับเวลาเดียวกันซ้ำ
          *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
          *   - ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึง 5 นาที (แจ้งตอนไลน์ยังสแกนอยู่) ใช้ช่องว่างที่ยาวสุดในช่วง ±60 นาทีแทน
+         *   - เหตุการณ์ "ทุกไลน์" คิดเฉพาะไลน์ที่มีสแกนในช่วง ±60 นาทีรอบเวลาที่แจ้ง (ไลน์ที่เดินอยู่ตอนนั้น)
          */
         function computeIncidentDowntimeCore(incidents, scans, opts) {
             const nowMs = opts.nowMs;
@@ -4314,8 +4315,18 @@ function doPost(e) {
 
                 let lines;
                 if (!inc.line || inc.line === 'All') {
-                    const dayLines = linesByDate[inc.date];
-                    lines = Array.from(dayLines && dayLines.size ? dayLines : allLines);
+                    // "ทุกไลน์" นับเฉพาะไลน์ที่เดินอยู่ช่วงนั้นจริง (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง)
+                    // ไลน์ที่ว่างหรือไม่ได้เข้ากะนั้นไม่ใช่ไลน์ที่หยุดเพราะปัญหานี้ ถ้านับจะได้เวลาหยุดยาวถึงเลิกงานเกินจริง
+                    // ถ้าไม่มีไลน์ไหนเดินช่วงนั้นเลย (หยุดทั้งโรงงาน) ถอยไปใช้ไลน์ที่เดินในกะนั้น แล้วค่อยเป็นไลน์ที่เดินในวันนั้น
+                    const near = INCIDENT_NEARBY_WINDOW_MIN * 60000;
+                    const linesWithScanIn = (from, to) => Object.keys(scansByLine)
+                        .filter(l => scansByLine[l].some(sc => sc.ts >= from && sc.ts < to));
+                    lines = linesWithScanIn(Math.max(shiftStart, reportTs - near), Math.min(shiftEnd, reportTs + near));
+                    if (lines.length === 0) lines = linesWithScanIn(shiftStart, shiftEnd);
+                    if (lines.length === 0) {
+                        const dayLines = linesByDate[inc.date];
+                        lines = Array.from(dayLines && dayLines.size ? dayLines : allLines);
+                    }
                 } else {
                     lines = [String(inc.line)];
                 }
@@ -7921,9 +7932,12 @@ function doPost(e) {
             // Downtime ของแต่ละเหตุการณ์ ตัวเลขชุดเดียวกับตารางสรุปด้านบน (เหตุการณ์ "ทุกไลน์" รวมทุกไลน์)
             const incidentKey = inc => inc.id || `${inc.date}_${inc.hour}_${inc.line}_${inc.model}`;
             const downtimeById = new Map();
+            const downtimeLinesById = new Map(); // เหตุการณ์ "ทุกไลน์" แจกแจงว่าแต่ละไลน์เสียเท่าไหร่
             computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue).records.forEach(r => {
                 const key = incidentKey(r.incident);
                 downtimeById.set(key, (downtimeById.get(key) || 0) + r.lostMin);
+                if (!downtimeLinesById.has(key)) downtimeLinesById.set(key, []);
+                downtimeLinesById.get(key).push(`L${r.line} ${Math.round(r.lostMin)}`);
             });
 
             const body = [[
@@ -7934,6 +7948,7 @@ function doPost(e) {
                 pdfHeaderCell('Job Order'),
                 pdfHeaderCell('ประเภทปัญหา'),
                 pdfHeaderCell('Downtime (นาที)', 'right'),
+                pdfHeaderCell('แยกตามไลน์ (นาที)'),
                 pdfHeaderCell('รายละเอียดบันทึก')
             ]];
 
@@ -7953,6 +7968,7 @@ function doPost(e) {
                     downtimeById.has(incidentKey(inc))
                         ? pdfCell(Math.round(downtimeById.get(incidentKey(inc))).toLocaleString(), 'right', PDF_COLOR.bad, true)
                         : pdfCell('-', 'right', PDF_COLOR.muted),
+                    pdfCell((downtimeLinesById.get(incidentKey(inc)) || []).join(' · ') || '-', 'left', PDF_COLOR.sub),
                     pdfCell(inc.notes || '-')
                 ]);
             });
@@ -7961,7 +7977,7 @@ function doPost(e) {
                 ...heading,
                 ...buildReportIncidentDowntimeSummary(scope),
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [50, 50, 36, 64, 80, 74, 42, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [46, 42, 32, 58, 72, 70, 38, 44, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
@@ -8011,7 +8027,7 @@ function doPost(e) {
                 pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
                     '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
-                    'เหตุการณ์ "ทุกไลน์" นับแยกทุกไลน์ที่เดิน จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
+                    'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
                 { text: '', margin: [0, 0, 0, 8] }
             ];
         }

@@ -153,3 +153,19 @@ assert.equal(r[0].matchedBy, 'nearby');
 assert.equal(r[0].startTs, at('2026-10-03', '08:00'));
 assert.equal(Math.round(r[0].lostMin), 59);
 console.log('Incident downtime: nearby stop matching when reported while still scanning passed');
+
+// 9) "ทุกไลน์" ไม่นับไลน์ที่ไม่ได้เดินช่วงนั้น: Line 4 เดินแค่กะเช้า, Line 5 เดินกะดึก
+//    แจ้งทุกไลน์ 20:13 กะดึก Line 5 สแกน 20:05 กลับมา 21:03 → นับแค่ Line 5 (58 − CT 1 = 57)
+r = run([{ id: 'all-night', date: '2026-10-12', time: '20:13', line: 'All', category: 'Changeover' }],
+  [scan('4', '2026-10-12', '10:00'), scan('4', '2026-10-12', '16:00'),
+   scan('5', '2026-10-12', '20:05'), scan('5', '2026-10-12', '21:03'), scan('5', '2026-10-12', '21:10')]);
+assert.equal(r.map(x => x.line).join(','), '5');
+assert.equal(Math.round(r[0].lostMin), 57);
+// 9b) ไลน์ที่หยุดไปนานก่อนแจ้ง (ไม่มีสแกนในระยะ ±60 นาที) ไม่ถูกนับเข้าเหตุการณ์ทุกไลน์
+r = run([{ id: 'all-late', date: '2026-10-12', time: '23:34', line: 'All', category: 'Material' }],
+  [scan('4', '2026-10-12', '20:10'), scan('4', '2026-10-12', '20:30'),
+   scan('5', '2026-10-12', '23:30'), { line: '5', ts: at('2026-10-13', '01:10'), prodDate: '2026-10-12', model: 'A' }]);
+assert.equal(r.map(x => x.line).join(','), '5');
+// 23:30 → 01:10 = 100 − พักเที่ยงคืน 60 − CT 1 = 39
+assert.equal(Math.round(r[0].lostMin), 39);
+console.log('Incident downtime: All-lines incidents only count lines running near the report passed');
