@@ -481,7 +481,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกให้ทุกไลน์ที่เดินในวันนั้น · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -3349,6 +3349,8 @@ function doPost(e) {
                     ctx.save();
                     ctx.font = 'bold 10px Prompt';
                     ctx.textBaseline = 'middle';
+                    // ยอดรวมทุกรุ่น ใช้คิดสัดส่วน % ต่อท้ายตัวเลขของแต่ละแท่ง
+                    const total = data.datasets[0].data.reduce((sum, v) => sum + (Number(v) || 0), 0);
                     
                     chart.getDatasetMeta(0).data.forEach((bar, index) => {
                         const value = data.datasets[0].data[index];
@@ -3356,7 +3358,8 @@ function doPost(e) {
                             // 1. Draw main count label
                             ctx.fillStyle = '#475569'; // Slate-600 color
                             ctx.textAlign = 'left';
-                            const labelText = value.toLocaleString() + ' PCS';
+                            const share = total > 0 ? (value / total) * 100 : 0;
+                            const labelText = `${value.toLocaleString()} PCS (${share.toFixed(1)}%)`;
                             ctx.fillText(labelText, bar.x + 8, bar.y);
                             
                             // Measure text to place "+X" floating label exactly next to it
@@ -3594,7 +3597,7 @@ function doPost(e) {
                         layout: {
                             padding: {
                                 left: 20,
-                                right: 65 // Buffer space for text value labels and floating effects
+                                right: 110 // Buffer space for text value labels (PCS + %) and floating effects
                             }
                         },
                         animation: {
@@ -3605,6 +3608,16 @@ function doPost(e) {
                             legend: { display: false },
                             chartValuePlugin: {
                                 enabled: showChartValues
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const total = ctx.dataset.data.reduce((sum, v) => sum + (Number(v) || 0), 0);
+                                        const value = Number(ctx.parsed.x) || 0;
+                                        const share = total > 0 ? (value / total) * 100 : 0;
+                                        return `${value.toLocaleString()} PCS (${share.toFixed(1)}% ของทั้งหมด)`;
+                                    }
+                                }
                             }
                         },
                         scales: {
@@ -4273,6 +4286,7 @@ function doPost(e) {
          *   - หลายเหตุการณ์ตกในช่วงหยุดเดียวกัน แบ่งช่วงตามลำดับเวลาที่แจ้ง ไม่นับเวลาเดียวกันซ้ำ
          *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
          *   - ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึง 5 นาที (แจ้งตอนไลน์ยังสแกนอยู่) ใช้ช่องว่างที่ยาวสุดในช่วง ±60 นาทีแทน
+         *   - เหตุการณ์ "ทุกไลน์" คิดเฉพาะไลน์ที่มีสแกนในช่วง ±60 นาทีรอบเวลาที่แจ้ง (ไลน์ที่เดินอยู่ตอนนั้น)
          */
         function computeIncidentDowntimeCore(incidents, scans, opts) {
             const nowMs = opts.nowMs;
@@ -4314,8 +4328,18 @@ function doPost(e) {
 
                 let lines;
                 if (!inc.line || inc.line === 'All') {
-                    const dayLines = linesByDate[inc.date];
-                    lines = Array.from(dayLines && dayLines.size ? dayLines : allLines);
+                    // "ทุกไลน์" นับเฉพาะไลน์ที่เดินอยู่ช่วงนั้นจริง (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง)
+                    // ไลน์ที่ว่างหรือไม่ได้เข้ากะนั้นไม่ใช่ไลน์ที่หยุดเพราะปัญหานี้ ถ้านับจะได้เวลาหยุดยาวถึงเลิกงานเกินจริง
+                    // ถ้าไม่มีไลน์ไหนเดินช่วงนั้นเลย (หยุดทั้งโรงงาน) ถอยไปใช้ไลน์ที่เดินในกะนั้น แล้วค่อยเป็นไลน์ที่เดินในวันนั้น
+                    const near = INCIDENT_NEARBY_WINDOW_MIN * 60000;
+                    const linesWithScanIn = (from, to) => Object.keys(scansByLine)
+                        .filter(l => scansByLine[l].some(sc => sc.ts >= from && sc.ts < to));
+                    lines = linesWithScanIn(Math.max(shiftStart, reportTs - near), Math.min(shiftEnd, reportTs + near));
+                    if (lines.length === 0) lines = linesWithScanIn(shiftStart, shiftEnd);
+                    if (lines.length === 0) {
+                        const dayLines = linesByDate[inc.date];
+                        lines = Array.from(dayLines && dayLines.size ? dayLines : allLines);
+                    }
                 } else {
                     lines = [String(inc.line)];
                 }
@@ -6319,7 +6343,7 @@ function doPost(e) {
                         <td class="p-3 text-center font-semibold text-slate-600 whitespace-nowrap">${formatThaiDate(inc.date)}</td>
                         <td class="p-3 text-center font-bold text-slate-700">${timeLabel}</td>
                         <td class="p-3 text-center text-indigo-600 font-bold">${lineName}</td>
-                        <td class="p-3 text-slate-700 font-semibold">${modelName}</td>
+                        <td class="p-3 text-slate-700 font-semibold">${escapeHtml(modelName)}${inc.modelInferred ? '<div class="text-[10px] text-slate-400 font-normal" title="แจ้งซ่อมไม่ระบุรุ่น ระบบเติมจากรุ่นที่ไลน์นี้สแกนอยู่ ณ เวลาที่แจ้ง">(จากสแกน)</div>' : ''}</td>
                         <td class="p-3 text-slate-500 font-mono text-[11px]">${inc.jobOrder ? escapeHtml(inc.jobOrder) : '-'}</td>
                         <td class="p-3 text-slate-700 font-semibold">${escapeHtml(inc.categoryText)}</td>
                         <td class="p-3 text-slate-500 whitespace-pre-wrap">${escapeHtml(inc.notes || '-')}</td>
@@ -7084,6 +7108,50 @@ function doPost(e) {
             return shiftTransferTargetFor(inc.date, inc.line, inc.hour) || base;
         }
 
+        // สแกน OK แยกตามไลน์ เรียงตามเวลา สร้างใหม่เมื่อ processedScans เปลี่ยน (ใช้หาว่าไลน์ผลิตรุ่นไหนอยู่)
+        let producingIndexCache = { source: null, byLine: {} };
+
+        /**
+         * รุ่นและ Job ที่ไลน์กำลังผลิต ณ เวลาหนึ่ง (วันผลิต + "HH:mm") ภายในกะเดียวกัน
+         * ใช้สแกนล่าสุดก่อนเวลานั้น ถ้ากะนั้นยังไม่มีสแกนก่อนหน้า ใช้สแกนแรกหลังเวลานั้นแทน ไม่เจอคืน null
+         */
+        function findProducingAt(date, time, hourHint, line) {
+            if (!date || !line || line === 'All') return null;
+            if (producingIndexCache.source !== processedScans) {
+                const byLine = {};
+                processedScans.forEach(sc => {
+                    if (String(sc.status).toUpperCase() !== 'OK' || !sc.model || sc.model === '-') return;
+                    (byLine[sc.line] || (byLine[sc.line] = [])).push(sc);
+                });
+                Object.values(byLine).forEach(arr => arr.sort((a, b) => a.ts - b.ts));
+                producingIndexCache = { source: processedScans, byLine };
+            }
+            const list = producingIndexCache.byLine[String(line)];
+            if (!list || list.length === 0) return null;
+
+            const tm = /^(\d{1,2}):(\d{2})/.exec(String(time || ''));
+            const h = tm ? parseInt(tm[1], 10) : parseInt(hourHint, 10);
+            const m = tm ? parseInt(tm[2], 10) : 0;
+            if (!Number.isFinite(h)) return null;
+            const [y, mo, d] = String(date).split('-').map(Number);
+            const at = new Date(y, mo - 1, d + (h < 8 ? 1 : 0), h, m, 0, 0).getTime();
+            const isNight = h < 8 || h >= 20;
+            const shiftStart = new Date(y, mo - 1, d, isNight ? 20 : 8, 0, 0, 0).getTime();
+            const shiftEnd = shiftStart + 12 * 3600000;
+
+            // ค้นแบบ binary search หาสแกนสุดท้ายที่ไม่เกินเวลาที่แจ้ง
+            let lo = 0, hi = list.length - 1, idx = -1;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                if (list[mid].ts <= at) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+            }
+            const pick = (idx >= 0 && list[idx].ts >= shiftStart) ? list[idx]
+                : (idx + 1 < list.length && list[idx + 1].ts < shiftEnd) ? list[idx + 1] : null;
+            if (!pick) return null;
+            const job = String(pick.jobOrder || '').trim();
+            return { model: pick.model, jobOrder: job && job !== 'MANUAL_MODE' ? job : '' };
+        }
+
         function getIncidentsInRange(startDate, endDate, activeLine, activeShift) {
             loadIncidents();
             const list = [];
@@ -7099,7 +7167,18 @@ function doPost(e) {
                 // กะคิดจากวันผลิตที่แปลงแล้ว ไม่ใช่ inc.date ดิบ เพราะคีย์ของการโอนยอดใช้วันผลิตเหมือนกัน
                 const incShift = getIncidentShift({ ...inc, date: incDate });
                 if (activeShift && activeShift !== 'All' && incShift !== activeShift) return;
-                list.push({ ...inc, date: incDate, shift: incShift });
+                const item = { ...inc, date: incDate, shift: incShift };
+                // แจ้งซ่อมมาจากระบบแจ้งซ่อมซึ่งไม่รู้ว่าไลน์กำลังผลิตรุ่นไหน จึงมาเป็น "ทุกรุ่น" เสมอ
+                // เติมรุ่น (และ Job ถ้ายังว่าง) จากสแกนของไลน์นั้น ณ เวลาที่แจ้ง
+                if (inc.source === 'maintenance' && (!inc.model || inc.model === 'All')) {
+                    const producing = findProducingAt(item.date, normalizeIncidentTime(inc.time, inc.hour), inc.hour, inc.line);
+                    if (producing) {
+                        item.model = producing.model;
+                        if (!item.jobOrder) item.jobOrder = producing.jobOrder;
+                        item.modelInferred = true;
+                    }
+                }
+                list.push(item);
             });
             list.sort((a, b) =>
                 String(a.date).localeCompare(String(b.date)) ||
@@ -7921,9 +8000,12 @@ function doPost(e) {
             // Downtime ของแต่ละเหตุการณ์ ตัวเลขชุดเดียวกับตารางสรุปด้านบน (เหตุการณ์ "ทุกไลน์" รวมทุกไลน์)
             const incidentKey = inc => inc.id || `${inc.date}_${inc.hour}_${inc.line}_${inc.model}`;
             const downtimeById = new Map();
+            const downtimeLinesById = new Map(); // เหตุการณ์ "ทุกไลน์" แจกแจงว่าแต่ละไลน์เสียเท่าไหร่
             computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue).records.forEach(r => {
                 const key = incidentKey(r.incident);
                 downtimeById.set(key, (downtimeById.get(key) || 0) + r.lostMin);
+                if (!downtimeLinesById.has(key)) downtimeLinesById.set(key, []);
+                downtimeLinesById.get(key).push(`L${r.line} ${Math.round(r.lostMin)}`);
             });
 
             const body = [[
@@ -7934,6 +8016,7 @@ function doPost(e) {
                 pdfHeaderCell('Job Order'),
                 pdfHeaderCell('ประเภทปัญหา'),
                 pdfHeaderCell('Downtime (นาที)', 'right'),
+                pdfHeaderCell('แยกตามไลน์ (นาที)'),
                 pdfHeaderCell('รายละเอียดบันทึก')
             ]];
 
@@ -7953,6 +8036,7 @@ function doPost(e) {
                     downtimeById.has(incidentKey(inc))
                         ? pdfCell(Math.round(downtimeById.get(incidentKey(inc))).toLocaleString(), 'right', PDF_COLOR.bad, true)
                         : pdfCell('-', 'right', PDF_COLOR.muted),
+                    pdfCell((downtimeLinesById.get(incidentKey(inc)) || []).join(' · ') || '-', 'left', PDF_COLOR.sub),
                     pdfCell(inc.notes || '-')
                 ]);
             });
@@ -7961,7 +8045,7 @@ function doPost(e) {
                 ...heading,
                 ...buildReportIncidentDowntimeSummary(scope),
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [50, 50, 36, 64, 80, 74, 42, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [46, 42, 32, 58, 72, 70, 38, 44, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
@@ -8011,7 +8095,7 @@ function doPost(e) {
                 pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
                     '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
-                    'เหตุการณ์ "ทุกไลน์" นับแยกทุกไลน์ที่เดิน จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
+                    'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
                 { text: '', margin: [0, 0, 0, 8] }
             ];
         }
