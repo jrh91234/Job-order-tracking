@@ -3349,6 +3349,8 @@ function doPost(e) {
                     ctx.save();
                     ctx.font = 'bold 10px Prompt';
                     ctx.textBaseline = 'middle';
+                    // ยอดรวมทุกรุ่น ใช้คิดสัดส่วน % ต่อท้ายตัวเลขของแต่ละแท่ง
+                    const total = data.datasets[0].data.reduce((sum, v) => sum + (Number(v) || 0), 0);
                     
                     chart.getDatasetMeta(0).data.forEach((bar, index) => {
                         const value = data.datasets[0].data[index];
@@ -3356,7 +3358,8 @@ function doPost(e) {
                             // 1. Draw main count label
                             ctx.fillStyle = '#475569'; // Slate-600 color
                             ctx.textAlign = 'left';
-                            const labelText = value.toLocaleString() + ' PCS';
+                            const share = total > 0 ? (value / total) * 100 : 0;
+                            const labelText = `${value.toLocaleString()} PCS (${share.toFixed(1)}%)`;
                             ctx.fillText(labelText, bar.x + 8, bar.y);
                             
                             // Measure text to place "+X" floating label exactly next to it
@@ -3594,7 +3597,7 @@ function doPost(e) {
                         layout: {
                             padding: {
                                 left: 20,
-                                right: 65 // Buffer space for text value labels and floating effects
+                                right: 110 // Buffer space for text value labels (PCS + %) and floating effects
                             }
                         },
                         animation: {
@@ -3605,6 +3608,16 @@ function doPost(e) {
                             legend: { display: false },
                             chartValuePlugin: {
                                 enabled: showChartValues
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const total = ctx.dataset.data.reduce((sum, v) => sum + (Number(v) || 0), 0);
+                                        const value = Number(ctx.parsed.x) || 0;
+                                        const share = total > 0 ? (value / total) * 100 : 0;
+                                        return `${value.toLocaleString()} PCS (${share.toFixed(1)}% ของทั้งหมด)`;
+                                    }
+                                }
                             }
                         },
                         scales: {
