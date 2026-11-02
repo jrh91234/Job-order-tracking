@@ -4268,6 +4268,19 @@ function doPost(e) {
         // หมวดที่นับเวลาเสียตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่ย้อนไปสแกนสุดท้าย และไม่หาช่วงหยุดรอบ ๆ)
         // เครื่องจักรขัดข้อง: ช่วงก่อนแจ้งมักเป็น morning talk/เตรียมงาน ไม่ใช่เวลาที่เครื่องเสีย (รวมแจ้งซ่อมด้วย)
         const INCIDENT_FROM_REPORT_CATEGORIES = ['Breakdown'];
+        /**
+         * นาทีหยุดเครื่องที่ระบบแจ้งซ่อมส่งมา ใช้คอลัมน์ Downtime ก่อน
+         * ถ้าไม่มี (Apps Script รุ่นก่อน หรือข้อมูลที่เก็บไว้ในเครื่อง) อ่านจากข้อความ "หยุดเครื่อง: 12 นาที" ในบันทึก
+         * ไม่ใช่รายการแจ้งซ่อม หรือไม่ได้ระบุ คืน null
+         */
+        function parseMaintenanceDowntime(row) {
+            if (!row || (row.Source || row.source) !== 'maintenance') return null;
+            const raw = row.Downtime !== undefined ? row.Downtime : row.maintenanceDowntime;
+            if (raw !== '' && raw !== null && raw !== undefined && Number.isFinite(Number(raw))) return Math.max(0, Number(raw));
+            const m = /หยุดเครื่อง:\s*([\d.]+)\s*นาที/.exec(String(row.Notes || row.notes || ''));
+            return m ? Math.max(0, parseFloat(m[1])) : null;
+        }
+
         function countsFromReport(inc) {
             return !!inc && INCIDENT_FROM_REPORT_CATEGORIES.indexOf(inc.category) !== -1;
         }
@@ -4318,6 +4331,28 @@ function doPost(e) {
             };
 
             const gaps = new Map();
+            // แจ้งซ่อมที่ระบบแจ้งซ่อมระบุนาทีหยุดเครื่องมาแล้ว ใช้ตัวเลขนั้นตรง ๆ ไม่ต้องหาจากช่วงหยุดสแกน
+            const reportedRecords = [];
+            const handled = new Set();
+            incidents.forEach(inc => {
+                if (inc.source !== 'maintenance') return;
+                const minutes = parseMaintenanceDowntime(inc);
+                if (minutes === null) return;
+                if (opts.onlyLine && opts.onlyLine !== 'All' && String(inc.line) !== String(opts.onlyLine)) { handled.add(inc); return; }
+                const tm = /^(\d{1,2}):(\d{2})/.exec(String(inc.time || ''));
+                const h = tm ? parseInt(tm[1], 10) : parseInt(inc.hour, 10);
+                const m = tm ? parseInt(tm[2], 10) : 0;
+                if (!inc.date || !Number.isFinite(h)) return;
+                const reportTs = toTs(inc.date, h, m);
+                reportedRecords.push({
+                    incident: inc, line: String(inc.line), prodDate: inc.date, reportTs,
+                    startTs: reportTs, endTs: reportTs + minutes * 60000,
+                    startFrom: 'report', endBy: 'reported', hasOT: false, matchedBy: 'maintenance',
+                    soleInGap: false, gapMin: minutes, breakMin: 0, cycleMin: 0, lostMin: minutes
+                });
+                handled.add(inc);
+            });
+            incidents = incidents.filter(inc => !handled.has(inc));
             incidents.forEach(inc => {
                 const tm = /^(\d{1,2}):(\d{2})/.exec(String(inc.time || ''));
                 const h = tm ? parseInt(tm[1], 10) : parseInt(inc.hour, 10);
@@ -4467,6 +4502,7 @@ function doPost(e) {
                     });
                 });
 
+            records.push(...reportedRecords);
             records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
             return records;
         }
@@ -4602,7 +4638,9 @@ function doPost(e) {
                         : r.startFrom === 'scan'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
                         : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
-                    const endCell = r.endBy === 'resumed'
+                    const endCell = r.endBy === 'reported'
+                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-indigo-500 font-sans">ตามเวลาหยุดเครื่องในระบบแจ้งซ่อม</div>`
+                        : r.endBy === 'resumed'
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
                         : r.endBy === 'next'
                             ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-slate-400 font-sans">แจ้งปัญหาถัดไป</div>`
@@ -4937,6 +4975,7 @@ function doPost(e) {
                                 id: row.ID,
                                 source: row.Source || '',
                                 sourceId: row.SourceId || '',
+                                maintenanceDowntime: parseMaintenanceDowntime(row),
                                 date: normalizeIncidentDate(row.Date, row.ID),
                                 hour: parseInt(row.Hour) || 0,
                                 time: normalizeIncidentTime(row.Time, row.Hour),
@@ -6769,6 +6808,7 @@ function doPost(e) {
                                         id: row.ID,
                                         source: row.Source || '',
                                         sourceId: row.SourceId || '',
+                                        maintenanceDowntime: parseMaintenanceDowntime(row),
                                         date: normalizeIncidentDate(row.Date, row.ID),
                                         hour: parseInt(row.Hour) || 0,
                                         line: row.Line,
