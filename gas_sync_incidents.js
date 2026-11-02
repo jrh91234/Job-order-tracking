@@ -113,7 +113,10 @@ function maintenanceJobsToIncidents_(jobs) {
       Notes: [job.mtJob, job.mc ? 'เครื่อง ' + job.mc : '', job.symptom,
         job.status ? 'สถานะ: ' + job.status : '',
         job.downtime !== '' && job.downtime != null ? 'หยุดเครื่อง: ' + job.downtime + ' นาที' : ''].filter(Boolean).join(' • '),
-      Source: 'maintenance', SourceId: job.mtJob
+      Source: 'maintenance', SourceId: job.mtJob,
+      // นาทีที่หยุดเครื่องตามระบบแจ้งซ่อม หน้าจอใช้ค่านี้เป็น Downtime ของรายการแจ้งซ่อมแทนช่วงหยุดสแกน
+      // ว่างไว้ถ้าระบบแจ้งซ่อมยังไม่ได้ระบุ (หน้าจอจะถอยไปใช้ช่วงหยุดสแกนแทน)
+      Downtime: job.downtime !== '' && job.downtime != null && isFinite(Number(job.downtime)) ? Number(job.downtime) : ''
     });
     return out;
   }, []);
