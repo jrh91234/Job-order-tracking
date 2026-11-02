@@ -481,7 +481,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -4265,6 +4265,12 @@ function doPost(e) {
         // ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึงกี่นาที ถือว่าตอนแจ้งไลน์ยังเดินอยู่ ให้ไปหาช่วงหยุดรอบ ๆ แทน
         const INCIDENT_NEARBY_MIN_LOST = 5;
         const INCIDENT_NEARBY_WINDOW_MIN = 60; // ค้นช่วงหยุดในระยะ ± กี่นาทีจากเวลาที่แจ้ง
+        // หมวดที่นับเวลาเสียตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่ย้อนไปสแกนสุดท้าย และไม่หาช่วงหยุดรอบ ๆ)
+        // เครื่องจักรขัดข้อง: ช่วงก่อนแจ้งมักเป็น morning talk/เตรียมงาน ไม่ใช่เวลาที่เครื่องเสีย (รวมแจ้งซ่อมด้วย)
+        const INCIDENT_FROM_REPORT_CATEGORIES = ['Breakdown'];
+        function countsFromReport(inc) {
+            return !!inc && INCIDENT_FROM_REPORT_CATEGORIES.indexOf(inc.category) !== -1;
+        }
 
         function setIncidentDowntimeTab(tab) {
             incidentDowntimeTab = tab;
@@ -4287,6 +4293,7 @@ function doPost(e) {
          *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
          *   - ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึง 5 นาที (แจ้งตอนไลน์ยังสแกนอยู่) ใช้ช่องว่างที่ยาวสุดในช่วง ±60 นาทีแทน
          *   - เหตุการณ์ "ทุกไลน์" คิดเฉพาะไลน์ที่มีสแกนในช่วง ±60 นาทีรอบเวลาที่แจ้ง (ไลน์ที่เดินอยู่ตอนนั้น)
+         *   - หมวดใน INCIDENT_FROM_REPORT_CATEGORIES (เครื่องจักรขัดข้อง/แจ้งซ่อม) นับตั้งแต่เวลาที่แจ้งถึงสแกนแรกที่กลับมาเดินเท่านั้น
          */
         function computeIncidentDowntimeCore(incidents, scans, opts) {
             const nowMs = opts.nowMs;
@@ -4376,7 +4383,10 @@ function doPost(e) {
                 gap.items.forEach((item, i) => {
                     const isFirst = i === 0;
                     const isLast = i === gap.items.length - 1;
-                    const startTs = isFirst && gap.prev ? gap.prev.ts : item.reportTs;
+                    // เครื่องจักรขัดข้องเริ่มนับจากเวลาที่แจ้ง ไม่ย้อนไปสแกนสุดท้าย เพราะช่วงก่อนแจ้ง
+                    // (เช่น morning talk ต้นกะ) ไม่ใช่เวลาที่เครื่องเสีย
+                    const fromScan = isFirst && gap.prev && !countsFromReport(item.inc);
+                    const startTs = fromScan ? gap.prev.ts : item.reportTs;
                     const endTs = Math.max(startTs, isLast ? gapEnd : gap.items[i + 1].reportTs);
                     const gapMin = (endTs - startTs) / 60000;
                     const breakMin = breakOverlap(startTs, endTs) / 60000;
@@ -4389,7 +4399,7 @@ function doPost(e) {
                         startTs,
                         endTs,
                         // scan = นับจากสแกนสุดท้ายก่อนแจ้ง · report = นับจากเวลาที่แจ้ง
-                        startFrom: isFirst && gap.prev ? 'scan' : 'report',
+                        startFrom: fromScan ? 'scan' : 'report',
                         // resumed = จบที่สแกนแรกที่กลับมาเดิน · next = จบที่เหตุการณ์ถัดไป · open = ไม่กลับมาสแกนในกะนั้น
                         endBy: !isLast ? 'next' : (gap.next ? 'resumed' : 'open'),
                         // ไม่กลับมาเดิน: นับถึงเลิกงานปกติ หรือถึงสิ้นกะถ้าไลน์ทำ OT
@@ -4425,7 +4435,7 @@ function doPost(e) {
                 }
             });
             records
-                .filter(r => r.soleInGap && r.endBy !== 'open' && r.lostMin < INCIDENT_NEARBY_MIN_LOST)
+                .filter(r => r.soleInGap && r.endBy !== 'open' && r.lostMin < INCIDENT_NEARBY_MIN_LOST && !countsFromReport(r.incident))
                 .sort((a, b) => a.reportTs - b.reportTs)
                 .forEach(r => {
                     const lo = Math.max(r.shiftStart, r.reportTs - INCIDENT_NEARBY_WINDOW_MIN * 60000);
@@ -8094,7 +8104,8 @@ function doPost(e) {
                 },
                 pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
                     '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
-                    'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
+                    'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
+                    'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
                 { text: '', margin: [0, 0, 0, 8] }
             ];
