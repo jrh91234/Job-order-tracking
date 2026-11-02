@@ -24,7 +24,7 @@ vm.runInContext(
   html.match(/const INCIDENT_NEARBY_MIN_LOST = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_NEARBY_WINDOW_MIN = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_FROM_REPORT_CATEGORIES = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
-  ['breakOverlapMs', 'parseMaintenanceDowntime', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
+  ['breakOverlapMs', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
   ctx
 );
 
@@ -210,28 +210,3 @@ r = run([{ id: 'bd3', date: '2026-10-03', time: '09:00', line: '5', category: 'B
 assert.equal(r[0].matchedBy, 'report');
 assert.equal(Math.round(r[0].lostMin), 0);
 console.log('Incident downtime: Breakdown counts from the report time only passed');
-
-// 12) แจ้งซ่อมใช้นาทีหยุดเครื่องจากระบบแจ้งซ่อมตรง ๆ ไม่ดูช่วงหยุดสแกน
-const mt = (extra) => ({ id: 'mt', source: 'maintenance', date: '2026-10-06', time: '22:56', line: '5', category: 'Breakdown', ...extra });
-const longGap = [scan('5', '2026-10-06', '22:30'), scan('5', '2026-10-06', '23:50')]; // ช่วงหยุดสแกน 80 นาที
-r = run([mt({ maintenanceDowntime: 12 })], longGap);
-assert.equal(r[0].endBy, 'reported');
-assert.equal(r[0].lostMin, 12);
-assert.equal(r[0].startTs, at('2026-10-06', '22:56'));
-// 12b) ไม่มีคอลัมน์ Downtime แต่มีในข้อความบันทึก (ข้อมูลเก่า/Apps Script รุ่นก่อน)
-r = run([mt({ notes: '06102026-2 • เครื่อง ST.6 • สถานะ: ปิดงาน • หยุดเครื่อง: 12 นาที' })], longGap);
-assert.equal(r[0].lostMin, 12);
-// 12c) ระบบแจ้งซ่อมบอก 0 นาที → 0
-r = run([mt({ maintenanceDowntime: 0 })], longGap);
-assert.equal(r[0].lostMin, 0);
-// 12d) ระบบแจ้งซ่อมไม่ระบุนาที → ถอยไปใช้ช่วงหยุดสแกน (นับจากเวลาที่แจ้งแบบ Breakdown) 22:56 → 23:50 = 54 − CT 1
-r = run([mt({ notes: 'ไม่มีระยะเวลา' })], longGap);
-assert.equal(r[0].endBy, 'resumed');
-assert.equal(Math.round(r[0].lostMin), 53);
-// 12e) Breakdown ที่ไม่ได้มาจากระบบแจ้งซ่อม ใช้ช่วงหยุดสแกนเหมือนเดิม และไม่ถูกแจ้งซ่อมแย่งช่วง
-r = run([mt({ maintenanceDowntime: 12 }), { id: 'man', date: '2026-10-06', time: '23:00', line: '5', category: 'Breakdown' }], longGap);
-const man = r.find(x => x.incident.id === 'man');
-assert.equal(Math.round(man.lostMin), 49); // 23:00 → 23:50 − CT 1
-// 12f) ตัวกรองไลน์อื่น ไม่นับแจ้งซ่อมของไลน์นี้
-assert.equal(run([mt({ maintenanceDowntime: 12 })], longGap, { onlyLine: '4' }).length, 0);
-console.log('Incident downtime: maintenance incidents use the reported stop minutes passed');
