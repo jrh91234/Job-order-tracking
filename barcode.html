@@ -1574,16 +1574,19 @@ function doPost(e) {
             }
 
             // Event Listeners for Filters
-            els.filterStartDate.addEventListener('change', () => { applyFilters(); });
-            els.filterEndDate.addEventListener('change', () => { applyFilters(); });
-            els.filterLine.addEventListener('change', () => { applyFilters(); });
-            els.filterShift.addEventListener('change', () => { applyFilters(); });
-            els.filterJob.addEventListener('change', () => { applyFilters(); });
-            els.filterModel.addEventListener('change', () => { applyFilters(); });
+            // เปลี่ยนตัวกรองแล้วพัก Auto Refresh ไว้จนวาดเสร็จ ไม่ให้รอบดึงข้อมูลแทรกเข้ามาวาดซ้ำจนจอเด้งไปมา
+            els.filterStartDate.addEventListener('change', applyFiltersPausingAutoRefresh);
+            els.filterEndDate.addEventListener('change', applyFiltersPausingAutoRefresh);
+            els.filterLine.addEventListener('change', applyFiltersPausingAutoRefresh);
+            els.filterShift.addEventListener('change', applyFiltersPausingAutoRefresh);
+            els.filterJob.addEventListener('change', applyFiltersPausingAutoRefresh);
+            els.filterModel.addEventListener('change', applyFiltersPausingAutoRefresh);
             els.tableSearch.addEventListener('input', () => { filterTable(); });
 
             // Toggle auto refresh
             els.refreshToggle.addEventListener('change', () => {
+                // ผู้ใช้กดเองระหว่างที่ระบบพักไว้ ให้ยึดตามที่ผู้ใช้เลือก ไม่ต้องเปิดคืนอัตโนมัติ
+                autoRefreshPausedBySystem = false;
                 toggleAutoRefresh();
             });
 
@@ -6665,10 +6668,47 @@ function doPost(e) {
             }
         }
 
+        // พัก Auto Refresh ชั่วคราวระหว่างเปลี่ยนตัวกรองหรือโหลดข้อมูล แล้วเปิดคืนเองเมื่อเสร็จ
+        // ใช้ตัวนับเพราะอาจซ้อนกันได้ (เช่น เปลี่ยนตัวกรองระหว่างกำลังโหลด) เปิดคืนเมื่อทุกงานเสร็จแล้วเท่านั้น
+        // เปิดคืนเฉพาะกรณีที่ระบบเป็นคนปิดเอง ถ้าผู้ใช้ปิด Auto Refresh ไว้ก่อนแล้วจะไม่เปิดให้
+        let autoRefreshPauseCount = 0;
+        let autoRefreshPausedBySystem = false;
+        let isLoadingBarcodeData = false;
+
+        function pauseAutoRefresh() {
+            autoRefreshPauseCount++;
+            if (autoRefreshPauseCount === 1 && els.refreshToggle.checked) {
+                autoRefreshPausedBySystem = true;
+                els.refreshToggle.checked = false;
+                toggleAutoRefresh();
+                els.refreshStatus.textContent = 'พัก Auto Refresh ระหว่างโหลดข้อมูล...';
+            }
+        }
+
+        function resumeAutoRefresh() {
+            if (autoRefreshPauseCount === 0) return;
+            autoRefreshPauseCount--;
+            if (autoRefreshPauseCount === 0 && autoRefreshPausedBySystem) {
+                autoRefreshPausedBySystem = false;
+                els.refreshToggle.checked = true;
+                toggleAutoRefresh(); // นับถอยหลังใหม่เต็มรอบ
+            }
+        }
+
+        function applyFiltersPausingAutoRefresh() {
+            pauseAutoRefresh();
+            // เลื่อนไปทำรอบถัดไปให้สวิตช์ Auto Refresh วาดสถานะปิดก่อน แล้วค่อยกรองและวาดกราฟ
+            setTimeout(() => {
+                try { applyFilters(); } finally { resumeAutoRefresh(); }
+            }, 0);
+        }
+
         function startAutoRefreshTimer() {
             if (refreshIntervalId) clearInterval(refreshIntervalId);
             
             refreshIntervalId = setInterval(() => {
+                // ยังโหลดรอบก่อนไม่เสร็จ ไม่เริ่มรอบใหม่ซ้อน
+                if (isLoadingBarcodeData) return;
                 if (els.refreshToggle.checked && !isDemoMode) {
                     refreshSecondsLeft--;
                     els.refreshTimer.textContent = `${refreshSecondsLeft}s`;
@@ -6689,13 +6729,16 @@ function doPost(e) {
         // DATA FETCHERS
         // ==========================================
         function loadBarcodeData(isSilent = false) {
-            // Save current filter values before refresh
-            const savedStartDate = els.filterStartDate ? els.filterStartDate.value : '';
-            const savedEndDate = els.filterEndDate ? els.filterEndDate.value : '';
-            const savedShift = els.filterShift ? els.filterShift.value : 'All';
-            const savedLine = els.filterLine ? els.filterLine.value : 'All';
-            const savedJob = els.filterJob ? els.filterJob.value : 'All';
-            const savedModel = els.filterModel ? els.filterModel.value : 'All';
+            // โหลดที่ผู้ใช้สั่งเอง พัก Auto Refresh ไว้จนเสร็จ ส่วนรอบ Auto Refresh เองแค่กันไม่ให้ซ้อนรอบ
+            isLoadingBarcodeData = true;
+            let finished = false;
+            if (!isSilent) pauseAutoRefresh();
+            const finishLoad = () => {
+                if (finished) return;
+                finished = true;
+                isLoadingBarcodeData = false;
+                if (!isSilent) resumeAutoRefresh();
+            };
 
             if (!isSilent) {
                 els.scanTableBody.innerHTML = `
@@ -6823,6 +6866,15 @@ function doPost(e) {
                                 // processedScans เรียงจาก ts ล่าสุดไปเก่าสุดอยู่แล้ว (ดู parseRawLogs) จึงหยิบตัวแรกได้เลยแบบ O(1)
                                 const latestDate = processedScans[0]?.prodDate || '';
 
+                                // อ่านค่าตัวกรอง ณ ตอนโหลดเสร็จ ไม่ใช่ตอนเริ่มโหลด
+                                // ถ้าผู้ใช้เปลี่ยนตัวกรองระหว่างรอข้อมูล ค่าใหม่ต้องไม่ถูกค่าเก่าเขียนทับจนจอเด้งกลับ
+                                const savedStartDate = els.filterStartDate ? els.filterStartDate.value : '';
+                                const savedEndDate = els.filterEndDate ? els.filterEndDate.value : '';
+                                const savedShift = els.filterShift ? els.filterShift.value : 'All';
+                                const savedLine = els.filterLine ? els.filterLine.value : 'All';
+                                const savedJob = els.filterJob ? els.filterJob.value : 'All';
+                                const savedModel = els.filterModel ? els.filterModel.value : 'All';
+
                                 els.filterStartDate.value = savedStartDate || latestDate;
                                 els.filterEndDate.value = savedEndDate || latestDate;
 
@@ -6834,17 +6886,24 @@ function doPost(e) {
                                 if (savedJob) els.filterJob.value = savedJob;
                                 if (savedModel) els.filterModel.value = savedModel;
 
-                                applyFilters();
+                                try {
+                                    applyFilters();
+                                } finally {
+                                    finishLoad();
+                                }
                                 if (appsScriptUrl && !incidentSheetGid) {
                                     fetchIncidentsFromAppsScript();
                                 }
                                 fetchManpowerFromAppsScript();
-                            }
+                            },
+                            error: finishLoad
                         });
-                    }
+                    },
+                    error: finishLoad
                 });
             })
             .catch(err => {
+                finishLoad();
                 console.error('Error loading sheets:', err);
                 if (!isSilent) {
                     Swal.fire({
