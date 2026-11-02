@@ -23,7 +23,8 @@ vm.runInContext(
   html.match(/const NORMAL_SHIFT_SPAN_HOURS = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_NEARBY_MIN_LOST = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_NEARBY_WINDOW_MIN = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
-  ['breakOverlapMs', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
+  html.match(/const INCIDENT_FROM_REPORT_CATEGORIES = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  ['breakOverlapMs', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
   ctx
 );
 
@@ -72,7 +73,7 @@ assert.equal(r.length, 0);
 
 // 3) หยุดคร่อมพักเที่ยง: 11:30 → 13:30 = 120 − พัก 60 − CT 1 = 59
 r = run(
-  [{ id: 'c', date: '2026-10-28', time: '11:40', line: '5', category: 'Breakdown' }],
+  [{ id: 'c', date: '2026-10-28', time: '11:40', line: '5', category: 'Changeover' }],
   [scan('5', '2026-10-28', '11:30'), scan('5', '2026-10-28', '13:30')]
 );
 assert.equal(Math.round(r[0].breakMin), 60);
@@ -81,7 +82,7 @@ assert.equal(Math.round(r[0].lostMin), 59);
 // 4) สองเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งตามลำดับที่แจ้ง ไม่นับซ้ำ
 r = run(
   [
-    { id: 'd1', date: '2026-10-28', time: '09:05', line: '5', category: 'Breakdown' },
+    { id: 'd1', date: '2026-10-28', time: '09:05', line: '5', category: 'Operator' },
     { id: 'd2', date: '2026-10-28', time: '09:30', line: '5', category: 'Material' }
   ],
   [scan('5', '2026-10-28', '09:00'), scan('5', '2026-10-28', '10:00')]
@@ -91,12 +92,12 @@ assert.equal(Math.round(r[0].lostMin), 30); // 09:00-09:30
 assert.equal(r[0].endBy, 'next');
 assert.equal(Math.round(r[1].lostMin), 29); // 09:30-10:00 − CT
 const byCat = ctx.summarizeIncidentDowntime(r, false);
-assert.equal(byCat[0].category, 'Breakdown');
+assert.equal(byCat[0].category, 'Operator');
 assert.equal(Math.round(byCat.reduce((s, g) => s + g.lostMin, 0)), 59);
 
 // 5) กะดึกหลังเที่ยงคืน: วันผลิต 28 เวลา 02:10 คือ 29 ตามปฏิทิน · สแกน 02:00 กลับมา 02:40
 r = run(
-  [{ id: 'e', date: '2026-10-28', time: '02:10', line: '5', category: 'Breakdown' }],
+  [{ id: 'e', date: '2026-10-28', time: '02:10', line: '5', category: 'Quality' }],
   [scan('5', '2026-10-28', '20:30'), { line: '5', ts: at('2026-10-29', '02:00'), prodDate: '2026-10-28', model: 'A' },
    { line: '5', ts: at('2026-10-29', '02:40'), prodDate: '2026-10-28', model: 'A' }]
 );
@@ -140,14 +141,14 @@ assert.equal(r[0].matchedBy, 'report');
 const busy2 = Array.from({ length: 15 }, (_, i) => ({ line: '5', ts: at('2026-10-28', '08:00') + i * 4 * 60000, prodDate: '2026-10-28', model: 'A' }))
   .concat(['09:00', '09:20', '09:21', '09:22', '09:35', '09:36', '09:37', '10:00'].map(hm => scan('5', '2026-10-28', hm)));
 r = run([{ id: 'x1', date: '2026-10-28', time: '09:21', line: '5', category: 'Material' },
-         { id: 'x2', date: '2026-10-28', time: '09:36', line: '5', category: 'Breakdown' }], busy2);
+         { id: 'x2', date: '2026-10-28', time: '09:36', line: '5', category: 'Other' }], busy2);
 const byId = Object.fromEntries(r.map(x => [x.incident.id, x]));
 assert.equal(byId.x1.matchedBy, 'nearby');
 assert.equal(byId.x2.matchedBy, 'nearby');
 assert.equal(byId.x1.startTs, at('2026-10-28', '09:37')); // ยาวสุด 23 นาที ตกเป็นของเหตุการณ์ที่แจ้งก่อน
 assert.equal(byId.x2.startTs, at('2026-10-28', '09:00')); // อันที่สองได้ช่วงยาวสุดที่เหลือ
 // 8d) ต้นกะยังไม่มีสแกน แจ้ง 09:00 สแกนแรก 09:00:28 → ใช้ช่วงต้นกะ 08:00 ถึงสแกนแรก
-r = run([{ id: 'y', date: '2026-10-03', time: '09:00', line: '5', category: 'Breakdown' }],
+r = run([{ id: 'y', date: '2026-10-03', time: '09:00', line: '5', category: 'Operator' }],
   [{ line: '5', ts: at('2026-10-03', '09:00') + 28000, prodDate: '2026-10-03', model: 'A' }, scan('5', '2026-10-03', '09:05')]);
 assert.equal(r[0].matchedBy, 'nearby');
 assert.equal(r[0].startTs, at('2026-10-03', '08:00'));
@@ -190,3 +191,22 @@ assert.equal(p.model, 'NIGHT2'); assert.equal(p.jobOrder, '');
 assert.equal(ctx2.findProducingAt('2026-10-13', '20:05', 20, '5').model, 'NIGHT'); // ไม่ใช้สแกนกะเช้าข้ามมากะดึก
 assert.equal(ctx2.findProducingAt('2026-10-13', '09:00', 9, 'All'), null);
 console.log('Maintenance incidents: model at report time inferred from scans passed');
+
+// 11) เครื่องจักรขัดข้องนับตั้งแต่เวลาที่แจ้งเท่านั้น
+//     ต้นกะไม่มีสแกน 08:00-09:00 (morning talk) แจ้งเครื่องเสีย 08:40 กลับมาสแกน 09:10 → 30 − CT 1 = 29 (ไม่ใช่นับจาก 08:00)
+r = run([{ id: 'bd1', date: '2026-10-28', time: '08:40', line: '5', category: 'Breakdown' }],
+  [scan('5', '2026-10-28', '09:10'), scan('5', '2026-10-28', '09:12')]);
+assert.equal(r[0].startFrom, 'report');
+assert.equal(r[0].startTs, at('2026-10-28', '08:40'));
+assert.equal(Math.round(r[0].lostMin), 29);
+// 11b) ไม่ย้อนไปสแกนสุดท้ายก่อนแจ้ง: สแกน 10:00 แจ้ง 10:20 กลับมา 10:50 → 30 − 1 = 29 (ไม่ใช่ 49)
+r = run([{ id: 'bd2', date: '2026-10-28', time: '10:20', line: '5', category: 'Breakdown' }],
+  [scan('5', '2026-10-28', '10:00'), scan('5', '2026-10-28', '10:50')]);
+assert.equal(r[0].startTs, at('2026-10-28', '10:20'));
+assert.equal(Math.round(r[0].lostMin), 29);
+// 11c) แจ้งตอนไลน์ยังสแกนอยู่ ไม่ไปหยิบช่วงหยุดรอบ ๆ (เช่น ช่วงต้นกะ) มานับเป็นเครื่องเสีย
+r = run([{ id: 'bd3', date: '2026-10-03', time: '09:00', line: '5', category: 'Breakdown' }],
+  [{ line: '5', ts: at('2026-10-03', '09:00') + 28000, prodDate: '2026-10-03', model: 'A' }, scan('5', '2026-10-03', '09:05')]);
+assert.equal(r[0].matchedBy, 'report');
+assert.equal(Math.round(r[0].lostMin), 0);
+console.log('Incident downtime: Breakdown counts from the report time only passed');
