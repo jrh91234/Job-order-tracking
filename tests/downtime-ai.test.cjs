@@ -95,7 +95,7 @@ assert.match(ctx.summarizeIncidentDowntimes(), /summarized 1 of 1/);
 const tab = mainSs.getSheetByName('IncidentDowntime').rows;
 assert.equal(tab.length, 2);
 const saved = Object.fromEntries(tab[0].map((h, i) => [h, tab[1][i]]));
-assert.equal(saved.Key, "'inc-1|5"); assert.equal(saved.Minutes, 50); assert.equal(saved.By, "'AI");
+assert.equal(saved.Key, "'inc-1|5"); assert.equal(saved.Minutes, 50); assert.equal(saved.By, "'AI:gemini-lite");
 assert.equal(prompts.length, 1);
 assert.match(prompts[0], /Box มาตอน 21:03/);         // ข้อความที่แจ้งถูกส่งให้ AI
 assert.match(prompts[0], /"from":"20:05","to":"21:03"/); // พร้อมช่วงหยุดสแกน
@@ -125,19 +125,32 @@ assert.match(ctx.summarizeIncidentDowntimes(), /summarized 0 of 1/);
 assert.equal(mainSs.getSheetByName('IncidentDowntime').rows[1][4], 47);
 console.log('Downtime AI: gaps, validation, summarize run, re-run on edit, GET_INCIDENTS and Gemini failure passed');
 
-// --- โควตา Gemini แผนฟรี ---
+// --- โควตาและการสลับผู้ให้บริการ AI ---
 assert.match(geminiUrls[0], /models\/gemini-2\.5-flash-lite:generateContent/); // ไม่ใช้โควตาก้อนเดียวกับการแปล PDF
-props.GEMINI_DOWNTIME_MODEL = 'gemini-2.5-flash';
-assert.match(ctx.dtCallGemini_.toString(), /GEMINI_DOWNTIME_MODEL/);
-delete props.GEMINI_DOWNTIME_MODEL;
+const calls = [];
+const reply = ids => JSON.stringify(ids.map(id => ({ id, minutes: 5, confidence: 'low', reason: 'r' })));
+const idsOf = prompt => JSON.parse(prompt.split('\n').pop()).incidents.map(i => i.id);
+let status = () => 200;
 ctx.UrlFetchApp.fetch = (url, opt) => {
+  if (url.includes('maintenance') || url === ctx.MAINTENANCE_API_URL) return { getResponseCode: () => 200, getContentText: () => '{"success":true,"data":[]}' };
+  const body = JSON.parse(opt.payload);
   if (url.includes('generativelanguage')) {
-    geminiUrls.push(url);
-    const ids = JSON.parse(JSON.parse(opt.payload).contents[0].parts[0].text.split('\n').pop()).incidents.map(i => i.id);
-    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(ids.map(id => ({ id, minutes: 5, confidence: 'low', reason: 'r' }))) }] } }] }) };
+    calls.push({ who: url.match(/models\/([^:]+)/)[1], opt });
+    const code = status(calls[calls.length - 1].who);
+    return { getResponseCode: () => code, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: reply(idsOf(body.contents[0].parts[0].text)) }] } }] }) };
   }
-  return { getResponseCode: () => 200, getContentText: () => '{"success":true,"data":[]}' };
+  if (url.includes('anthropic.com')) {
+    calls.push({ who: 'claude', opt });
+    return { getResponseCode: () => status('claude'), getContentText: () => JSON.stringify({ stop_reason: 'end_turn', content: [{ type: 'text', text: '```json\n' + reply(idsOf(body.messages[0].content)) + '\n```' }] }) };
+  }
+  calls.push({ who: url.includes('groq') ? 'groq' : 'openai', opt });
+  return { getResponseCode: () => status(calls[calls.length - 1].who), getContentText: () => JSON.stringify({ choices: [{ message: { content: reply(idsOf(body.messages[0].content)) } }] }) };
 };
+const addGroups = (prefix, n, hour = '22:00') => {
+  for (let i = 0; i < n; i++) incidentsTab.rows.push([`${prefix}${i}`, DAY, 22, `${prefix}${i}`, 'All', '', 'Material', 'วัตถุดิบ', 'รอ 10 นาที', `'${hour}`, 'Night']);
+};
+const byOf = id => (mainSs.getSheetByName('IncidentDowntime').rows.find(r => String(r[1]).replace(/^'/, '') === id) || [])[10];
+
 // ไลน์สแกนต่อเนื่อง + ข้อความไม่มีตัวเลข → ตัดสินเอง 0 นาที ไม่เรียก AI
 barcodeRows.length = 1;
 for (let m = 0; m < 240; m += 2) {
@@ -145,20 +158,48 @@ for (let m = 0; m < 240; m += 2) {
   barcodeRows.push([`${t.getDate()}/${t.getMonth() + 1}/${t.getFullYear() + 543} ${p2(t.getHours())}:${p2(t.getMinutes())}:00`, 'C' + m, 'OK', 'R9', '7']);
 }
 incidentsTab.rows.push(['steady', DAY, 21, '7', 'All', '', 'Quality', 'คุณภาพ', 'งานมีรอยขีดข่วน', "'21:00", 'Night']);
-const callsBefore = geminiUrls.length;
-assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 1\b/);    // inc-1 (แก้ข้อความไว้) ต้องถาม AI, steady ไม่ต้อง
-assert.equal(geminiUrls.length, callsBefore + 1);
-const steadyRow = mainSs.getSheetByName('IncidentDowntime').rows.find(r => String(r[0]).includes('steady|7'));
-assert.equal(steadyRow[4], 0); assert.equal(steadyRow[10], "'Rule");
-// เพดานต่อรอบ 4 ครั้ง (เว้นระยะระหว่างครั้ง) และเพดานต่อวัน
-for (let i = 0; i < 6; i++) incidentsTab.rows.push([`q${i}`, DAY, 22, String(10 + i), 'All', '', 'Material', 'วัตถุดิบ', 'รอ 10 นาที', "'22:00", 'Night']);
-slept = 0;
-const before2 = geminiUrls.length;
-assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 4, quota left today \d+, 2 groups wait for quota/);
-assert.equal(geminiUrls.length, before2 + 4);
+assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 1, by gemini-lite 1\)/); // inc-1 (แก้ข้อความไว้) ต้องถาม AI, steady ไม่ต้อง
+assert.equal(byOf('steady'), "'Rule");
+
+// รอบละไม่เกิน 4 ครั้ง เว้นระยะระหว่างครั้ง
+addGroups('q', 6);
+slept = 0; calls.length = 0;
+assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 4, by gemini-lite 4, 2 groups wait for quota/);
 assert.equal(slept, 3 * 13000);                                    // 4 ครั้ง ต้องเว้น 3 ช่วง → ไม่เกิน 5 ครั้ง/นาที
-props.DOWNTIME_AI_MAX_PER_DAY = String(Object.keys(props).filter(k => k.startsWith('downtime_ai_calls_')).map(k => Number(props[k]))[0]);
-const before3 = geminiUrls.length;
-assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 0, quota left today 0, 2 groups wait for quota/); // วันนี้ใช้ครบแล้ว
-assert.equal(geminiUrls.length, before3);
-console.log('Downtime AI: Flash-Lite model, no-AI shortcut, per-run and daily quota caps passed');
+
+// Flash-Lite ตอบ 429 (โควตาเต็ม) → ใช้ Gemini 2.5 Flash แทน และไม่ลอง Flash-Lite อีกทั้งวัน
+status = who => (who === 'gemini-2.5-flash-lite' ? 429 : 200);
+calls.length = 0;
+assert.match(ctx.summarizeIncidentDowntimes(), /by gemini-flash 2\)/);
+assert.equal(calls.filter(c => c.who === 'gemini-2.5-flash-lite').length, 1);
+assert.equal(byOf('q0'), "'AI:gemini-flash");
+
+// Gemini 2.5 Flash ใช้ได้แค่วันละ 5 (เหลือให้การแปล PDF): ใช้ไปแล้ว 3 (2 ครั้งข้างบน + 1 ครั้งตอนทดสอบ Gemini ล่ม
+// ที่ระบบลองทุกเจ้า) เหลือ 2 ใช้ครบแล้ว + ไม่มีเจ้าอื่น → รอ
+addGroups('r', 5);
+calls.length = 0;
+assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 3, by gemini-flash 2, 3 groups wait for quota/);
+calls.length = 0;
+assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 1, by -, 3 groups wait for quota/);
+assert.equal(calls.length, 0);                                     // ไม่ยิง Gemini เพิ่มเมื่อรู้ว่าเต็มทุกตัวแล้ว
+
+// ตั้ง key ของ Groq + Claude เพิ่ม → ใช้ต่อตามลำดับ
+props.GROQ_API_KEY = 'g'; props.GROQ_MODEL = 'some-groq-model';
+props.ANTHROPIC_API_KEY = 'a';
+status = who => (who === 'groq' ? 429 : who.startsWith('gemini') ? 429 : 200);
+calls.length = 0;
+assert.match(ctx.summarizeIncidentDowntimes(), /by claude 3\)/);
+assert.equal(byOf('r0'), "'AI:claude");                            // r4, r3 ได้ไปก่อนด้วย Gemini Flash (เรียงกลุ่มจากท้ายไปต้น)                            // คำตอบที่ห่อด้วย ```json อ่านได้
+const claudeCall = calls.find(c => c.who === 'claude').opt;
+assert.equal(claudeCall.headers['x-api-key'], 'a');
+assert.equal(claudeCall.headers['anthropic-version'], '2026-10-21');
+assert.equal(claudeCall.headers['anthropic-beta'], 'server-side-fallback-2026-07-01');
+const claudeBody = JSON.parse(claudeCall.payload);
+assert.equal(claudeBody.model, 'claude-opus-5-5'); assert.equal(claudeBody.fallbacks, 'default');
+const groqCall = calls.find(c => c.who === 'groq').opt;
+assert.equal(groqCall.headers.Authorization, 'Bearer g');
+assert.equal(JSON.parse(groqCall.payload).model, 'some-groq-model');
+// ผู้ให้บริการที่ไม่มีชื่อโมเดล (OpenAI ไม่ได้ตั้ง OPENAI_MODEL) ไม่ถูกใช้
+props.OPENAI_API_KEY = 'o';
+assert.equal(ctx.dtAiProviders_().some(pv => pv.id === 'openai'), false);
+console.log('Downtime AI: provider chain, 429 failover, per-provider daily caps, Claude/Groq requests passed');

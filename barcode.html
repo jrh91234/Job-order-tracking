@@ -4639,7 +4639,7 @@ function doPost(e) {
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
                         : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
                     const endCell = r.endBy === 'ai'
-                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-fuchsia-600 font-sans">${r.aiBy === 'Rule' ? 'ไม่มีช่วงหยุด' : '🤖 AI สรุป'}</div>`
+                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-fuchsia-600 font-sans">${r.aiBy === 'Rule' ? 'ไม่มีช่วงหยุด' : `🤖 AI สรุป${/^AI:/.test(r.aiBy) ? ` (${escapeHtml(r.aiBy.slice(3))})` : ''}`}</div>`
                         : r.endBy === 'resumed'
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
                         : r.endBy === 'next'

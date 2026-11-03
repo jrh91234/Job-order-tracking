@@ -81,8 +81,8 @@ function doGet(e) {
       // AI สรุป Downtime: ต้องตั้ง trigger ให้ summarizeIncidentDowntimes ทุก 15 นาที และ Script property GEMINI_API_KEY
       downtimeAi: {
         geminiKeySet: !!PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY"),
-        model: PropertiesService.getScriptProperties().getProperty("GEMINI_DOWNTIME_MODEL") || DOWNTIME_AI_DEFAULT_MODEL,
-        maxCallsPerDay: Number(PropertiesService.getScriptProperties().getProperty("DOWNTIME_AI_MAX_PER_DAY")) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY,
+        // ลำดับผู้ให้บริการที่ใช้ได้ (มี key ครบ) ตัวไหนโควตาเต็มจะข้ามไปตัวถัดไป
+        providers: dtAiProviders_().map(function (pv) { return pv.id + " (" + pv.model + ", วันละ " + pv.maxPerDay + ")"; }),
         triggerNote: "ตั้ง Time-driven trigger ของ summarizeIncidentDowntimes ทุก 15 นาที (ดู docs/apps-script-map.md)"
       },
       allSheets: ss.getSheets().map(function (s) { return s.getName(); })
@@ -823,19 +823,122 @@ function dtBuildPrompt_(group) {
   ].join('\n');
 }
 
-function dtCallGemini_(prompt) {
-  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!key) throw new Error('ยังไม่ได้ตั้ง Script property GEMINI_API_KEY');
-  var model = PropertiesService.getScriptProperties().getProperty('GEMINI_DOWNTIME_MODEL') || DOWNTIME_AI_DEFAULT_MODEL;
-  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-    method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': key}, muteHttpExceptions: true,
-    payload: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})
+/**
+ * ผู้ให้บริการ AI ที่ใช้สรุป Downtime เรียงตามลำดับที่จะลองใช้ ตัวไหนโควตาเต็ม (HTTP 429) หรือใช้ครบเพดาน
+ * ของวันแล้ว ข้ามไปตัวถัดไป ตัวที่ยังไม่ได้ตั้ง key (และชื่อโมเดล สำหรับ Groq/OpenAI) ใน Script properties จะไม่ถูกใช้
+ *   1) Gemini Flash-Lite (GEMINI_API_KEY) โควตาแยกจากที่ใช้แปลรายงาน PDF
+ *   2) Gemini 2.5 Flash (GEMINI_API_KEY) ใช้แค่วันละ 5 ครั้ง เหลือโควตาไว้ให้การแปลรายงาน PDF
+ *   3) Groq (GROQ_API_KEY + GROQ_MODEL) มีแผนฟรี
+ *   4) Claude (ANTHROPIC_API_KEY) เสียเงินตามการใช้งาน
+ *   5) OpenAI (OPENAI_API_KEY + OPENAI_MODEL) เสียเงินตามการใช้งาน
+ */
+function dtAiProviders_() {
+  var p = PropertiesService.getScriptProperties();
+  var get = function (k) { return p.getProperty(k) || ''; };
+  var list = [
+    {id: 'gemini-lite', type: 'gemini', key: get('GEMINI_API_KEY'), model: get('GEMINI_DOWNTIME_MODEL') || DOWNTIME_AI_DEFAULT_MODEL,
+      maxPerDay: Number(get('DOWNTIME_AI_MAX_PER_DAY')) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY},
+    {id: 'gemini-flash', type: 'gemini', key: get('GEMINI_API_KEY'), model: 'gemini-2.5-flash', maxPerDay: 5},
+    {id: 'groq', type: 'openai', key: get('GROQ_API_KEY'), model: get('GROQ_MODEL'),
+      url: 'https://api.groq.com/openai/v1/chat/completions', maxPerDay: Number(get('GROQ_MAX_PER_DAY')) || 100},
+    {id: 'claude', type: 'anthropic', key: get('ANTHROPIC_API_KEY'), model: get('ANTHROPIC_DOWNTIME_MODEL') || 'claude-opus-5-5',
+      maxPerDay: Number(get('ANTHROPIC_MAX_PER_DAY')) || 50},
+    {id: 'openai', type: 'openai', key: get('OPENAI_API_KEY'), model: get('OPENAI_MODEL'),
+      url: 'https://api.openai.com/v1/chat/completions', maxPerDay: Number(get('OPENAI_MAX_PER_DAY')) || 50}
+  ];
+  return list.filter(function (x, i) {
+    if (!x.key || !x.model) return false;
+    // ถ้าตั้งให้ตัวแรกใช้ gemini-2.5-flash อยู่แล้ว ไม่ต้องมีตัวที่สองซ้ำ
+    return !(i > 0 && x.type === 'gemini' && x.model === list[0].model);
   });
-  if (res.getResponseCode() !== 200) throw new Error('Gemini HTTP ' + res.getResponseCode() + ' (' + model + ')');
-  var body = JSON.parse(res.getContentText());
-  var out = JSON.parse(body.candidates[0].content.parts[0].text);
-  if (!Array.isArray(out)) throw new Error('Gemini did not return an array');
+}
+
+/** ตัวนับการใช้และสถานะ "โควตาเต็ม" ของแต่ละผู้ให้บริการ แยกตามวัน เก็บใน Script properties */
+function dtAiUsage_() {
+  var props = PropertiesService.getScriptProperties();
+  var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var cnt = function (pv) { return 'downtime_ai_calls_' + pv.id + '_' + day; };
+  var full = function (pv) { return 'downtime_ai_full_' + pv.id + '_' + day; };
+  return {
+    available: function (pv) {
+      return !props.getProperty(full(pv)) && (Number(props.getProperty(cnt(pv))) || 0) < pv.maxPerDay;
+    },
+    use: function (pv) { props.setProperty(cnt(pv), String((Number(props.getProperty(cnt(pv))) || 0) + 1)); },
+    markFull: function (pv) { props.setProperty(full(pv), '1'); }
+  };
+}
+
+/** ดึง JSON array จากข้อความตอบกลับ (บางเจ้าอาจห่อด้วย ```json หรือมีคำอธิบายนำหน้า) */
+function dtParseJsonArray_(text) {
+  var t = String(text || '').trim();
+  var a = t.indexOf('['), b = t.lastIndexOf(']');
+  if (a === -1 || b <= a) throw new Error('AI did not return a JSON array');
+  var out = JSON.parse(t.slice(a, b + 1));
+  if (!Array.isArray(out)) throw new Error('AI did not return a JSON array');
   return out;
+}
+
+/** เรียกผู้ให้บริการหนึ่งเจ้า คืนข้อความที่ตอบกลับ หรือโยน error (มี status เมื่อเป็น HTTP error) */
+function dtCallProvider_(pv, prompt) {
+  var res, body;
+  if (pv.type === 'gemini') {
+    res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(pv.model) + ':generateContent', {
+      method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': pv.key}, muteHttpExceptions: true,
+      payload: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})
+    });
+  } else if (pv.type === 'anthropic') {
+    var req = {model: pv.model, max_tokens: 16000, output_config: {effort: 'low'}, messages: [{role: 'user', content: prompt}]};
+    var headers = {'x-api-key': pv.key, 'anthropic-version': '2026-10-21'};
+    // โมเดลระดับบนอาจปฏิเสธคำขอด้วย safety classifier ให้ Anthropic ส่งต่อไปโมเดลสำรองเองฝั่งเซิร์ฟเวอร์
+    if (/^claude-(opus-5|fable-5|sonnet-5-5)/.test(pv.model)) {
+      req.fallbacks = 'default';
+      headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+    }
+    res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json', headers: headers, muteHttpExceptions: true, payload: JSON.stringify(req)
+    });
+  } else {
+    res = UrlFetchApp.fetch(pv.url, {
+      method: 'post', contentType: 'application/json', headers: {Authorization: 'Bearer ' + pv.key}, muteHttpExceptions: true,
+      payload: JSON.stringify({model: pv.model, temperature: 0, messages: [{role: 'user', content: prompt}]})
+    });
+  }
+  var code = res.getResponseCode();
+  if (code !== 200) { var e = new Error(pv.id + ' HTTP ' + code + ' (' + pv.model + ')'); e.status = code; throw e; }
+  body = JSON.parse(res.getContentText());
+  if (pv.type === 'gemini') return body.candidates[0].content.parts[0].text;
+  if (pv.type === 'anthropic') {
+    if (body.stop_reason === 'refusal') throw new Error('claude refused the request');
+    return (body.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('');
+  }
+  return body.choices[0].message.content;
+}
+
+/**
+ * ลองทีละผู้ให้บริการจนได้คำตอบ ตัวที่ตอบ 429 ถือว่าโควตาวันนี้เต็ม ข้ามไปทั้งวัน
+ * คืน {answers, provider} หรือ null ถ้าไม่มีเจ้าไหนใช้ได้แล้ววันนี้ (รอวันถัดไป) โยน error ถ้าทุกเจ้าที่ลองล้มเหลวด้วยเหตุอื่น
+ */
+function dtCallAi_(prompt, usage) {
+  var providers = dtAiProviders_();
+  if (!providers.length) throw new Error('ยังไม่ได้ตั้ง API key ของ AI ใน Script properties (อย่างน้อย GEMINI_API_KEY)');
+  var lastErr = null, tried = false;
+  for (var i = 0; i < providers.length; i++) {
+    var pv = providers[i];
+    if (!usage.available(pv)) continue;
+    tried = true;
+    usage.use(pv);
+    try {
+      return {answers: dtParseJsonArray_(dtCallProvider_(pv, prompt)), provider: pv.id};
+    } catch (err) {
+      if (err.status === 429) usage.markFull(pv);
+      console.warn('downtime AI via ' + pv.id + ': ' + err);
+      lastErr = err;
+    }
+  }
+  if (!tried) return null;
+  // ทุกเจ้าที่ลองโดน 429 = หมดโควตาทุกเจ้าแล้ว รอรอบหน้า (ไม่ใช่ข้อผิดพลาด)
+  if (providers.every(function (pv) { return !usage.available(pv); })) return null;
+  throw lastErr;
 }
 
 /**
@@ -904,17 +1007,6 @@ function dtWriteSummaries_(ss, rows) {
   });
 }
 
-/** จำนวนครั้งที่เรียก AI ไปแล้ววันนี้ (นับตามวันปฏิทินของสคริปต์) เก็บใน Script properties */
-function dtAiBudget_() {
-  var props = PropertiesService.getScriptProperties();
-  var key = 'downtime_ai_calls_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  var max = Number(props.getProperty('DOWNTIME_AI_MAX_PER_DAY')) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY;
-  return {
-    left: function () { return max - (Number(props.getProperty(key)) || 0); },
-    use: function () { props.setProperty(key, String((Number(props.getProperty(key)) || 0) + 1)); }
-  };
-}
-
 /**
  * กลุ่มที่ตัดสินได้เองโดยไม่ต้องถาม AI (ประหยัดโควตา): ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดเลย
  * และข้อความที่แจ้งไม่มีตัวเลข (ไม่ได้บอกระยะเวลา/เวลา) → Downtime 0
@@ -975,8 +1067,9 @@ function summarizeIncidentDowntimes() {
 
     // 3) ให้ AI สรุปทีละกลุ่ม (ล่าสุดก่อน) 4) บันทึก
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    var budget = dtAiBudget_();
-    var written = 0, aiCalls = 0, skippedForQuota = 0;
+    var usage = dtAiUsage_();
+    var written = 0, aiCalls = 0, skippedForQuota = 0, quotaOut = false;
+    var usedProviders = {};
     Object.keys(groups).sort().reverse().forEach(function (key) {
       var g = groups[key];
       var reports = g.items.map(function (inc) { return dtIncidentTs_(inc.date, inc.time); });
@@ -991,14 +1084,17 @@ function summarizeIncidentDowntimes() {
           return {id: inc.id, start: null, end: null, minutes: 0, confidence: 'high', reason: 'ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดรอบเวลาที่แจ้ง'};
         });
       } else {
-        // เกินโควตารอบนี้หรือของวันนี้ เก็บไว้ทำรอบหน้า/วันถัดไป
-        if (aiCalls >= DOWNTIME_AI_MAX_CALLS_PER_RUN || budget.left() <= 0) { skippedForQuota++; return; }
+        // เกินโควตารอบนี้ หรือทุกเจ้าหมดโควตาวันนี้แล้ว เก็บไว้ทำรอบหน้า/วันถัดไป
+        if (aiCalls >= DOWNTIME_AI_MAX_CALLS_PER_RUN || quotaOut) { skippedForQuota++; return; }
         if (aiCalls > 0) Utilities.sleep(DOWNTIME_AI_CALL_GAP_MS);
         aiCalls++;
-        budget.use();
-        by = 'AI';
-        try { answers = dtCallGemini_(dtBuildPrompt_(g)); }
+        var got;
+        try { got = dtCallAi_(dtBuildPrompt_(g), usage); }
         catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+        if (!got) { quotaOut = true; skippedForQuota++; return; }
+        answers = got.answers;
+        by = 'AI:' + got.provider;
+        usedProviders[got.provider] = (usedProviders[got.provider] || 0) + 1;
       }
       var rows = [];
       g.items.forEach(function (inc, idx) {
@@ -1015,7 +1111,8 @@ function summarizeIncidentDowntimes() {
       written += rows.length;
     });
     return 'summarized ' + written + ' of ' + pending.length + ' pending incidents (AI calls ' + aiCalls +
-      ', quota left today ' + budget.left() + (skippedForQuota ? ', ' + skippedForQuota + ' groups wait for quota' : '') + ')';
+      ', by ' + (Object.keys(usedProviders).map(function (k) { return k + ' ' + usedProviders[k]; }).join(', ') || '-') +
+      (skippedForQuota ? ', ' + skippedForQuota + ' groups wait for quota' : '') + ')';
   } finally {
     cache.remove('downtime_ai_running');
   }
