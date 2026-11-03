@@ -210,3 +210,26 @@ r = run([{ id: 'bd3', date: '2026-10-03', time: '09:00', line: '5', category: 'B
 assert.equal(r[0].matchedBy, 'report');
 assert.equal(Math.round(r[0].lostMin), 0);
 console.log('Incident downtime: Breakdown counts from the report time only passed');
+
+// 13) มีผลสรุปจาก AI → ใช้ค่านั้นแทนกติกาจากสแกน และไม่ไปแบ่งช่วงหยุดของเหตุการณ์อื่น
+const aiGap = [scan('5', '2026-10-12', '20:05'), scan('5', '2026-10-12', '21:03'), scan('5', '2026-10-12', '21:10')];
+r = run([{ id: 'ai1', date: '2026-10-12', time: '20:13', line: '5', category: 'Changeover' },
+         { id: 'rule', date: '2026-10-12', time: '20:30', line: '5', category: 'Material' }],
+  aiGap, { aiSummaries: { 'ai1|5': { minutes: 50, start: '20:13', end: '21:03', confidence: 'high', reason: 'Box มาตอน 21:03' } } });
+const aiRec = r.find(x => x.incident.id === 'ai1');
+assert.equal(aiRec.matchedBy, 'ai');
+assert.equal(aiRec.lostMin, 50);
+assert.equal(aiRec.startTs, at('2026-10-12', '20:13'));
+assert.equal(aiRec.aiReason, 'Box มาตอน 21:03');
+// อีกเหตุการณ์ไม่มีผล AI ใช้กติกาเดิม (สแกนก่อน 20:05 → 21:03 เต็มช่วง เพราะ ai1 ไม่ได้แบ่ง)
+assert.equal(Math.round(r.find(x => x.incident.id === 'rule').lostMin), 57);
+// 13b) AI ให้แค่นาที (ไม่มีเวลาเริ่ม/จบ) → เริ่มที่เวลาที่แจ้ง
+r = run([{ id: 'ai2', date: '2026-10-12', time: '22:00', line: '5', category: 'Material' }], aiGap,
+  { aiSummaries: { 'ai2|5': { minutes: 13, start: '', end: '', confidence: 'medium', reason: 'รอเบิก 13 นาที' } } });
+assert.equal(r[0].lostMin, 13);
+assert.equal(r[0].endTs - r[0].startTs, 13 * 60000);
+// 13c) ผล AI ของไลน์อื่น ไม่ถูกใช้กับไลน์นี้
+r = run([{ id: 'ai3', date: '2026-10-12', time: '20:13', line: '5', category: 'Other' }], aiGap,
+  { aiSummaries: { 'ai3|4': { minutes: 99 } } });
+assert.notEqual(r[0].matchedBy, 'ai');
+console.log('Incident downtime: AI summaries take precedence passed');

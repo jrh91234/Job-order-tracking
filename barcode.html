@@ -481,7 +481,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -1433,6 +1433,10 @@ function doPost(e) {
 
         // Incident Events Pools
         let incidentLogs = {}; // Key: "prodDate_hour_line" -> { id, date, hour, line, category, categoryText, notes }
+        // Downtime ที่ AI สรุปไว้ (Apps Script แท็บ IncidentDowntime) Key: "รหัสเหตุการณ์|ไลน์"
+        let incidentDowntimeAI = (() => {
+            try { return JSON.parse(localStorage.getItem('job_tracker_incident_downtime_ai') || '{}') || {}; } catch (e) { return {}; }
+        })();
         // Web App ของหน้าลงยอด (index.html) — ที่นี่ใช้เพื่อ "กัน" ไม่ให้ถูกกรอกมาเป็น URL ของบันทึกเหตุการณ์
         // โปรเจกต์นั้นมี doPost ที่เขียนแท็บ ยอดผลิต ถ้าชี้บันทึกเหตุการณ์มาที่เดียวกัน
         // การลงยอดจะถูก doPost ของ incident ทับจนหยุดเข้าแท็บ ยอดผลิต แล้วกลายเป็นแถวขยะในแท็บ Incidents
@@ -4286,7 +4290,10 @@ function doPost(e) {
          *
          * incidents: บันทึกปัญหาที่กรองช่วงแล้ว ต้องมี date (วันผลิต), time "HH:mm" หรือ hour, line ("All" = ทุกไลน์)
          * scans:     สแกน OK { line, ts, prodDate, model }
-         * opts:      { nowMs, cycleSecondsByModel, onlyLine, breakOverlap(fromMs, toMs), hasOT(date, shift, line) }
+         * opts:      { nowMs, cycleSecondsByModel, onlyLine, breakOverlap(fromMs, toMs), hasOT(date, shift, line),
+         *              aiSummaries: { "รหัสเหตุการณ์|ไลน์": { minutes, start, end, confidence, reason } } }
+         *
+         * ถ้า AI สรุปเหตุการณ์ไว้แล้ว (Apps Script แท็บ IncidentDowntime) ใช้ค่านั้นก่อนเสมอ กติกาข้างล่างใช้เฉพาะรายการที่ยังไม่มีผลจาก AI
          *
          * กติกา: ไลน์หยุดตั้งแต่สแกนสุดท้ายก่อนเวลาที่แจ้ง จนถึงสแกนแรกหลังเวลาที่แจ้ง ภายในกะเดียวกัน
          *   - กะนั้นยังไม่มีสแกนก่อนเวลาที่แจ้ง (เช่น ขาดวัตถุดิบตั้งแต่ต้นกะ) เริ่มนับจากเวลาที่แจ้ง
@@ -4322,6 +4329,7 @@ function doPost(e) {
             };
 
             const gaps = new Map();
+            const aiRecords = [];
             incidents.forEach(inc => {
                 const tm = /^(\d{1,2}):(\d{2})/.exec(String(inc.time || ''));
                 const h = tm ? parseInt(tm[1], 10) : parseInt(inc.hour, 10);
@@ -4357,6 +4365,24 @@ function doPost(e) {
                 if (opts.onlyLine && opts.onlyLine !== 'All') lines = lines.filter(l => l === String(opts.onlyLine));
 
                 lines.forEach(line => {
+                    // AI สรุปไว้แล้ว (แท็บ IncidentDowntime) ใช้ค่านั้นเลย ไม่ต้องหาจากช่วงหยุดสแกน
+                    const ai = opts.aiSummaries && opts.aiSummaries[`${inc.id}|${line}`];
+                    if (ai) {
+                        const at = hm => {
+                            const mm = /^(\d{1,2}):(\d{2})/.exec(String(hm || ''));
+                            return mm ? toTs(inc.date, parseInt(mm[1], 10), parseInt(mm[2], 10)) : NaN;
+                        };
+                        const minutes = Math.max(0, Number(ai.minutes) || 0);
+                        const startTs = Number.isFinite(at(ai.start)) ? at(ai.start) : reportTs;
+                        const endTs = Number.isFinite(at(ai.end)) ? at(ai.end) : startTs + minutes * 60000;
+                        aiRecords.push({
+                            incident: inc, line, prodDate: inc.date, reportTs, startTs, endTs,
+                            startFrom: 'ai', endBy: 'ai', hasOT: false, matchedBy: 'ai', soleInGap: false,
+                            gapMin: minutes, breakMin: 0, cycleMin: 0, lostMin: minutes,
+                            aiReason: ai.reason || '', aiConfidence: ai.confidence || ''
+                        });
+                        return;
+                    }
                     const list = scansByLine[line] || [];
                     // หลังเลิกงานไม่นับ ยกเว้นไลน์นั้นทำ OT (กรอกคนช่วง OT ไว้ หรือมีสแกนหลังเวลาเลิกงาน)
                     const hasOT = (opts.hasOT && opts.hasOT(inc.date, shift, line)) ||
@@ -4471,6 +4497,7 @@ function doPost(e) {
                     });
                 });
 
+            records.push(...aiRecords);
             records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
             return records;
         }
@@ -4516,6 +4543,7 @@ function doPost(e) {
                 cycleSecondsByModel: modelCycleSecondsCache,
                 onlyLine: activeLine,
                 breakOverlap: breakOverlapMs,
+                aiSummaries: incidentDowntimeAI,
                 hasOT: (date, shift, line) => {
                     const mp = manpowerLogs[manpowerKey(date, shift, line)];
                     return !!mp && ((mp.otAssembler || 0) + (mp.otFeeder || 0) + (mp.otLeader || 0)) > 0;
@@ -4601,22 +4629,29 @@ function doPost(e) {
                 tbody.innerHTML = [...data.records].sort((a, b) => b.lostMin - a.lostMin).map(r => {
                     const inc = r.incident;
                     const shift = getIncidentShift(inc);
-                    const startCell = r.matchedBy === 'nearby'
+                    const aiLabel = { high: 'สูง', medium: 'กลาง', low: 'ต่ำ' }[r.aiConfidence] || '-';
+                    const startCell = r.matchedBy === 'ai'
+                        ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-fuchsia-600 font-sans" title="${escapeHtml(r.aiReason)}">🤖 AI สรุป · มั่นใจ${aiLabel}</div>`
+                        : r.matchedBy === 'nearby'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-indigo-500 font-sans" title="ตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±${INCIDENT_NEARBY_WINDOW_MIN} นาทีรอบเวลาที่แจ้ง">หยุดนานสุดช่วง ±${INCIDENT_NEARBY_WINDOW_MIN} นาที</div>`
                         : r.startFrom === 'scan'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
                         : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
-                    const endCell = r.endBy === 'resumed'
+                    const endCell = r.endBy === 'ai'
+                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-fuchsia-600 font-sans">🤖 AI สรุป</div>`
+                        : r.endBy === 'resumed'
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
                         : r.endBy === 'next'
                             ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-slate-400 font-sans">แจ้งปัญหาถัดไป</div>`
                             : `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-rose-500 font-sans">ไม่กลับมาสแกน · นับถึง${r.hasOT ? 'สิ้น OT' : 'เลิกงาน'}</div>`;
                     const notes = inc.notes ? `<div class="text-[10px] text-slate-400 font-normal whitespace-pre-wrap max-w-xs">${escapeHtml(inc.notes)}</div>` : '';
+                    const aiNote = r.matchedBy === 'ai' && r.aiReason
+                        ? `<div class="text-[10px] text-fuchsia-600 font-normal whitespace-pre-wrap max-w-xs">🤖 ${escapeHtml(r.aiReason)}</div>` : '';
                     return `
                         <tr class="hover:bg-slate-50/50 transition-colors">
                             <td class="p-3 text-slate-600 whitespace-nowrap">${formatThaiDate(r.prodDate)} <span class="text-slate-400">${shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก'}</span></td>
                             <td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${lineLabel(r.line)}${inc.line === 'All' ? '<div class="text-[10px] text-slate-400 font-normal">แจ้งว่าทุกไลน์</div>' : ''}</td>
-                            <td class="p-3 font-semibold text-slate-700">${escapeHtml(inc.categoryText || inc.category || '-')}${notes}</td>
+                            <td class="p-3 font-semibold text-slate-700">${escapeHtml(inc.categoryText || inc.category || '-')}${notes}${aiNote}</td>
                             <td class="p-3 text-center font-mono text-slate-700 whitespace-nowrap">${formatScanDateTime(r.reportTs)}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${startCell}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${endCell}</td>
@@ -4933,6 +4968,18 @@ function doPost(e) {
                     if (data.attendanceSummary) { attendanceSummary = data.attendanceSummary; renderAttendanceSummary(attendanceSummary); }
                     else if (data.attendanceWarning) renderAttendanceSummary(attendanceSummary, data.attendanceWarning);
                     if (data.maintenanceWarning) showIncidentToast('warning', data.maintenanceWarning, 'แสดงข้อมูลแจ้งซ่อมที่เก็บไว้ล่าสุด');
+                    if (Array.isArray(data.downtimeSummaries)) {
+                        const ai = {};
+                        data.downtimeSummaries.forEach(r => {
+                            if (!r || !r.ID || r.Line === undefined) return;
+                            ai[`${r.ID}|${r.Line}`] = {
+                                minutes: Number(r.Minutes) || 0, start: r.Start || '', end: r.End || '',
+                                confidence: r.Confidence || '', reason: r.Reason || ''
+                            };
+                        });
+                        incidentDowntimeAI = ai;
+                        try { localStorage.setItem('job_tracker_incident_downtime_ai', JSON.stringify(ai)); } catch (e) {}
+                    }
                     const cloudIncidents = {};
                     if (data.maintenanceWarning) Object.values(incidentLogs).filter(inc => inc.source === 'maintenance').forEach(inc => { cloudIncidents[inc.id] = inc; });
                     data.incidents.forEach(row => {
@@ -8075,7 +8122,7 @@ function doPost(e) {
                 const key = incidentKey(r.incident);
                 downtimeById.set(key, (downtimeById.get(key) || 0) + r.lostMin);
                 if (!downtimeLinesById.has(key)) downtimeLinesById.set(key, []);
-                downtimeLinesById.get(key).push(`L${r.line} ${Math.round(r.lostMin)}`);
+                downtimeLinesById.get(key).push(`L${r.line} ${Math.round(r.lostMin)}${r.matchedBy === 'ai' ? ' (AI)' : ''}`);
             });
 
             const body = [[
@@ -8162,7 +8209,7 @@ function doPost(e) {
                     table: { headerRows: 1, dontBreakRows: true, widths: ['*', 50, 70, 46, 46, 70], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('คิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
+                pdfNote('รายการที่มี (AI) ในคอลัมน์แยกตามไลน์ = AI สรุปจากข้อความที่แจ้งประกอบกับช่วงหยุดสแกน · รายการอื่นคิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
                     '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
                     'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
