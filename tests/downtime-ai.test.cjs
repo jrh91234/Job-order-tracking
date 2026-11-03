@@ -50,8 +50,9 @@ const cache = {};
 const props = { GEMINI_API_KEY: 'test-key' };
 let slept = 0;
 let geminiUrls = [];
+const logged = [];
 const ctx = {
-  console: { warn() {}, log() {} },
+  console: { warn() {}, log(m) { logged.push(String(m)); }, error() {} },
   Utilities: { formatDate: fmt, sleep: ms => { slept += ms; } },
   Session: { getScriptTimeZone: () => 'Asia/Bangkok' },
   CacheService: { getScriptCache: () => ({ get: k => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: k => { delete cache[k]; } }) },
@@ -92,6 +93,7 @@ assert.equal(ctx.dtValidateResult_({ minutes: 'abc' }, inc, group), null);
 
 // --- รอบเต็ม ---
 assert.match(ctx.summarizeIncidentDowntimes(), /summarized 1 of 1/);
+assert.ok(logged.some(m => /^summarizeIncidentDowntimes: summarized 1 of 1/.test(m)));      // ผลต้องขึ้นใน log ของ editor
 const tab = mainSs.getSheetByName('IncidentDowntime').rows;
 assert.equal(tab.length, 2);
 const saved = Object.fromEntries(tab[0].map((h, i) => [h, tab[1][i]]));
@@ -103,7 +105,7 @@ assert.doesNotMatch(prompts[0], /inc-new/);           // เหตุการ�
 assert.equal(cache.downtime_ai_running, undefined);   // ปลดธงหลังจบรอบ
 
 // รอบถัดไปไม่มีอะไรใหม่ → ไม่เรียก AI ซ้ำ
-assert.equal(ctx.summarizeIncidentDowntimes(), 'nothing to do');
+assert.match(ctx.summarizeIncidentDowntimes(), /^nothing to do \(\d+ incidents read, \d+ in last 7 days: 1 already summarized/);
 assert.equal(prompts.length, 1);
 // แก้ข้อความเหตุการณ์ → สรุปใหม่และเขียนทับแถวเดิม
 incidentsTab.rows[1][8] = 'Box มาตอน 21:00';

@@ -1020,10 +1020,23 @@ function dtNeedsNoAi_(group) {
  * คืนสรุปสั้น ๆ ว่าทำไปกี่รายการ
  */
 function summarizeIncidentDowntimes() {
+  // พิมพ์ผลลง log ด้วย กด Run จาก editor จะได้เห็นใน "บันทึกการดำเนินการ" (ค่า return ไม่แสดงที่นั่น)
+  var result;
+  try {
+    result = dtSummarizeRun_();
+  } catch (err) {
+    console.error('summarizeIncidentDowntimes: ' + (err && err.stack || err));
+    throw err;
+  }
+  console.log('summarizeIncidentDowntimes: ' + result);
+  return result;
+}
+
+function dtSummarizeRun_() {
   // ไม่ใช้ script lock ตัวเดียวกับ doPost เพราะรอบนี้อาจรันหลายนาที หน้าเว็บจะรอค้างไปด้วย
   // ใช้ธงใน cache กันรอบซ้อนแทน (หมดอายุเองใน 10 นาที เผื่อรอบก่อนตายกลางทาง)
   var cache = CacheService.getScriptCache();
-  if (cache.get('downtime_ai_running')) return 'busy';
+  if (cache.get('downtime_ai_running')) return 'busy (อีกรอบกำลังทำงานอยู่ ลองใหม่ใน 10 นาที)';
   cache.put('downtime_ai_running', '1', 600);
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1046,13 +1059,21 @@ function summarizeIncidentDowntimes() {
     readDowntimeSummaries_(ss).forEach(function (s) { done[s.ID] = done[s.ID] || s.Sig; });
 
     var lookbackTs = nowMs - DOWNTIME_LOOKBACK_DAYS * 86400000;
+    var stat = {recent: 0, waiting: 0, done: 0};
     var pending = incidents.map(dtNormalizeIncident_).filter(function (inc) {
       if (!inc) return false;
       var ts = dtIncidentTs_(inc.date, inc.time);
-      if (isNaN(ts) || ts < lookbackTs || ts > nowMs - DOWNTIME_WAIT_MIN * 60000) return false;
-      return done[inc.id] !== dtSig_(inc);
+      if (isNaN(ts) || ts < lookbackTs) return false;
+      stat.recent++;
+      if (ts > nowMs - DOWNTIME_WAIT_MIN * 60000) { stat.waiting++; return false; }
+      if (done[inc.id] === dtSig_(inc)) { stat.done++; return false; }
+      return true;
     });
-    if (!pending.length) return 'nothing to do';
+    if (!pending.length) {
+      return 'nothing to do (' + incidents.length + ' incidents read, ' + stat.recent + ' in last ' +
+        DOWNTIME_LOOKBACK_DAYS + ' days: ' + stat.done + ' already summarized, ' + stat.waiting +
+        ' younger than ' + DOWNTIME_WAIT_MIN + ' min)';
+    }
 
     // 2) สแกน + จัดกลุ่มตาม วัน/กะ/ไลน์
     var scansByLine = dtReadScansByLine_(lookbackTs - 86400000);
