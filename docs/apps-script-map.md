@@ -155,7 +155,7 @@ Key = "รหัสเหตุการณ์|ไลน์"
 |---|---|---|---|---|
 | 1 | Gemini Flash-Lite | `GEMINI_API_KEY` (เปลี่ยนโมเดลได้ด้วย `GEMINI_DOWNTIME_MODEL`) | 20 (`DOWNTIME_AI_MAX_PER_DAY`) | แผนฟรี |
 | 2 | Gemini 2.5 Flash | `GEMINI_API_KEY` | 5 (เหลือโควตาให้การแปลรายงาน PDF) | แผนฟรี |
-| 3 | Groq | `GROQ_API_KEY` + `GROQ_MODEL` | 100 (`GROQ_MAX_PER_DAY`) | มีแผนฟรี |
+| 3 | Groq | `GROQ_API_KEY` (+ `GROQ_MODEL` ถ้าไม่ใส่ใช้ `llama-3.3-70b-versatile`) | 100 (`GROQ_MAX_PER_DAY`) | มีแผนฟรี |
 | 4 | Claude (Anthropic) | `ANTHROPIC_API_KEY` (เปลี่ยนโมเดลได้ด้วย `ANTHROPIC_DOWNTIME_MODEL` ค่าเริ่มต้น `claude-opus-5-5`) | 50 (`ANTHROPIC_MAX_PER_DAY`) | เสียเงินตามการใช้งาน |
 | 5 | OpenAI | `OPENAI_API_KEY` + `OPENAI_MODEL` | 50 (`OPENAI_MAX_PER_DAY`) | เสียเงินตามการใช้งาน |
 
@@ -163,7 +163,7 @@ Key = "รหัสเหตุการณ์|ไลน์"
   - เรียก AI ไม่เกิน 4 ครั้งต่อรอบ เว้นระยะ 13 วินาทีระหว่างครั้ง
   - ทำกลุ่มล่าสุดก่อน และย้อนหลังแค่ 7 วัน
   - ทุกเจ้าเต็มแล้ว กลุ่มที่เหลือรอรอบหน้าหรือวันถัดไป
-- **ชื่อโมเดลของ Groq/OpenAI:** ต้องตั้งเอง (`GROQ_MODEL`, `OPENAI_MODEL`) ดูชื่อที่ใช้ได้จากหน้า Models ของผู้ให้บริการนั้น ไม่ได้ฝังค่าเริ่มต้นไว้เพราะชื่อเปลี่ยนบ่อย
+- **ชื่อโมเดล:** Groq ใช้ `llama-3.3-70b-versatile` ถ้าไม่ได้ตั้ง `GROQ_MODEL` (ถ้าโมเดลนี้ถูกเลิกใช้ ระบบจะข้ามไปเจ้าถัดไป ให้ตั้ง `GROQ_MODEL` ใหม่); OpenAI ต้องตั้ง `OPENAI_MODEL` เอง
 - **ตรวจผลย้อนหลัง:** คอลัมน์ `By` ในแท็บ `IncidentDowntime` บอกว่าเจ้าไหนสรุป เช่น `AI:gemini-lite`, `AI:claude` หรือ `Rule` (ไลน์เดินต่อเนื่อง ตัดสินเองไม่ใช้ AI)
 - **ดูลำดับที่ใช้ได้อยู่:** เปิด URL ของ Web App ตรง ๆ แล้วดูที่ `downtimeAi.providers`
 

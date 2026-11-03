@@ -828,7 +828,7 @@ function dtBuildPrompt_(group) {
  * ของวันแล้ว ข้ามไปตัวถัดไป ตัวที่ยังไม่ได้ตั้ง key (และชื่อโมเดล สำหรับ Groq/OpenAI) ใน Script properties จะไม่ถูกใช้
  *   1) Gemini Flash-Lite (GEMINI_API_KEY) โควตาแยกจากที่ใช้แปลรายงาน PDF
  *   2) Gemini 2.5 Flash (GEMINI_API_KEY) ใช้แค่วันละ 5 ครั้ง เหลือโควตาไว้ให้การแปลรายงาน PDF
- *   3) Groq (GROQ_API_KEY + GROQ_MODEL) มีแผนฟรี
+ *   3) Groq (GROQ_API_KEY; GROQ_MODEL ไม่ใส่ = llama-3.3-70b-versatile) มีแผนฟรี
  *   4) Claude (ANTHROPIC_API_KEY) เสียเงินตามการใช้งาน
  *   5) OpenAI (OPENAI_API_KEY + OPENAI_MODEL) เสียเงินตามการใช้งาน
  */
@@ -839,7 +839,7 @@ function dtAiProviders_() {
     {id: 'gemini-lite', type: 'gemini', key: get('GEMINI_API_KEY'), model: get('GEMINI_DOWNTIME_MODEL') || DOWNTIME_AI_DEFAULT_MODEL,
       maxPerDay: Number(get('DOWNTIME_AI_MAX_PER_DAY')) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY},
     {id: 'gemini-flash', type: 'gemini', key: get('GEMINI_API_KEY'), model: 'gemini-2.5-flash', maxPerDay: 5},
-    {id: 'groq', type: 'openai', key: get('GROQ_API_KEY'), model: get('GROQ_MODEL'),
+    {id: 'groq', type: 'openai', key: get('GROQ_API_KEY'), model: get('GROQ_MODEL') || 'llama-3.3-70b-versatile',
       url: 'https://api.groq.com/openai/v1/chat/completions', maxPerDay: Number(get('GROQ_MAX_PER_DAY')) || 100},
     {id: 'claude', type: 'anthropic', key: get('ANTHROPIC_API_KEY'), model: get('ANTHROPIC_DOWNTIME_MODEL') || 'claude-opus-5-5',
       maxPerDay: Number(get('ANTHROPIC_MAX_PER_DAY')) || 50},

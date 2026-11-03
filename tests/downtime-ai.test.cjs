@@ -184,7 +184,7 @@ assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 1, by -, 3 groups wait 
 assert.equal(calls.length, 0);                                     // ไม่ยิง Gemini เพิ่มเมื่อรู้ว่าเต็มทุกตัวแล้ว
 
 // ตั้ง key ของ Groq + Claude เพิ่ม → ใช้ต่อตามลำดับ
-props.GROQ_API_KEY = 'g'; props.GROQ_MODEL = 'some-groq-model';
+props.GROQ_API_KEY = 'g';                                       // ไม่ตั้ง GROQ_MODEL → ใช้ค่าเริ่มต้น
 props.ANTHROPIC_API_KEY = 'a';
 status = who => (who === 'groq' ? 429 : who.startsWith('gemini') ? 429 : 200);
 calls.length = 0;
@@ -198,7 +198,7 @@ const claudeBody = JSON.parse(claudeCall.payload);
 assert.equal(claudeBody.model, 'claude-opus-5-5'); assert.equal(claudeBody.fallbacks, 'default');
 const groqCall = calls.find(c => c.who === 'groq').opt;
 assert.equal(groqCall.headers.Authorization, 'Bearer g');
-assert.equal(JSON.parse(groqCall.payload).model, 'some-groq-model');
+assert.equal(JSON.parse(groqCall.payload).model, 'llama-3.3-70b-versatile');
 // ผู้ให้บริการที่ไม่มีชื่อโมเดล (OpenAI ไม่ได้ตั้ง OPENAI_MODEL) ไม่ถูกใช้
 props.OPENAI_API_KEY = 'o';
 assert.equal(ctx.dtAiProviders_().some(pv => pv.id === 'openai'), false);
