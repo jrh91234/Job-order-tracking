@@ -4379,7 +4379,7 @@ function doPost(e) {
                             incident: inc, line, prodDate: inc.date, reportTs, startTs, endTs,
                             startFrom: 'ai', endBy: 'ai', hasOT: false, matchedBy: 'ai', soleInGap: false,
                             gapMin: minutes, breakMin: 0, cycleMin: 0, lostMin: minutes,
-                            aiReason: ai.reason || '', aiConfidence: ai.confidence || ''
+                            aiReason: ai.reason || '', aiConfidence: ai.confidence || '', aiBy: ai.by || 'AI'
                         });
                         return;
                     }
@@ -4630,22 +4630,23 @@ function doPost(e) {
                     const inc = r.incident;
                     const shift = getIncidentShift(inc);
                     const aiLabel = { high: 'สูง', medium: 'กลาง', low: 'ต่ำ' }[r.aiConfidence] || '-';
+                    // By = Rule คือระบบตัดสินเองโดยไม่ถาม AI (ไลน์สแกนต่อเนื่อง ข้อความไม่บอกระยะเวลา) เพื่อประหยัดโควตา
                     const startCell = r.matchedBy === 'ai'
-                        ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-fuchsia-600 font-sans" title="${escapeHtml(r.aiReason)}">🤖 AI สรุป · มั่นใจ${aiLabel}</div>`
+                        ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-fuchsia-600 font-sans" title="${escapeHtml(r.aiReason)}">${r.aiBy === 'Rule' ? '✓ ไลน์เดินต่อเนื่อง' : `🤖 AI สรุป · มั่นใจ${aiLabel}`}</div>`
                         : r.matchedBy === 'nearby'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-indigo-500 font-sans" title="ตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±${INCIDENT_NEARBY_WINDOW_MIN} นาทีรอบเวลาที่แจ้ง">หยุดนานสุดช่วง ±${INCIDENT_NEARBY_WINDOW_MIN} นาที</div>`
                         : r.startFrom === 'scan'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
                         : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
                     const endCell = r.endBy === 'ai'
-                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-fuchsia-600 font-sans">🤖 AI สรุป</div>`
+                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-fuchsia-600 font-sans">${r.aiBy === 'Rule' ? 'ไม่มีช่วงหยุด' : '🤖 AI สรุป'}</div>`
                         : r.endBy === 'resumed'
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
                         : r.endBy === 'next'
                             ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-slate-400 font-sans">แจ้งปัญหาถัดไป</div>`
                             : `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-rose-500 font-sans">ไม่กลับมาสแกน · นับถึง${r.hasOT ? 'สิ้น OT' : 'เลิกงาน'}</div>`;
                     const notes = inc.notes ? `<div class="text-[10px] text-slate-400 font-normal whitespace-pre-wrap max-w-xs">${escapeHtml(inc.notes)}</div>` : '';
-                    const aiNote = r.matchedBy === 'ai' && r.aiReason
+                    const aiNote = r.matchedBy === 'ai' && r.aiBy !== 'Rule' && r.aiReason
                         ? `<div class="text-[10px] text-fuchsia-600 font-normal whitespace-pre-wrap max-w-xs">🤖 ${escapeHtml(r.aiReason)}</div>` : '';
                     return `
                         <tr class="hover:bg-slate-50/50 transition-colors">
@@ -4974,7 +4975,7 @@ function doPost(e) {
                             if (!r || !r.ID || r.Line === undefined) return;
                             ai[`${r.ID}|${r.Line}`] = {
                                 minutes: Number(r.Minutes) || 0, start: r.Start || '', end: r.End || '',
-                                confidence: r.Confidence || '', reason: r.Reason || ''
+                                confidence: r.Confidence || '', reason: r.Reason || '', by: r.By || 'AI'
                             };
                         });
                         incidentDowntimeAI = ai;

@@ -81,6 +81,8 @@ function doGet(e) {
       // AI สรุป Downtime: ต้องตั้ง trigger ให้ summarizeIncidentDowntimes ทุก 15 นาที และ Script property GEMINI_API_KEY
       downtimeAi: {
         geminiKeySet: !!PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY"),
+        model: PropertiesService.getScriptProperties().getProperty("GEMINI_DOWNTIME_MODEL") || DOWNTIME_AI_DEFAULT_MODEL,
+        maxCallsPerDay: Number(PropertiesService.getScriptProperties().getProperty("DOWNTIME_AI_MAX_PER_DAY")) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY,
         triggerNote: "ตั้ง Time-driven trigger ของ summarizeIncidentDowntimes ทุก 15 นาที (ดู docs/apps-script-map.md)"
       },
       allSheets: ss.getSheets().map(function (s) { return s.getName(); })
@@ -638,10 +640,16 @@ var BARCODE_SHEET_GID = 0;
 var DOWNTIME_TAB = 'IncidentDowntime';
 var DOWNTIME_COLS = ['Key', 'ID', 'Line', 'Date', 'Minutes', 'Start', 'End', 'Confidence', 'Reason', 'Sig', 'By', 'UpdatedAt'];
 var DOWNTIME_WAIT_MIN = 60;            // รอให้เหตุการณ์ผ่านไปก่อน จะได้เห็นว่าไลน์กลับมาเดินเมื่อไหร่
-var DOWNTIME_LOOKBACK_DAYS = 35;       // ไม่ย้อนสรุปเหตุการณ์ที่เก่ากว่านี้
+var DOWNTIME_LOOKBACK_DAYS = 7;        // ไม่ย้อนสรุปเหตุการณ์ที่เก่ากว่านี้ (Gemini แผนฟรีได้วันละไม่กี่ครั้ง ย้อนไกลไม่ไหว)
 var DOWNTIME_WINDOW_MIN = 120;         // ส่งช่วงหยุดสแกนรอบเวลาที่แจ้ง ± กี่นาทีให้ AI ดู
 var DOWNTIME_MIN_GAP_MIN = 3;          // ช่องว่างระหว่างสแกนที่สั้นกว่านี้ถือว่าไลน์ยังเดินปกติ
-var DOWNTIME_MAX_GROUPS_PER_RUN = 15;  // กันรอบเดียวรันนานเกินโควตา 6 นาที ที่เหลือไปทำรอบถัดไป
+// โควตา Gemini แผนฟรี (ดูจาก AI Studio → Rate limits): gemini-2.5-flash ได้แค่ 5 ครั้ง/นาที 20 ครั้ง/วัน
+// และใช้ร่วมกับการแปลรายงาน PDF จึงแยกไปใช้โมเดล Flash-Lite ซึ่งมีโควตาของตัวเอง
+// เปลี่ยนโมเดล/เพดานได้ใน Script properties โดยไม่ต้องแก้โค้ด: GEMINI_DOWNTIME_MODEL, DOWNTIME_AI_MAX_PER_DAY
+var DOWNTIME_AI_DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+var DOWNTIME_AI_DEFAULT_MAX_PER_DAY = 20;  // นับเฉพาะครั้งที่เรียก AI จริง เกินแล้วรอวันถัดไป
+var DOWNTIME_AI_MAX_CALLS_PER_RUN = 4;     // รอบละไม่เกิน 4 ครั้ง เว้นระยะ 13 วินาที → ไม่เกิน 5 ครั้ง/นาที
+var DOWNTIME_AI_CALL_GAP_MS = 13000;
 var DT_BREAK_MINUTES_BY_HOUR = {0: 60, 5: 30, 12: 60, 17: 30}; // ตรงกับ BREAK_MINUTES_BY_HOUR ในหน้าเว็บ
 
 function dtPad_(n) { return (n < 10 ? '0' : '') + n; }
@@ -818,11 +826,12 @@ function dtBuildPrompt_(group) {
 function dtCallGemini_(prompt) {
   var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('ยังไม่ได้ตั้ง Script property GEMINI_API_KEY');
-  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+  var model = PropertiesService.getScriptProperties().getProperty('GEMINI_DOWNTIME_MODEL') || DOWNTIME_AI_DEFAULT_MODEL;
+  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
     method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': key}, muteHttpExceptions: true,
     payload: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})
   });
-  if (res.getResponseCode() !== 200) throw new Error('Gemini HTTP ' + res.getResponseCode());
+  if (res.getResponseCode() !== 200) throw new Error('Gemini HTTP ' + res.getResponseCode() + ' (' + model + ')');
   var body = JSON.parse(res.getContentText());
   var out = JSON.parse(body.candidates[0].content.parts[0].text);
   if (!Array.isArray(out)) throw new Error('Gemini did not return an array');
@@ -895,6 +904,25 @@ function dtWriteSummaries_(ss, rows) {
   });
 }
 
+/** จำนวนครั้งที่เรียก AI ไปแล้ววันนี้ (นับตามวันปฏิทินของสคริปต์) เก็บใน Script properties */
+function dtAiBudget_() {
+  var props = PropertiesService.getScriptProperties();
+  var key = 'downtime_ai_calls_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var max = Number(props.getProperty('DOWNTIME_AI_MAX_PER_DAY')) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY;
+  return {
+    left: function () { return max - (Number(props.getProperty(key)) || 0); },
+    use: function () { props.setProperty(key, String((Number(props.getProperty(key)) || 0) + 1)); }
+  };
+}
+
+/**
+ * กลุ่มที่ตัดสินได้เองโดยไม่ต้องถาม AI (ประหยัดโควตา): ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดเลย
+ * และข้อความที่แจ้งไม่มีตัวเลข (ไม่ได้บอกระยะเวลา/เวลา) → Downtime 0
+ */
+function dtNeedsNoAi_(group) {
+  return group.ctx.gaps.length === 0 && group.items.every(function (inc) { return !/\d/.test(inc.notes); });
+}
+
 /**
  * งานหลักที่ trigger เรียก (ตั้ง Time-driven ทุก 15 นาที) รันเองจาก editor ก็ได้เพื่อทดสอบ
  * คืนสรุปสั้น ๆ ว่าทำไปกี่รายการ
@@ -945,18 +973,33 @@ function summarizeIncidentDowntimes() {
       });
     });
 
-    // 3) ให้ AI สรุปทีละกลุ่ม 4) บันทึก
+    // 3) ให้ AI สรุปทีละกลุ่ม (ล่าสุดก่อน) 4) บันทึก
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    var written = 0;
-    Object.keys(groups).slice(0, DOWNTIME_MAX_GROUPS_PER_RUN).forEach(function (key) {
+    var budget = dtAiBudget_();
+    var written = 0, aiCalls = 0, skippedForQuota = 0;
+    Object.keys(groups).sort().reverse().forEach(function (key) {
       var g = groups[key];
       var reports = g.items.map(function (inc) { return dtIncidentTs_(inc.date, inc.time); });
       var from = Math.min.apply(null, reports) - DOWNTIME_WINDOW_MIN * 60000;
       var to = Math.max.apply(null, reports) + DOWNTIME_WINDOW_MIN * 60000;
       g.ctx = dtScanGaps_(scansByLine[g.line] || [], g.win, from, to, nowMs);
-      var answers;
-      try { answers = dtCallGemini_(dtBuildPrompt_(g)); }
-      catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+
+      var answers, by;
+      if (dtNeedsNoAi_(g)) {
+        by = 'Rule';
+        answers = g.items.map(function (inc) {
+          return {id: inc.id, start: null, end: null, minutes: 0, confidence: 'high', reason: 'ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดรอบเวลาที่แจ้ง'};
+        });
+      } else {
+        // เกินโควตารอบนี้หรือของวันนี้ เก็บไว้ทำรอบหน้า/วันถัดไป
+        if (aiCalls >= DOWNTIME_AI_MAX_CALLS_PER_RUN || budget.left() <= 0) { skippedForQuota++; return; }
+        if (aiCalls > 0) Utilities.sleep(DOWNTIME_AI_CALL_GAP_MS);
+        aiCalls++;
+        budget.use();
+        by = 'AI';
+        try { answers = dtCallGemini_(dtBuildPrompt_(g)); }
+        catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+      }
       var rows = [];
       g.items.forEach(function (inc, idx) {
         var item = answers.filter(function (a) { return a && String(a.id) === inc.id; })[0] || answers[idx];
@@ -965,13 +1008,14 @@ function summarizeIncidentDowntimes() {
         rows.push({
           Key: inc.id + '|' + g.line, ID: inc.id, Line: g.line, Date: inc.date,
           Minutes: res.minutes, Start: res.start, End: res.end, Confidence: res.confidence, Reason: res.reason,
-          Sig: dtSig_(inc), By: 'AI', UpdatedAt: stamp
+          Sig: dtSig_(inc), By: by, UpdatedAt: stamp
         });
       });
       dtWriteSummaries_(ss, rows);
       written += rows.length;
     });
-    return 'summarized ' + written + ' of ' + pending.length + ' pending incidents';
+    return 'summarized ' + written + ' of ' + pending.length + ' pending incidents (AI calls ' + aiCalls +
+      ', quota left today ' + budget.left() + (skippedForQuota ? ', ' + skippedForQuota + ' groups wait for quota' : '') + ')';
   } finally {
     cache.remove('downtime_ai_running');
   }
