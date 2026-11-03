@@ -205,3 +205,51 @@ assert.equal(JSON.parse(groqCall.payload).model, 'llama-3.3-70b-versatile');
 props.OPENAI_API_KEY = 'o';
 assert.equal(ctx.dtAiProviders_().some(pv => pv.id === 'openai'), false);
 console.log('Downtime AI: provider chain, 429 failover, per-provider daily caps, Claude/Groq requests passed');
+
+// --- ชื่อโมเดลถูกเลิกใช้ (404) → ถามรายชื่อโมเดลแล้วสลับเอง ---
+assert.equal(ctx.dtPickModel_({ type: 'gemini', model: 'gemini-2.5-flash-lite' },
+  ['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite-preview', 'gemini-3.0-flash-lite', 'gemini-3.0-flash', 'gemini-flash-lite-latest', 'gemini-3.0-flash-lite-image']), 'gemini-flash-lite-latest');
+assert.equal(ctx.dtPickModel_({ type: 'gemini', model: 'gemini-2.5-flash' },
+  ['gemini-3.0-flash-lite', 'gemini-3.0-flash', 'gemini-3.5-flash-preview', 'gemini-3.0-pro']), 'gemini-3.0-flash');
+assert.equal(ctx.dtPickModel_({ type: 'openai', model: 'llama-3.3-70b-versatile' },
+  ['whisper-large-v3', 'llama-guard-4', 'openai/gpt-oss-120b', 'llama-4-70b-instruct']), 'llama-4-70b-instruct');
+assert.equal(ctx.dtPickModel_({ type: 'openai', model: 'x' }, ['whisper-large-v3']), '');
+
+for (const k of Object.keys(props)) if (/^downtime_ai_/.test(k)) delete props[k];
+delete props.ANTHROPIC_API_KEY; delete props.OPENAI_API_KEY;
+const seen = [];
+ctx.UrlFetchApp.fetch = (url, opt = {}) => {
+  seen.push(url);
+  if (/v1beta\/models\?/.test(url)) {
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ models: [
+      { name: 'models/gemini-3.0-flash-lite', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/text-embedding-005', supportedGenerationMethods: ['embedContent'] }] }) };
+  }
+  if (url.includes('generativelanguage')) {
+    const model = url.match(/models\/([^:]+)/)[1];
+    if (model.startsWith('gemini-2.5')) {
+      return { getResponseCode: () => 404, getContentText: () => JSON.stringify({ error: { message: `models/${model} is not found for API version v1beta` } }) };
+    }
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '[{"id":"z","minutes":3}]' }] } }] }) };
+  }
+  return { getResponseCode: () => 500, getContentText: () => '{}' };
+};
+const okUsage = { available: () => true, use() {}, markFull() {} };
+const got = ctx.dtCallAi_('prompt', okUsage);
+assert.equal(got.provider, 'gemini-lite');
+assert.equal(props['downtime_ai_model_gemini-lite'], 'gemini-3.0-flash-lite');   // จำไว้ใช้รอบหน้า
+assert.equal(ctx.dtAiProviders_()[0].model, 'gemini-3.0-flash-lite');
+seen.length = 0;
+ctx.dtCallAi_('prompt', okUsage);
+assert.equal(seen.length, 1);                                                       // รอบหน้าไม่ต้องถามรายชื่ออีก
+// ตั้งชื่อโมเดลเองใน Script properties ยังมาก่อนค่าที่ระบบจำไว้
+props.GEMINI_DOWNTIME_MODEL = 'gemini-mine';
+assert.equal(ctx.dtAiProviders_()[0].model, 'gemini-mine');
+delete props.GEMINI_DOWNTIME_MODEL;
+// ข้อความ error ของผู้ให้บริการขึ้นใน log
+props['downtime_ai_model_gemini-lite'] = 'gemini-2.5-gone';
+ctx.UrlFetchApp.fetch = (url) => /models\?/.test(url)
+  ? { getResponseCode: () => 403, getContentText: () => '{}' }
+  : { getResponseCode: () => 404, getContentText: () => JSON.stringify({ error: { message: 'models/gemini-2.5-gone is not found' } }) };
+assert.throws(() => ctx.dtCallAi_('prompt', okUsage), /HTTP 404 \(.*\): models\/gemini-2\.5-gone is not found/);
+console.log('Downtime AI: 404 model discovery, remembered model, error detail passed');
