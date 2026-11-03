@@ -75,7 +75,13 @@ function doGet(e) {
         Incidents: rowsOf("Incidents"),
         IncidentCategories: rowsOf("IncidentCategories"),
         Manpower: rowsOf("Manpower"),
-        ShiftTransfers: rowsOf("ShiftTransfers")
+        ShiftTransfers: rowsOf("ShiftTransfers"),
+        IncidentDowntime: rowsOf("IncidentDowntime")
+      },
+      // AI สรุป Downtime: ต้องตั้ง trigger ให้ summarizeIncidentDowntimes ทุก 15 นาที และ Script property GEMINI_API_KEY
+      downtimeAi: {
+        geminiKeySet: !!PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY"),
+        triggerNote: "ตั้ง Time-driven trigger ของ summarizeIncidentDowntimes ทุก 15 นาที (ดู docs/apps-script-map.md)"
       },
       allSheets: ss.getSheets().map(function (s) { return s.getName(); })
     }, null, 2)).setMimeType(ContentService.MimeType.JSON);
@@ -206,7 +212,9 @@ function doPost(e) {
         maintenanceError = /^(MAINTENANCE_[A-Z_]+|Maintenance API HTTP \d{3}|Maintenance API returned an invalid response)$/.test(reason) ? reason : 'MAINTENANCE_MAPPING_FAILED';
         console.warn(String(err));
       }
-      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, maintenanceWarning: maintenanceWarning, maintenanceError: maintenanceError, attendanceSummary: attendanceSummary, attendanceWarning: attendanceWarning}))
+      var downtimeSummaries = [];
+      try { downtimeSummaries = readDowntimeSummaries_(ss); } catch (dtErr) { console.warn(String(dtErr)); }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", incidents: list, downtimeSummaries: downtimeSummaries, maintenanceWarning: maintenanceWarning, maintenanceError: maintenanceError, attendanceSummary: attendanceSummary, attendanceWarning: attendanceWarning}))
                            .setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -606,5 +614,365 @@ function translateWithGemini_(texts) {
     return {result: "success", translations: out.map(String)};
   } catch (err) {
     return {result: "error", message: "Cannot parse Gemini response: " + err};
+  }
+}
+
+// =====================================================================
+// AI สรุป Downtime ของแต่ละเหตุการณ์ (แท็บ IncidentDowntime)
+// =====================================================================
+// ทำงานเป็นรอบด้วย time-driven trigger (ตั้งเองครั้งเดียวในหน้า Triggers ของโปรเจกต์นี้
+// ให้เรียก summarizeIncidentDowntimes ทุก 15 นาที ดู docs/apps-script-map.md)
+// ไม่ได้สร้าง trigger จากโค้ด เพราะต้องเพิ่ม scope script.scriptapp ซึ่งทำให้ Web App
+// ใช้งานไม่ได้จนกว่าเจ้าของจะกดอนุญาตใหม่
+//
+// ขั้นตอนต่อหนึ่งรอบ
+//   1) หาเหตุการณ์ (บันทึกเอง + แจ้งซ่อม) ที่แจ้งมาแล้วเกิน DOWNTIME_WAIT_MIN นาที และยังไม่มีผล
+//      หรือผลเดิมคิดจากข้อมูลเหตุการณ์ชุดเก่า (แก้เวลา/ไลน์/ข้อความภายหลัง)
+//   2) อ่านสแกนจากชีตบาร์โค้ด แล้วคำนวณช่วงหยุดสแกนของไลน์นั้นรอบเวลาที่แจ้ง
+//   3) ส่งข้อความที่แจ้ง + ช่วงหยุดให้ Gemini เลือกช่วงที่เป็นของปัญหานี้ (ทีละ วัน/กะ/ไลน์
+//      เพื่อให้หลายเหตุการณ์ในช่วงเดียวกันแบ่งเวลากันได้ ไม่นับซ้ำ)
+//   4) บันทึกผลลงแท็บ IncidentDowntime หน้า dashboard ใช้ค่านี้แทนกติกาจากสแกน
+
+var BARCODE_SPREADSHEET_ID = '1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE';
+var BARCODE_SHEET_GID = 0;
+var DOWNTIME_TAB = 'IncidentDowntime';
+var DOWNTIME_COLS = ['Key', 'ID', 'Line', 'Date', 'Minutes', 'Start', 'End', 'Confidence', 'Reason', 'Sig', 'By', 'UpdatedAt'];
+var DOWNTIME_WAIT_MIN = 60;            // รอให้เหตุการณ์ผ่านไปก่อน จะได้เห็นว่าไลน์กลับมาเดินเมื่อไหร่
+var DOWNTIME_LOOKBACK_DAYS = 35;       // ไม่ย้อนสรุปเหตุการณ์ที่เก่ากว่านี้
+var DOWNTIME_WINDOW_MIN = 120;         // ส่งช่วงหยุดสแกนรอบเวลาที่แจ้ง ± กี่นาทีให้ AI ดู
+var DOWNTIME_MIN_GAP_MIN = 3;          // ช่องว่างระหว่างสแกนที่สั้นกว่านี้ถือว่าไลน์ยังเดินปกติ
+var DOWNTIME_MAX_GROUPS_PER_RUN = 15;  // กันรอบเดียวรันนานเกินโควตา 6 นาที ที่เหลือไปทำรอบถัดไป
+var DT_BREAK_MINUTES_BY_HOUR = {0: 60, 5: 30, 12: 60, 17: 30}; // ตรงกับ BREAK_MINUTES_BY_HOUR ในหน้าเว็บ
+
+function dtPad_(n) { return (n < 10 ? '0' : '') + n; }
+
+/** วันผลิต "yyyy-MM-dd" + "HH:mm" -> เวลาจริง (00:00-07:59 เป็นกะดึกของวันผลิตก่อนหน้า จึงเลื่อนไปวันถัดไป) */
+function dtIncidentTs_(date, hhmm) {
+  var d = String(date).split('-').map(Number);
+  var t = String(hhmm).split(':').map(Number);
+  if (d.length < 3 || isNaN(t[0])) return NaN;
+  return new Date(d[0], d[1] - 1, d[2] + (t[0] < 8 ? 1 : 0), t[0], t[1] || 0, 0, 0).getTime();
+}
+
+function dtFormatHm_(ts) {
+  var d = new Date(ts);
+  return dtPad_(d.getHours()) + ':' + dtPad_(d.getMinutes());
+}
+
+/** ช่วงเวลาของกะที่เวลาแจ้งตกอยู่: เริ่มกะ, เลิกงานปกติ (สุทธิ 8 ชม. + พัก 1 ชม.), สิ้นกะรวม OT */
+function dtShiftWindow_(date, hour) {
+  var night = hour < 8 || hour >= 20;
+  var d = String(date).split('-').map(Number);
+  var start = new Date(d[0], d[1] - 1, d[2], night ? 20 : 8, 0, 0, 0).getTime();
+  return {night: night, start: start, normalEnd: start + 9 * 3600000, end: start + 12 * 3600000};
+}
+
+function dtBreakOverlapMs_(fromMs, toMs) {
+  if (!(toMs > fromMs)) return 0;
+  var overlap = 0;
+  var day = new Date(fromMs); day.setHours(0, 0, 0, 0);
+  for (var d = day.getTime(); d < toMs; ) {
+    Object.keys(DT_BREAK_MINUTES_BY_HOUR).forEach(function (h) {
+      var b = new Date(d); b.setHours(Number(h), 0, 0, 0);
+      var lo = Math.max(fromMs, b.getTime());
+      var hi = Math.min(toMs, b.getTime() + DT_BREAK_MINUTES_BY_HOUR[h] * 60000);
+      if (hi > lo) overlap += hi - lo;
+    });
+    var next = new Date(d); next.setDate(next.getDate() + 1); d = next.getTime();
+  }
+  return overlap;
+}
+
+/** แถวเหตุการณ์ (จากแท็บ Incidents หรือจากระบบแจ้งซ่อม) -> รูปแบบเดียวกัน ข้ามแถวที่ข้อมูลไม่ครบ */
+function dtNormalizeIncident_(row) {
+  if (!row || !row.ID) return null;
+  var tz = Session.getScriptTimeZone();
+  var date = row.Date instanceof Date ? Utilities.formatDate(row.Date, tz, 'yyyy-MM-dd') : String(row.Date || '').replace(/^'/, '').trim();
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(date);
+  if (!m) return null;
+  date = m[1] + '-' + dtPad_(Number(m[2])) + '-' + dtPad_(Number(m[3]));
+  var time = row.Time instanceof Date ? Utilities.formatDate(row.Time, tz, 'HH:mm') : String(row.Time || '').replace(/^'/, '').trim();
+  var tm = /^(\d{1,2}):(\d{2})/.exec(time);
+  var hour = tm ? Number(tm[1]) : parseInt(row.Hour, 10);
+  if (isNaN(hour) || hour < 0 || hour > 23) return null;
+  time = dtPad_(hour) + ':' + (tm ? tm[2] : '00');
+  return {
+    id: String(row.ID), date: date, time: time, hour: hour,
+    line: String(row.Line == null ? '' : row.Line).trim() || 'All',
+    category: String(row.Category || ''), categoryText: String(row.CategoryText || row.Category || ''),
+    notes: String(row.Notes || ''), source: String(row.Source || 'manual')
+  };
+}
+
+/** ลายเซ็นของข้อมูลเหตุการณ์ ถ้าเปลี่ยน (แก้เวลา/ไลน์/ข้อความ) ต้องสรุปใหม่ */
+function dtSig_(inc) {
+  return [inc.date, inc.time, inc.line, inc.category, inc.notes].join('|');
+}
+
+/** "3/11/2569 10:19:00" (วัน/เดือน/ปี พ.ศ.) หรือ Date -> ms */
+function dtParseScanTs_(value) {
+  if (value instanceof Date) {
+    var y = value.getFullYear();
+    // ชีตอาจแปลงข้อความ พ.ศ. เป็นวันที่เองโดยไม่ลบ 543
+    if (y > 2400) { var c = new Date(value.getTime()); c.setFullYear(y - 543); return c.getTime(); }
+    return value.getTime();
+  }
+  var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(value || '').trim());
+  if (!m) return NaN;
+  var year = Number(m[3]); if (year > 2400) year -= 543;
+  return new Date(year, Number(m[2]) - 1, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6] || 0)).getTime();
+}
+
+/** สแกน OK ทั้งหมดจากชีตบาร์โค้ดตั้งแต่ sinceTs แยกตามไลน์ เรียงตามเวลา */
+function dtReadScansByLine_(sinceTs) {
+  var ss = SpreadsheetApp.openById(BARCODE_SPREADSHEET_ID);
+  var sheet = ss.getSheets().filter(function (s) { return s.getSheetId() === BARCODE_SHEET_GID; })[0] || ss.getSheets()[0];
+  var values = sheet.getDataRange().getValues();
+  var head = values[0].map(function (h) { return String(h).trim(); });
+  var iTime = head.indexOf('Date/Time'), iStatus = head.indexOf('Status'), iLine = head.indexOf('Line'), iModel = head.indexOf('Model');
+  var byLine = {};
+  for (var r = 1; r < values.length; r++) {
+    var status = String(values[r][iStatus] || 'OK').trim().toUpperCase();
+    if (status !== 'OK') continue;
+    var ts = dtParseScanTs_(values[r][iTime]);
+    if (isNaN(ts) || ts < sinceTs) continue;
+    var line = String(values[r][iLine] == null ? '' : values[r][iLine]).trim();
+    if (!line || line === '-') continue;
+    (byLine[line] = byLine[line] || []).push({ts: ts, model: String(values[r][iModel] || '')});
+  }
+  Object.keys(byLine).forEach(function (l) { byLine[l].sort(function (a, b) { return a.ts - b.ts; }); });
+  return byLine;
+}
+
+/** ไลน์ที่เหตุการณ์ "ทุกไลน์" ครอบ: ไลน์ที่มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง (ถ้าไม่มี ใช้ไลน์ที่เดินในกะนั้น) */
+function dtLinesForIncident_(inc, scansByLine, win) {
+  if (inc.line !== 'All') return [inc.line];
+  var reportTs = dtIncidentTs_(inc.date, inc.time);
+  var has = function (from, to) {
+    return Object.keys(scansByLine).filter(function (l) {
+      return scansByLine[l].some(function (s) { return s.ts >= from && s.ts < to; });
+    });
+  };
+  var lines = has(Math.max(win.start, reportTs - 3600000), Math.min(win.end, reportTs + 3600000));
+  return lines.length ? lines : has(win.start, win.end);
+}
+
+/**
+ * ช่วงหยุดสแกนของไลน์หนึ่งในกะหนึ่ง เฉพาะที่ทับช่วง [fromTs, toTs]
+ * คืน {workEnd, hasOT, gaps:[{start,end,minutes,breakMinutes,kind}]}
+ * kind: shift_start = ต้นกะยังไม่สแกน · gap = หยุดระหว่างสแกน · no_resume = ไม่กลับมาสแกน · no_production = ไม่มีสแกนทั้งกะ
+ */
+function dtScanGaps_(scans, win, fromTs, toTs, nowMs) {
+  var inShift = scans.filter(function (s) { return s.ts >= win.start && s.ts < win.end; });
+  var hasOT = inShift.some(function (s) { return s.ts >= win.normalEnd; });
+  var workEnd = Math.min(hasOT ? win.end : win.normalEnd, nowMs);
+  var gaps = [];
+  var push = function (a, b, kind) {
+    if (!(b > a) || b <= fromTs || a >= toTs) return;
+    var minutes = (b - a) / 60000;
+    if (kind === 'gap' && minutes < DOWNTIME_MIN_GAP_MIN) return;
+    gaps.push({start: a, end: b, minutes: Math.round(minutes), breakMinutes: Math.round(dtBreakOverlapMs_(a, b) / 60000), kind: kind});
+  };
+  if (inShift.length === 0) { push(win.start, workEnd, 'no_production'); return {workEnd: workEnd, hasOT: hasOT, gaps: gaps}; }
+  push(win.start, inShift[0].ts, 'shift_start');
+  for (var i = 1; i < inShift.length; i++) push(inShift[i - 1].ts, inShift[i].ts, 'gap');
+  push(inShift[inShift.length - 1].ts, workEnd, 'no_resume');
+  return {workEnd: workEnd, hasOT: hasOT, gaps: gaps};
+}
+
+/** ข้อความที่ส่งให้ Gemini สำหรับเหตุการณ์ทุกรายการของ วัน/กะ/ไลน์ เดียวกัน */
+function dtBuildPrompt_(group) {
+  var win = group.win;
+  var payload = {
+    line: group.line,
+    productionDate: group.date,
+    shift: win.night ? 'Night 20:00-08:00' : 'Day 08:00-20:00',
+    normalWorkEnd: dtFormatHm_(win.normalEnd),
+    workedOvertime: group.ctx.hasOT,
+    countUntil: dtFormatHm_(group.ctx.workEnd),
+    breaks: win.night ? ['00:00-01:00', '05:00-05:30'] : ['12:00-13:00', '17:00-17:30'],
+    scanStops: group.ctx.gaps.map(function (g) {
+      return {from: dtFormatHm_(g.start), to: dtFormatHm_(g.end), minutes: g.minutes, breakMinutesInside: g.breakMinutes, kind: g.kind};
+    }),
+    incidents: group.items.map(function (inc) {
+      return {id: inc.id, reportedAt: inc.time, category: inc.categoryText || inc.category, notes: inc.notes, source: inc.source, allLines: inc.line === 'All'};
+    })
+  };
+  return [
+    'คุณช่วยสรุปเวลาที่ไลน์ผลิตหยุด (downtime) ของแต่ละเหตุการณ์ที่หน้างานแจ้ง โดยดูจากข้อความที่แจ้งและช่วงที่ไลน์หยุดสแกนงาน',
+    'กติกา:',
+    '- scanStops คือช่วงที่ไลน์ไม่มีสแกนชิ้นงาน (from/to เป็นเวลา HH:mm) kind: shift_start = ต้นกะยังไม่เริ่มสแกน, gap = หยุดกลางกะ (มีสแกนก่อนและหลัง), no_resume = ไม่กลับมาสแกนจนเลิกงาน, no_production = ไม่มีสแกนทั้งกะ',
+    '- เลือกช่วงหยุดที่เกิดจากปัญหาที่แจ้งจริง เวลาที่แจ้งอาจช้ากว่าเวลาที่หยุดจริง (แจ้งหลังหยุด) หรือแจ้งก่อนหยุดก็ได้ ให้ดูความสอดคล้องกับข้อความ',
+    '- ถ้าข้อความระบุระยะเวลาหรือเวลาที่ของมา/กลับมาเดิน (เช่น "รอเบิก 13 นาที", "Box มาตอน 21:03", "หยุดเครื่อง: 12 นาที") ให้ใช้ข้อมูลนั้นประกอบกับช่วงหยุดสแกน',
+    '- ต้นกะมักมี morning talk/เตรียมงาน ห้ามนับช่วง shift_start เป็นเวลาที่เสียจากปัญหา เว้นแต่ข้อความบอกชัดว่าปัญหาทำให้เริ่มงานไม่ได้ (เช่น ไม่มีวัตถุดิบตั้งแต่ต้นกะ)',
+    '- ถ้าไลน์ยังสแกนต่อเนื่องและข้อความไม่บอกระยะเวลา ให้ downtime = 0',
+    '- หลายเหตุการณ์ในช่วงหยุดเดียวกันต้องแบ่งเวลากัน ห้ามนับเวลาเดียวกันซ้ำ',
+    '- ไม่นับเวลาพัก (breaks) และไม่นับหลังเวลา countUntil',
+    'ตอบเป็น JSON array เท่านั้น 1 รายการต่อ 1 เหตุการณ์ ตามลำดับเดิม:',
+    '[{"id": "...", "start": "HH:mm" หรือ null, "end": "HH:mm" หรือ null, "minutes": จำนวนนาทีที่เสีย (ไม่รวมพัก), "confidence": "high"|"medium"|"low", "reason": "เหตุผลสั้น ๆ ภาษาไทย ไม่เกิน 120 ตัวอักษร"}]',
+    '',
+    JSON.stringify(payload)
+  ].join('\n');
+}
+
+function dtCallGemini_(prompt) {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('ยังไม่ได้ตั้ง Script property GEMINI_API_KEY');
+  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': key}, muteHttpExceptions: true,
+    payload: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})
+  });
+  if (res.getResponseCode() !== 200) throw new Error('Gemini HTTP ' + res.getResponseCode());
+  var body = JSON.parse(res.getContentText());
+  var out = JSON.parse(body.candidates[0].content.parts[0].text);
+  if (!Array.isArray(out)) throw new Error('Gemini did not return an array');
+  return out;
+}
+
+/**
+ * ตรวจและปรับคำตอบของ AI ให้อยู่ในกรอบ: เวลาต้องอยู่ในช่วงทำงานของกะ นาทีคิดใหม่จาก start/end หักพัก
+ * ถ้าไม่มี start/end ใช้นาทีที่ AI ให้มา (เช่น ข้อความบอก "รอ 13 นาที" แต่ไม่มีช่วงหยุดสแกนชัด)
+ */
+function dtValidateResult_(item, inc, group) {
+  var win = group.win;
+  var conf = ['high', 'medium', 'low'].indexOf(item && item.confidence) !== -1 ? item.confidence : 'low';
+  var reason = String((item && item.reason) || '').slice(0, 200);
+  var start = item && /^\d{1,2}:\d{2}$/.test(String(item.start)) ? dtIncidentTs_(inc.date, item.start) : NaN;
+  var end = item && /^\d{1,2}:\d{2}$/.test(String(item.end)) ? dtIncidentTs_(inc.date, item.end) : NaN;
+  var minutes;
+  if (!isNaN(start) && !isNaN(end) && end > start) {
+    start = Math.max(start, win.start);
+    end = Math.min(end, group.ctx.workEnd);
+    minutes = end > start ? (end - start - dtBreakOverlapMs_(start, end)) / 60000 : 0;
+  } else {
+    start = NaN; end = NaN;
+    minutes = Number(item && item.minutes);
+    if (!isFinite(minutes)) return null;
+  }
+  minutes = Math.max(0, Math.min(Math.round(minutes), 720));
+  return {
+    minutes: minutes, start: isNaN(start) ? '' : dtFormatHm_(start), end: isNaN(end) ? '' : dtFormatHm_(end),
+    confidence: conf, reason: reason
+  };
+}
+
+/** อ่านผลที่สรุปไว้แล้ว ใช้ทั้งตอนตอบหน้าเว็บ (GET_INCIDENTS) และตอนดูว่าเหตุการณ์ไหนต้องสรุปใหม่ */
+function readDowntimeSummaries_(ss) {
+  var sheet = ss.getSheetByName(DOWNTIME_TAB);
+  if (!sheet) return [];
+  var values = sheet.getDataRange().getValues();
+  var head = values[0] || [];
+  var out = [];
+  for (var r = 1; r < values.length; r++) {
+    var row = {};
+    for (var c = 0; c < head.length; c++) row[head[c]] = values[r][c];
+    if (row.Key) {
+      row.Minutes = Number(row.Minutes) || 0;
+      ['Key', 'ID', 'Line', 'Date', 'Start', 'End', 'Confidence', 'Reason', 'Sig', 'By', 'UpdatedAt'].forEach(function (k) {
+        row[k] = String(row[k] == null ? '' : row[k]).replace(/^'/, '');
+      });
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+function dtWriteSummaries_(ss, rows) {
+  if (!rows.length) return;
+  var sheet = ss.getSheetByName(DOWNTIME_TAB);
+  if (!sheet) { sheet = ss.insertSheet(DOWNTIME_TAB); sheet.appendRow(DOWNTIME_COLS); }
+  var values = sheet.getDataRange().getValues();
+  var rowByKey = {};
+  for (var r = 1; r < values.length; r++) rowByKey[String(values[r][0]).replace(/^'/, '')] = r + 1;
+  rows.forEach(function (obj) {
+    // นำหน้าข้อความด้วย ' กันชีตแปลงเวลา/วันที่เป็นชนิดอื่นเอง
+    var line = DOWNTIME_COLS.map(function (k) {
+      var v = obj[k];
+      return k === 'Minutes' ? v : "'" + String(v == null ? '' : v);
+    });
+    if (rowByKey[obj.Key]) sheet.getRange(rowByKey[obj.Key], 1, 1, line.length).setValues([line]);
+    else { sheet.appendRow(line); rowByKey[obj.Key] = sheet.getLastRow(); }
+  });
+}
+
+/**
+ * งานหลักที่ trigger เรียก (ตั้ง Time-driven ทุก 15 นาที) รันเองจาก editor ก็ได้เพื่อทดสอบ
+ * คืนสรุปสั้น ๆ ว่าทำไปกี่รายการ
+ */
+function summarizeIncidentDowntimes() {
+  // ไม่ใช้ script lock ตัวเดียวกับ doPost เพราะรอบนี้อาจรันหลายนาที หน้าเว็บจะรอค้างไปด้วย
+  // ใช้ธงใน cache กันรอบซ้อนแทน (หมดอายุเองใน 10 นาที เผื่อรอบก่อนตายกลางทาง)
+  var cache = CacheService.getScriptCache();
+  if (cache.get('downtime_ai_running')) return 'busy';
+  cache.put('downtime_ai_running', '1', 600);
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var nowMs = Date.now();
+
+    // 1) เหตุการณ์ทั้งหมด
+    var incidents = [];
+    var sheet = ss.getSheetByName('Incidents');
+    if (sheet) {
+      var values = sheet.getDataRange().getValues();
+      for (var i = 1; i < values.length; i++) {
+        var row = {};
+        for (var j = 0; j < values[0].length; j++) row[values[0][j]] = values[i][j];
+        incidents.push(row);
+      }
+    }
+    try { incidents = incidents.concat(fetchMaintenanceIncidents_()); } catch (err) { console.warn('maintenance: ' + err); }
+
+    var done = {};
+    readDowntimeSummaries_(ss).forEach(function (s) { done[s.ID] = done[s.ID] || s.Sig; });
+
+    var lookbackTs = nowMs - DOWNTIME_LOOKBACK_DAYS * 86400000;
+    var pending = incidents.map(dtNormalizeIncident_).filter(function (inc) {
+      if (!inc) return false;
+      var ts = dtIncidentTs_(inc.date, inc.time);
+      if (isNaN(ts) || ts < lookbackTs || ts > nowMs - DOWNTIME_WAIT_MIN * 60000) return false;
+      return done[inc.id] !== dtSig_(inc);
+    });
+    if (!pending.length) return 'nothing to do';
+
+    // 2) สแกน + จัดกลุ่มตาม วัน/กะ/ไลน์
+    var scansByLine = dtReadScansByLine_(lookbackTs - 86400000);
+    var groups = {};
+    pending.forEach(function (inc) {
+      var win = dtShiftWindow_(inc.date, inc.hour);
+      dtLinesForIncident_(inc, scansByLine, win).forEach(function (line) {
+        var key = inc.date + '|' + (win.night ? 'N' : 'D') + '|' + line;
+        (groups[key] = groups[key] || {date: inc.date, line: line, win: win, items: []}).items.push(inc);
+      });
+    });
+
+    // 3) ให้ AI สรุปทีละกลุ่ม 4) บันทึก
+    var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    var written = 0;
+    Object.keys(groups).slice(0, DOWNTIME_MAX_GROUPS_PER_RUN).forEach(function (key) {
+      var g = groups[key];
+      var reports = g.items.map(function (inc) { return dtIncidentTs_(inc.date, inc.time); });
+      var from = Math.min.apply(null, reports) - DOWNTIME_WINDOW_MIN * 60000;
+      var to = Math.max.apply(null, reports) + DOWNTIME_WINDOW_MIN * 60000;
+      g.ctx = dtScanGaps_(scansByLine[g.line] || [], g.win, from, to, nowMs);
+      var answers;
+      try { answers = dtCallGemini_(dtBuildPrompt_(g)); }
+      catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+      var rows = [];
+      g.items.forEach(function (inc, idx) {
+        var item = answers.filter(function (a) { return a && String(a.id) === inc.id; })[0] || answers[idx];
+        var res = dtValidateResult_(item, inc, g);
+        if (!res) return;
+        rows.push({
+          Key: inc.id + '|' + g.line, ID: inc.id, Line: g.line, Date: inc.date,
+          Minutes: res.minutes, Start: res.start, End: res.end, Confidence: res.confidence, Reason: res.reason,
+          Sig: dtSig_(inc), By: 'AI', UpdatedAt: stamp
+        });
+      });
+      dtWriteSummaries_(ss, rows);
+      written += rows.length;
+    });
+    return 'summarized ' + written + ' of ' + pending.length + ' pending incidents';
+  } finally {
+    cache.remove('downtime_ai_running');
   }
 }
