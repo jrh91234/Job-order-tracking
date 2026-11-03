@@ -648,8 +648,11 @@ var DOWNTIME_MIN_GAP_MIN = 3;          // ช่องว่างระหว�
 // เปลี่ยนโมเดล/เพดานได้ใน Script properties โดยไม่ต้องแก้โค้ด: GEMINI_DOWNTIME_MODEL, DOWNTIME_AI_MAX_PER_DAY
 var DOWNTIME_AI_DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 var DOWNTIME_AI_DEFAULT_MAX_PER_DAY = 20;  // นับเฉพาะครั้งที่เรียก AI จริง เกินแล้วรอวันถัดไป
-var DOWNTIME_AI_MAX_CALLS_PER_RUN = 4;     // รอบละไม่เกิน 4 ครั้ง เว้นระยะ 13 วินาที → ไม่เกิน 5 ครั้ง/นาที
+var DOWNTIME_AI_MAX_CALLS_PER_RUN = 4;     // Gemini: รอบละไม่เกิน 4 ครั้ง เว้นระยะ 13 วินาที → ไม่เกิน 5 ครั้ง/นาที
 var DOWNTIME_AI_CALL_GAP_MS = 13000;
+var DOWNTIME_AI_OTHER_PER_RUN = 10;        // เจ้าอื่น (Groq/Claude/OpenAI) ต่อรอบ ใช้ต่อได้เลยเมื่อ Gemini ครบ 4 ครั้งของรอบนี้
+var DOWNTIME_AI_OTHER_GAP_MS = 3000;       // Groq ฟรีได้ราว 30 ครั้ง/นาที
+var DOWNTIME_RUN_BUDGET_MS = 270000;       // หยุดเรียก AI เมื่อรอบนี้ทำงานเกิน 4.5 นาที (Apps Script ตัดที่ 6 นาที)
 var DT_BREAK_MINUTES_BY_HOUR = {0: 60, 5: 30, 12: 60, 17: 30}; // ตรงกับ BREAK_MINUTES_BY_HOUR ในหน้าเว็บ
 
 function dtPad_(n) { return (n < 10 ? '0' : '') + n; }
@@ -865,11 +868,23 @@ function dtAiUsage_() {
   var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   var cnt = function (pv) { return 'downtime_ai_calls_' + pv.id + '_' + day; };
   var full = function (pv) { return 'downtime_ai_full_' + pv.id + '_' + day; };
+  // นับต่อรอบด้วย: Gemini ทุกรุ่นใช้เพดานรอบละ 4 ครั้งร่วมกัน เจ้าอื่นแยกกัน
+  var family = function (pv) { return pv.type === 'gemini' ? 'gemini' : pv.id; };
+  var runCalls = {};
   return {
     available: function (pv) {
-      return !props.getProperty(full(pv)) && (Number(props.getProperty(cnt(pv))) || 0) < pv.maxPerDay;
+      var cap = family(pv) === 'gemini' ? DOWNTIME_AI_MAX_CALLS_PER_RUN : DOWNTIME_AI_OTHER_PER_RUN;
+      return (runCalls[family(pv)] || 0) < cap &&
+        !props.getProperty(full(pv)) && (Number(props.getProperty(cnt(pv))) || 0) < pv.maxPerDay;
     },
-    use: function (pv) { props.setProperty(cnt(pv), String((Number(props.getProperty(cnt(pv))) || 0) + 1)); },
+    // เว้นระยะก่อนเรียกเจ้าที่เคยเรียกไปแล้วในรอบนี้ ไม่ให้เกินลิมิตต่อนาที
+    pace: function (pv) {
+      if (runCalls[family(pv)]) Utilities.sleep(family(pv) === 'gemini' ? DOWNTIME_AI_CALL_GAP_MS : DOWNTIME_AI_OTHER_GAP_MS);
+    },
+    use: function (pv) {
+      runCalls[family(pv)] = (runCalls[family(pv)] || 0) + 1;
+      props.setProperty(cnt(pv), String((Number(props.getProperty(cnt(pv))) || 0) + 1));
+    },
     markFull: function (pv) { props.setProperty(full(pv), '1'); }
   };
 }
@@ -984,6 +999,7 @@ function dtCallAi_(prompt, usage) {
     var pv = providers[i];
     if (!usage.available(pv)) continue;
     tried = true;
+    usage.pace(pv);
     usage.use(pv);
     try {
       var text;
@@ -1159,6 +1175,7 @@ function dtSummarizeRun_() {
     // 3) ให้ AI สรุปทีละกลุ่ม (ล่าสุดก่อน) 4) บันทึก
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
     var usage = dtAiUsage_();
+    var runStart = Date.now();
     var written = 0, aiCalls = 0, skippedForQuota = 0, quotaOut = false, aiFailed = 0;
     var usedProviders = {};
     Object.keys(groups).sort().reverse().forEach(function (key) {
@@ -1175,14 +1192,13 @@ function dtSummarizeRun_() {
           return {id: inc.id, start: null, end: null, minutes: 0, confidence: 'high', reason: 'ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดรอบเวลาที่แจ้ง'};
         });
       } else {
-        // เกินโควตารอบนี้ หรือทุกเจ้าหมดโควตาวันนี้แล้ว เก็บไว้ทำรอบหน้า/วันถัดไป
-        if (aiCalls >= DOWNTIME_AI_MAX_CALLS_PER_RUN || quotaOut) { skippedForQuota++; return; }
-        if (aiCalls > 0) Utilities.sleep(DOWNTIME_AI_CALL_GAP_MS);
-        aiCalls++;
+        // ทุกเจ้าครบเพดานรอบนี้/โควตาวันนี้แล้ว หรือรอบนี้ใช้เวลานานแล้ว เก็บไว้ทำรอบหน้า/วันถัดไป
+        if (quotaOut || Date.now() - runStart > DOWNTIME_RUN_BUDGET_MS) { skippedForQuota++; return; }
         var got;
         try { got = dtCallAi_(dtBuildPrompt_(g), usage); }
-        catch (err) { aiFailed++; console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+        catch (err) { aiCalls++; aiFailed++; console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
         if (!got) { quotaOut = true; skippedForQuota++; return; }
+        aiCalls++;
         answers = got.answers;
         by = 'AI:' + got.provider;
         usedProviders[got.provider] = (usedProviders[got.provider] || 0) + 1;

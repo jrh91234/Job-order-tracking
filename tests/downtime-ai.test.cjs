@@ -180,9 +180,9 @@ assert.equal(byOf('q0'), "'AI:gemini-flash");
 // ที่ระบบลองทุกเจ้า) เหลือ 2 ใช้ครบแล้ว + ไม่มีเจ้าอื่น → รอ
 addGroups('r', 5);
 calls.length = 0;
-assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 3, by gemini-flash 2, 3 groups wait for quota/);
+assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 2, by gemini-flash 2, 3 groups wait for quota/);
 calls.length = 0;
-assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 1, by -, 3 groups wait for quota/);
+assert.match(ctx.summarizeIncidentDowntimes(), /AI calls 0, by -, 3 groups wait for quota/);
 assert.equal(calls.length, 0);                                     // ไม่ยิง Gemini เพิ่มเมื่อรู้ว่าเต็มทุกตัวแล้ว
 
 // ตั้ง key ของ Groq + Claude เพิ่ม → ใช้ต่อตามลำดับ
@@ -204,6 +204,19 @@ assert.equal(JSON.parse(groqCall.payload).model, 'llama-3.3-70b-versatile');
 // ผู้ให้บริการที่ไม่มีชื่อโมเดล (OpenAI ไม่ได้ตั้ง OPENAI_MODEL) ไม่ถูกใช้
 props.OPENAI_API_KEY = 'o';
 assert.equal(ctx.dtAiProviders_().some(pv => pv.id === 'openai'), false);
+
+// Gemini ครบ 4 ครั้งของรอบนี้ → ใช้ Groq ต่อในรอบเดียวกัน (Groq เว้นระยะสั้นกว่า)
+for (const k of Object.keys(props)) if (/^downtime_ai_/.test(k)) delete props[k];
+delete props.ANTHROPIC_API_KEY;
+status = () => 200;
+addGroups("m", 7, "23:00");
+slept = 0; calls.length = 0;
+const mixed = ctx.summarizeIncidentDowntimes();
+assert.match(mixed, /by gemini-lite 4, groq \d+/, mixed);
+assert.ok(!/wait for quota/.test(mixed), mixed);                    // ไม่ต้องรอรอบหน้าแล้ว
+assert.equal(calls.filter(c => c.who.startsWith("gemini")).length, 4);
+const groqN = calls.filter(c => c.who === "groq").length;
+assert.equal(slept, 3 * 13000 + (groqN - 1) * 3000);
 console.log('Downtime AI: provider chain, 429 failover, per-provider daily caps, Claude/Groq requests passed');
 
 // --- ชื่อโมเดลถูกเลิกใช้ (404) → ถามรายชื่อโมเดลแล้วสลับเอง ---
@@ -234,7 +247,7 @@ ctx.UrlFetchApp.fetch = (url, opt = {}) => {
   }
   return { getResponseCode: () => 500, getContentText: () => '{}' };
 };
-const okUsage = { available: () => true, use() {}, markFull() {} };
+const okUsage = { available: () => true, pace() {}, use() {}, markFull() {} };
 const got = ctx.dtCallAi_('prompt', okUsage);
 assert.equal(got.provider, 'gemini-lite');
 assert.equal(props['downtime_ai_model_gemini-lite'], 'gemini-3.0-flash-lite');   // จำไว้ใช้รอบหน้า
