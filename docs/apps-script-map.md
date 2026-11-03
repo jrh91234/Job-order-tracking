@@ -163,7 +163,9 @@ Key = "รหัสเหตุการณ์|ไลน์"
   - เรียก AI ไม่เกิน 4 ครั้งต่อรอบ เว้นระยะ 13 วินาทีระหว่างครั้ง
   - ทำกลุ่มล่าสุดก่อน และย้อนหลังแค่ 7 วัน
   - ทุกเจ้าเต็มแล้ว กลุ่มที่เหลือรอรอบหน้าหรือวันถัดไป
-- **ชื่อโมเดล:** Groq ใช้ `llama-3.3-70b-versatile` ถ้าไม่ได้ตั้ง `GROQ_MODEL` (ถ้าโมเดลนี้ถูกเลิกใช้ ระบบจะข้ามไปเจ้าถัดไป ให้ตั้ง `GROQ_MODEL` ใหม่); OpenAI ต้องตั้ง `OPENAI_MODEL` เอง
+- **ชื่อโมเดล:** Groq ใช้ `llama-3.3-70b-versatile` ถ้าไม่ได้ตั้ง `GROQ_MODEL`; OpenAI ต้องตั้ง `OPENAI_MODEL` เอง
+- **ชื่อโมเดลถูกเลิกใช้ (HTTP 404):** ระบบ Gemini/Groq/OpenAI จะดึงรายชื่อโมเดลที่ key นั้นใช้ได้ เลือกรุ่นที่ใกล้เคียงที่สุด (เช่น `gemini-flash-lite-latest`) แล้วจำไว้ใน Script property `downtime_ai_model_<id>` ถ้าตั้งชื่อโมเดลเองไว้ (`GEMINI_DOWNTIME_MODEL`, `GROQ_MODEL`, `OPENAI_MODEL`) ระบบจะใช้ชื่อที่ตั้งก่อนเสมอ ลบ property `downtime_ai_model_<id>` ทิ้งได้ถ้าอยากให้หาใหม่
+- **ข้อความ error:** log จะแสดงข้อความจากผู้ให้บริการต่อท้าย เช่น `HTTP 404 (gemini-2.5-flash): models/... is not found`
 - **ตรวจผลย้อนหลัง:** คอลัมน์ `By` ในแท็บ `IncidentDowntime` บอกว่าเจ้าไหนสรุป เช่น `AI:gemini-lite`, `AI:claude` หรือ `Rule` (ไลน์เดินต่อเนื่อง ตัดสินเองไม่ใช้ AI)
 - **ดูลำดับที่ใช้ได้อยู่:** เปิด URL ของ Web App ตรง ๆ แล้วดูที่ `downtimeAi.providers`
 

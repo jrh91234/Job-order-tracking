@@ -846,6 +846,12 @@ function dtAiProviders_() {
     {id: 'openai', type: 'openai', key: get('OPENAI_API_KEY'), model: get('OPENAI_MODEL'),
       url: 'https://api.openai.com/v1/chat/completions', maxPerDay: Number(get('OPENAI_MAX_PER_DAY')) || 50}
   ];
+  // โมเดลที่ระบบหาเจอเองหลังชื่อเดิมได้ 404 (ชื่อที่ผู้ใช้ตั้งเองใน Script properties ยังมาก่อน)
+  list.forEach(function (x) {
+    var learned = get('downtime_ai_model_' + x.id);
+    var userSet = {'gemini-lite': 'GEMINI_DOWNTIME_MODEL', groq: 'GROQ_MODEL', claude: 'ANTHROPIC_DOWNTIME_MODEL', openai: 'OPENAI_MODEL'}[x.id];
+    if (learned && !(userSet && get(userSet))) x.model = learned;
+  });
   return list.filter(function (x, i) {
     if (!x.key || !x.model) return false;
     // ถ้าตั้งให้ตัวแรกใช้ gemini-2.5-flash อยู่แล้ว ไม่ต้องมีตัวที่สองซ้ำ
@@ -904,7 +910,12 @@ function dtCallProvider_(pv, prompt) {
     });
   }
   var code = res.getResponseCode();
-  if (code !== 200) { var e = new Error(pv.id + ' HTTP ' + code + ' (' + pv.model + ')'); e.status = code; throw e; }
+  if (code !== 200) {
+    var detail = '';
+    try { var eb = JSON.parse(res.getContentText()); detail = (eb.error && (eb.error.message || eb.error)) || eb.message || ''; } catch (x) { detail = res.getContentText(); }
+    var e = new Error(pv.id + ' HTTP ' + code + ' (' + pv.model + ')' + (detail ? ': ' + String(detail).slice(0, 200) : ''));
+    e.status = code; throw e;
+  }
   body = JSON.parse(res.getContentText());
   if (pv.type === 'gemini') return body.candidates[0].content.parts[0].text;
   if (pv.type === 'anthropic') {
@@ -912,6 +923,53 @@ function dtCallProvider_(pv, prompt) {
     return (body.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('');
   }
   return body.choices[0].message.content;
+}
+
+/**
+ * หาชื่อโมเดลที่ใช้ได้จริงจากรายชื่อโมเดลของผู้ให้บริการ ใช้ตอนเรียกแล้วได้ 404 (ชื่อโมเดลถูกเลิกใช้หรือบัญชีนี้ใช้ไม่ได้)
+ * คืนชื่อโมเดลใหม่ หรือ '' ถ้าหาไม่ได้
+ */
+function dtDiscoverModel_(pv) {
+  var res, names = [];
+  if (pv.type === 'gemini') {
+    res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
+      {headers: {'x-goog-api-key': pv.key}, muteHttpExceptions: true});
+    if (res.getResponseCode() !== 200) return '';
+    (JSON.parse(res.getContentText()).models || []).forEach(function (m) {
+      if ((m.supportedGenerationMethods || []).indexOf('generateContent') !== -1) names.push(String(m.name).replace(/^models\//, ''));
+    });
+  } else if (pv.type === 'openai') {
+    res = UrlFetchApp.fetch(pv.url.replace(/\/chat\/completions$/, '/models'),
+      {headers: {Authorization: 'Bearer ' + pv.key}, muteHttpExceptions: true});
+    if (res.getResponseCode() !== 200) return '';
+    (JSON.parse(res.getContentText()).data || []).forEach(function (m) { if (m.active !== false) names.push(String(m.id)); });
+  } else {
+    return '';
+  }
+  return dtPickModel_(pv, names);
+}
+
+/** เลือกโมเดลข้อความทั่วไปที่เหมาะที่สุดจากรายชื่อ (แยกออกมาให้ทดสอบได้) */
+function dtPickModel_(pv, names) {
+  var skip = /(image|vision|tts|audio|live|embed|aqa|whisper|guard|speech|transcribe|robotics|computer|native|veo|imagen|lyria|learnlm|gemma|compound|prompt|safeguard)/i;
+  var cand = names.filter(function (n) { return !skip.test(n); });
+  var prefs;
+  if (pv.type === 'gemini') {
+    var lite = /lite/.test(pv.model);
+    cand = cand.filter(function (n) { return /^gemini-/.test(n) && /flash/.test(n) && (lite ? /lite/.test(n) : !/lite/.test(n)); });
+    prefs = [lite ? /^gemini-flash-lite-latest$/ : /^gemini-flash-latest$/, /^gemini-[\d.]+-flash(-lite)?$/, /./];
+  } else {
+    prefs = [/llama.*70b/i, /gpt-oss-120b/i, /llama/i, /^gpt-.*mini/i, /./];
+  }
+  // ตัวที่ไม่ใช่ preview/exp ก่อน แล้วเวอร์ชันใหม่กว่าก่อน
+  cand.sort(function (a, b) {
+    var pa = /(preview|exp)/.test(a) ? 1 : 0, pb = /(preview|exp)/.test(b) ? 1 : 0;
+    return pa - pb || (b < a ? -1 : b > a ? 1 : 0);
+  });
+  for (var i = 0; i < prefs.length; i++) {
+    for (var j = 0; j < cand.length; j++) if (prefs[i].test(cand[j]) && cand[j] !== pv.model) return cand[j];
+  }
+  return '';
 }
 
 /**
@@ -928,7 +986,19 @@ function dtCallAi_(prompt, usage) {
     tried = true;
     usage.use(pv);
     try {
-      return {answers: dtParseJsonArray_(dtCallProvider_(pv, prompt)), provider: pv.id};
+      var text;
+      try {
+        text = dtCallProvider_(pv, prompt);
+      } catch (err404) {
+        if (err404.status !== 404) throw err404;
+        var found = dtDiscoverModel_(pv);
+        if (!found) throw err404;
+        console.warn('downtime AI: ' + pv.id + ' model ' + pv.model + ' not found, switching to ' + found);
+        PropertiesService.getScriptProperties().setProperty('downtime_ai_model_' + pv.id, found);
+        pv.model = found;
+        text = dtCallProvider_(pv, prompt);
+      }
+      return {answers: dtParseJsonArray_(text), provider: pv.id};
     } catch (err) {
       if (err.status === 429) usage.markFull(pv);
       console.warn('downtime AI via ' + pv.id + ': ' + err);
@@ -1089,7 +1159,7 @@ function dtSummarizeRun_() {
     // 3) ให้ AI สรุปทีละกลุ่ม (ล่าสุดก่อน) 4) บันทึก
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
     var usage = dtAiUsage_();
-    var written = 0, aiCalls = 0, skippedForQuota = 0, quotaOut = false;
+    var written = 0, aiCalls = 0, skippedForQuota = 0, quotaOut = false, aiFailed = 0;
     var usedProviders = {};
     Object.keys(groups).sort().reverse().forEach(function (key) {
       var g = groups[key];
@@ -1111,7 +1181,7 @@ function dtSummarizeRun_() {
         aiCalls++;
         var got;
         try { got = dtCallAi_(dtBuildPrompt_(g), usage); }
-        catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+        catch (err) { aiFailed++; console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
         if (!got) { quotaOut = true; skippedForQuota++; return; }
         answers = got.answers;
         by = 'AI:' + got.provider;
@@ -1133,6 +1203,7 @@ function dtSummarizeRun_() {
     });
     return 'summarized ' + written + ' of ' + pending.length + ' pending incidents (AI calls ' + aiCalls +
       ', by ' + (Object.keys(usedProviders).map(function (k) { return k + ' ' + usedProviders[k]; }).join(', ') || '-') +
+      (aiFailed ? ', ' + aiFailed + ' groups failed, see warnings above' : '') +
       (skippedForQuota ? ', ' + skippedForQuota + ' groups wait for quota' : '') + ')';
   } finally {
     cache.remove('downtime_ai_running');
