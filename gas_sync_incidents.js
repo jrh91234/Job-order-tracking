@@ -81,6 +81,8 @@ function doGet(e) {
       // AI สรุป Downtime: ต้องตั้ง trigger ให้ summarizeIncidentDowntimes ทุก 15 นาที และ Script property GEMINI_API_KEY
       downtimeAi: {
         geminiKeySet: !!PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY"),
+        // ลำดับผู้ให้บริการที่ใช้ได้ (มี key ครบ) ตัวไหนโควตาเต็มจะข้ามไปตัวถัดไป
+        providers: dtAiProviders_().map(function (pv) { return pv.id + " (" + pv.model + ", วันละ " + pv.maxPerDay + ")"; }),
         triggerNote: "ตั้ง Time-driven trigger ของ summarizeIncidentDowntimes ทุก 15 นาที (ดู docs/apps-script-map.md)"
       },
       allSheets: ss.getSheets().map(function (s) { return s.getName(); })
@@ -638,10 +640,16 @@ var BARCODE_SHEET_GID = 0;
 var DOWNTIME_TAB = 'IncidentDowntime';
 var DOWNTIME_COLS = ['Key', 'ID', 'Line', 'Date', 'Minutes', 'Start', 'End', 'Confidence', 'Reason', 'Sig', 'By', 'UpdatedAt'];
 var DOWNTIME_WAIT_MIN = 60;            // รอให้เหตุการณ์ผ่านไปก่อน จะได้เห็นว่าไลน์กลับมาเดินเมื่อไหร่
-var DOWNTIME_LOOKBACK_DAYS = 35;       // ไม่ย้อนสรุปเหตุการณ์ที่เก่ากว่านี้
+var DOWNTIME_LOOKBACK_DAYS = 7;        // ไม่ย้อนสรุปเหตุการณ์ที่เก่ากว่านี้ (Gemini แผนฟรีได้วันละไม่กี่ครั้ง ย้อนไกลไม่ไหว)
 var DOWNTIME_WINDOW_MIN = 120;         // ส่งช่วงหยุดสแกนรอบเวลาที่แจ้ง ± กี่นาทีให้ AI ดู
 var DOWNTIME_MIN_GAP_MIN = 3;          // ช่องว่างระหว่างสแกนที่สั้นกว่านี้ถือว่าไลน์ยังเดินปกติ
-var DOWNTIME_MAX_GROUPS_PER_RUN = 15;  // กันรอบเดียวรันนานเกินโควตา 6 นาที ที่เหลือไปทำรอบถัดไป
+// โควตา Gemini แผนฟรี (ดูจาก AI Studio → Rate limits): gemini-2.5-flash ได้แค่ 5 ครั้ง/นาที 20 ครั้ง/วัน
+// และใช้ร่วมกับการแปลรายงาน PDF จึงแยกไปใช้โมเดล Flash-Lite ซึ่งมีโควตาของตัวเอง
+// เปลี่ยนโมเดล/เพดานได้ใน Script properties โดยไม่ต้องแก้โค้ด: GEMINI_DOWNTIME_MODEL, DOWNTIME_AI_MAX_PER_DAY
+var DOWNTIME_AI_DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+var DOWNTIME_AI_DEFAULT_MAX_PER_DAY = 20;  // นับเฉพาะครั้งที่เรียก AI จริง เกินแล้วรอวันถัดไป
+var DOWNTIME_AI_MAX_CALLS_PER_RUN = 4;     // รอบละไม่เกิน 4 ครั้ง เว้นระยะ 13 วินาที → ไม่เกิน 5 ครั้ง/นาที
+var DOWNTIME_AI_CALL_GAP_MS = 13000;
 var DT_BREAK_MINUTES_BY_HOUR = {0: 60, 5: 30, 12: 60, 17: 30}; // ตรงกับ BREAK_MINUTES_BY_HOUR ในหน้าเว็บ
 
 function dtPad_(n) { return (n < 10 ? '0' : '') + n; }
@@ -815,18 +823,122 @@ function dtBuildPrompt_(group) {
   ].join('\n');
 }
 
-function dtCallGemini_(prompt) {
-  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!key) throw new Error('ยังไม่ได้ตั้ง Script property GEMINI_API_KEY');
-  var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-    method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': key}, muteHttpExceptions: true,
-    payload: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})
+/**
+ * ผู้ให้บริการ AI ที่ใช้สรุป Downtime เรียงตามลำดับที่จะลองใช้ ตัวไหนโควตาเต็ม (HTTP 429) หรือใช้ครบเพดาน
+ * ของวันแล้ว ข้ามไปตัวถัดไป ตัวที่ยังไม่ได้ตั้ง key (และชื่อโมเดล สำหรับ Groq/OpenAI) ใน Script properties จะไม่ถูกใช้
+ *   1) Gemini Flash-Lite (GEMINI_API_KEY) โควตาแยกจากที่ใช้แปลรายงาน PDF
+ *   2) Gemini 2.5 Flash (GEMINI_API_KEY) ใช้แค่วันละ 5 ครั้ง เหลือโควตาไว้ให้การแปลรายงาน PDF
+ *   3) Groq (GROQ_API_KEY; GROQ_MODEL ไม่ใส่ = llama-3.3-70b-versatile) มีแผนฟรี
+ *   4) Claude (ANTHROPIC_API_KEY) เสียเงินตามการใช้งาน
+ *   5) OpenAI (OPENAI_API_KEY + OPENAI_MODEL) เสียเงินตามการใช้งาน
+ */
+function dtAiProviders_() {
+  var p = PropertiesService.getScriptProperties();
+  var get = function (k) { return p.getProperty(k) || ''; };
+  var list = [
+    {id: 'gemini-lite', type: 'gemini', key: get('GEMINI_API_KEY'), model: get('GEMINI_DOWNTIME_MODEL') || DOWNTIME_AI_DEFAULT_MODEL,
+      maxPerDay: Number(get('DOWNTIME_AI_MAX_PER_DAY')) || DOWNTIME_AI_DEFAULT_MAX_PER_DAY},
+    {id: 'gemini-flash', type: 'gemini', key: get('GEMINI_API_KEY'), model: 'gemini-2.5-flash', maxPerDay: 5},
+    {id: 'groq', type: 'openai', key: get('GROQ_API_KEY'), model: get('GROQ_MODEL') || 'llama-3.3-70b-versatile',
+      url: 'https://api.groq.com/openai/v1/chat/completions', maxPerDay: Number(get('GROQ_MAX_PER_DAY')) || 100},
+    {id: 'claude', type: 'anthropic', key: get('ANTHROPIC_API_KEY'), model: get('ANTHROPIC_DOWNTIME_MODEL') || 'claude-opus-5-5',
+      maxPerDay: Number(get('ANTHROPIC_MAX_PER_DAY')) || 50},
+    {id: 'openai', type: 'openai', key: get('OPENAI_API_KEY'), model: get('OPENAI_MODEL'),
+      url: 'https://api.openai.com/v1/chat/completions', maxPerDay: Number(get('OPENAI_MAX_PER_DAY')) || 50}
+  ];
+  return list.filter(function (x, i) {
+    if (!x.key || !x.model) return false;
+    // ถ้าตั้งให้ตัวแรกใช้ gemini-2.5-flash อยู่แล้ว ไม่ต้องมีตัวที่สองซ้ำ
+    return !(i > 0 && x.type === 'gemini' && x.model === list[0].model);
   });
-  if (res.getResponseCode() !== 200) throw new Error('Gemini HTTP ' + res.getResponseCode());
-  var body = JSON.parse(res.getContentText());
-  var out = JSON.parse(body.candidates[0].content.parts[0].text);
-  if (!Array.isArray(out)) throw new Error('Gemini did not return an array');
+}
+
+/** ตัวนับการใช้และสถานะ "โควตาเต็ม" ของแต่ละผู้ให้บริการ แยกตามวัน เก็บใน Script properties */
+function dtAiUsage_() {
+  var props = PropertiesService.getScriptProperties();
+  var day = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var cnt = function (pv) { return 'downtime_ai_calls_' + pv.id + '_' + day; };
+  var full = function (pv) { return 'downtime_ai_full_' + pv.id + '_' + day; };
+  return {
+    available: function (pv) {
+      return !props.getProperty(full(pv)) && (Number(props.getProperty(cnt(pv))) || 0) < pv.maxPerDay;
+    },
+    use: function (pv) { props.setProperty(cnt(pv), String((Number(props.getProperty(cnt(pv))) || 0) + 1)); },
+    markFull: function (pv) { props.setProperty(full(pv), '1'); }
+  };
+}
+
+/** ดึง JSON array จากข้อความตอบกลับ (บางเจ้าอาจห่อด้วย ```json หรือมีคำอธิบายนำหน้า) */
+function dtParseJsonArray_(text) {
+  var t = String(text || '').trim();
+  var a = t.indexOf('['), b = t.lastIndexOf(']');
+  if (a === -1 || b <= a) throw new Error('AI did not return a JSON array');
+  var out = JSON.parse(t.slice(a, b + 1));
+  if (!Array.isArray(out)) throw new Error('AI did not return a JSON array');
   return out;
+}
+
+/** เรียกผู้ให้บริการหนึ่งเจ้า คืนข้อความที่ตอบกลับ หรือโยน error (มี status เมื่อเป็น HTTP error) */
+function dtCallProvider_(pv, prompt) {
+  var res, body;
+  if (pv.type === 'gemini') {
+    res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(pv.model) + ':generateContent', {
+      method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': pv.key}, muteHttpExceptions: true,
+      payload: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})
+    });
+  } else if (pv.type === 'anthropic') {
+    var req = {model: pv.model, max_tokens: 16000, output_config: {effort: 'low'}, messages: [{role: 'user', content: prompt}]};
+    var headers = {'x-api-key': pv.key, 'anthropic-version': '2026-10-21'};
+    // โมเดลระดับบนอาจปฏิเสธคำขอด้วย safety classifier ให้ Anthropic ส่งต่อไปโมเดลสำรองเองฝั่งเซิร์ฟเวอร์
+    if (/^claude-(opus-5|fable-5|sonnet-5-5)/.test(pv.model)) {
+      req.fallbacks = 'default';
+      headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+    }
+    res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json', headers: headers, muteHttpExceptions: true, payload: JSON.stringify(req)
+    });
+  } else {
+    res = UrlFetchApp.fetch(pv.url, {
+      method: 'post', contentType: 'application/json', headers: {Authorization: 'Bearer ' + pv.key}, muteHttpExceptions: true,
+      payload: JSON.stringify({model: pv.model, temperature: 0, messages: [{role: 'user', content: prompt}]})
+    });
+  }
+  var code = res.getResponseCode();
+  if (code !== 200) { var e = new Error(pv.id + ' HTTP ' + code + ' (' + pv.model + ')'); e.status = code; throw e; }
+  body = JSON.parse(res.getContentText());
+  if (pv.type === 'gemini') return body.candidates[0].content.parts[0].text;
+  if (pv.type === 'anthropic') {
+    if (body.stop_reason === 'refusal') throw new Error('claude refused the request');
+    return (body.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('');
+  }
+  return body.choices[0].message.content;
+}
+
+/**
+ * ลองทีละผู้ให้บริการจนได้คำตอบ ตัวที่ตอบ 429 ถือว่าโควตาวันนี้เต็ม ข้ามไปทั้งวัน
+ * คืน {answers, provider} หรือ null ถ้าไม่มีเจ้าไหนใช้ได้แล้ววันนี้ (รอวันถัดไป) โยน error ถ้าทุกเจ้าที่ลองล้มเหลวด้วยเหตุอื่น
+ */
+function dtCallAi_(prompt, usage) {
+  var providers = dtAiProviders_();
+  if (!providers.length) throw new Error('ยังไม่ได้ตั้ง API key ของ AI ใน Script properties (อย่างน้อย GEMINI_API_KEY)');
+  var lastErr = null, tried = false;
+  for (var i = 0; i < providers.length; i++) {
+    var pv = providers[i];
+    if (!usage.available(pv)) continue;
+    tried = true;
+    usage.use(pv);
+    try {
+      return {answers: dtParseJsonArray_(dtCallProvider_(pv, prompt)), provider: pv.id};
+    } catch (err) {
+      if (err.status === 429) usage.markFull(pv);
+      console.warn('downtime AI via ' + pv.id + ': ' + err);
+      lastErr = err;
+    }
+  }
+  if (!tried) return null;
+  // ทุกเจ้าที่ลองโดน 429 = หมดโควตาทุกเจ้าแล้ว รอรอบหน้า (ไม่ใช่ข้อผิดพลาด)
+  if (providers.every(function (pv) { return !usage.available(pv); })) return null;
+  throw lastErr;
 }
 
 /**
@@ -896,6 +1008,14 @@ function dtWriteSummaries_(ss, rows) {
 }
 
 /**
+ * กลุ่มที่ตัดสินได้เองโดยไม่ต้องถาม AI (ประหยัดโควตา): ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดเลย
+ * และข้อความที่แจ้งไม่มีตัวเลข (ไม่ได้บอกระยะเวลา/เวลา) → Downtime 0
+ */
+function dtNeedsNoAi_(group) {
+  return group.ctx.gaps.length === 0 && group.items.every(function (inc) { return !/\d/.test(inc.notes); });
+}
+
+/**
  * งานหลักที่ trigger เรียก (ตั้ง Time-driven ทุก 15 นาที) รันเองจาก editor ก็ได้เพื่อทดสอบ
  * คืนสรุปสั้น ๆ ว่าทำไปกี่รายการ
  */
@@ -945,18 +1065,37 @@ function summarizeIncidentDowntimes() {
       });
     });
 
-    // 3) ให้ AI สรุปทีละกลุ่ม 4) บันทึก
+    // 3) ให้ AI สรุปทีละกลุ่ม (ล่าสุดก่อน) 4) บันทึก
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    var written = 0;
-    Object.keys(groups).slice(0, DOWNTIME_MAX_GROUPS_PER_RUN).forEach(function (key) {
+    var usage = dtAiUsage_();
+    var written = 0, aiCalls = 0, skippedForQuota = 0, quotaOut = false;
+    var usedProviders = {};
+    Object.keys(groups).sort().reverse().forEach(function (key) {
       var g = groups[key];
       var reports = g.items.map(function (inc) { return dtIncidentTs_(inc.date, inc.time); });
       var from = Math.min.apply(null, reports) - DOWNTIME_WINDOW_MIN * 60000;
       var to = Math.max.apply(null, reports) + DOWNTIME_WINDOW_MIN * 60000;
       g.ctx = dtScanGaps_(scansByLine[g.line] || [], g.win, from, to, nowMs);
-      var answers;
-      try { answers = dtCallGemini_(dtBuildPrompt_(g)); }
-      catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+
+      var answers, by;
+      if (dtNeedsNoAi_(g)) {
+        by = 'Rule';
+        answers = g.items.map(function (inc) {
+          return {id: inc.id, start: null, end: null, minutes: 0, confidence: 'high', reason: 'ไลน์สแกนต่อเนื่อง ไม่มีช่วงหยุดรอบเวลาที่แจ้ง'};
+        });
+      } else {
+        // เกินโควตารอบนี้ หรือทุกเจ้าหมดโควตาวันนี้แล้ว เก็บไว้ทำรอบหน้า/วันถัดไป
+        if (aiCalls >= DOWNTIME_AI_MAX_CALLS_PER_RUN || quotaOut) { skippedForQuota++; return; }
+        if (aiCalls > 0) Utilities.sleep(DOWNTIME_AI_CALL_GAP_MS);
+        aiCalls++;
+        var got;
+        try { got = dtCallAi_(dtBuildPrompt_(g), usage); }
+        catch (err) { console.warn('downtime AI ' + key + ': ' + err); return; } // ลองใหม่รอบหน้า
+        if (!got) { quotaOut = true; skippedForQuota++; return; }
+        answers = got.answers;
+        by = 'AI:' + got.provider;
+        usedProviders[got.provider] = (usedProviders[got.provider] || 0) + 1;
+      }
       var rows = [];
       g.items.forEach(function (inc, idx) {
         var item = answers.filter(function (a) { return a && String(a.id) === inc.id; })[0] || answers[idx];
@@ -965,13 +1104,15 @@ function summarizeIncidentDowntimes() {
         rows.push({
           Key: inc.id + '|' + g.line, ID: inc.id, Line: g.line, Date: inc.date,
           Minutes: res.minutes, Start: res.start, End: res.end, Confidence: res.confidence, Reason: res.reason,
-          Sig: dtSig_(inc), By: 'AI', UpdatedAt: stamp
+          Sig: dtSig_(inc), By: by, UpdatedAt: stamp
         });
       });
       dtWriteSummaries_(ss, rows);
       written += rows.length;
     });
-    return 'summarized ' + written + ' of ' + pending.length + ' pending incidents';
+    return 'summarized ' + written + ' of ' + pending.length + ' pending incidents (AI calls ' + aiCalls +
+      ', by ' + (Object.keys(usedProviders).map(function (k) { return k + ' ' + usedProviders[k]; }).join(', ') || '-') +
+      (skippedForQuota ? ', ' + skippedForQuota + ' groups wait for quota' : '') + ')';
   } finally {
     cache.remove('downtime_ai_running');
   }
