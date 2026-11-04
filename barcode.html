@@ -395,9 +395,16 @@
             <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตามรุ่น (Daily Output)</h3>
-                    <p class="text-xs text-slate-400">แท่งละ 1 วัน สแตกทุกรุ่นเข้าด้วยกัน · เลือกช่วงวันที่ด้านบนเพื่อดูยอดรายวันทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400"><span id="daily-model-period-desc">แท่งละ 1 วัน</span> สแตกทุกรุ่นเข้าด้วยกัน · เส้น %EEF = ยอดจริง ÷ เป้าหมาย · เลือกช่วงวันที่ด้านบนเพื่อดูทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3">
+                    <!-- เลือกมุมมองรายวัน / รายเดือน / รายไตรมาส / รายปี -->
+                    <div id="daily-period-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold shrink-0" title="รวมยอดเป็นรายวัน / เดือน / ไตรมาส / ปี">
+                        <button type="button" data-period="day" onclick="setDailyChartPeriod('day')" class="px-2 py-1 rounded-md">วัน</button>
+                        <button type="button" data-period="month" onclick="setDailyChartPeriod('month')" class="px-2 py-1 rounded-md">เดือน</button>
+                        <button type="button" data-period="quarter" onclick="setDailyChartPeriod('quarter')" class="px-2 py-1 rounded-md">ไตรมาส</button>
+                        <button type="button" data-period="year" onclick="setDailyChartPeriod('year')" class="px-2 py-1 rounded-md">ปี</button>
+                    </div>
                     <div id="daily-model-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
                     <button type="button" onclick="toggleChartFullscreen('daily')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
                 </div>
@@ -1424,6 +1431,13 @@ function doPost(e) {
             try { return localStorage.getItem('barcode_model_chart_sort') === 'sequence' ? 'sequence' : 'qty'; }
             catch (e) { return 'qty'; }
         })();
+        // มุมมองกราฟยอดผลิต: day / month / quarter / year จำไว้ในเครื่องผู้ใช้
+        let dailyChartPeriod = (() => {
+            try {
+                const v = localStorage.getItem('barcode_daily_chart_period');
+                return ['day', 'month', 'quarter', 'year'].includes(v) ? v : 'day';
+            } catch (e) { return 'day'; }
+        })();
         let prevModelLabels = []; // To track if model list or order changed
         let prevHourlyLabels = []; // To track if hourly labels changed
         let prevHourlyDataJson = ''; // To track if hourly dataset values changed
@@ -2099,6 +2113,48 @@ function doPost(e) {
         const DAILY_CHART_MIN_BAR_WIDTH = 56;
         const THAI_SHORT_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
         const DAILY_TARGET_LABEL = 'เป้าหมาย (Target)';
+        const DAILY_EEF_LABEL = '%EEF';
+        const DAILY_PERIOD_TEXT = { day: 'แท่งละ 1 วัน', month: 'แท่งละ 1 เดือน', quarter: 'แท่งละ 1 ไตรมาส', year: 'แท่งละ 1 ปี' };
+        const DAILY_PERIOD_UNIT = { day: 'วัน', month: 'เดือน', quarter: 'ไตรมาส', year: 'ปี' };
+
+        // คีย์ของช่วงเวลาที่วันผลิตหนึ่งวันตกอยู่ เช่น 2026-10 / 2026-Q4 / 2026
+        function dailyPeriodKey(isoDate, period) {
+            const [y, m] = String(isoDate).split('-');
+            if (period === 'month') return `${y}-${m}`;
+            if (period === 'quarter') return `${y}-Q${Math.floor((Number(m) - 1) / 3) + 1}`;
+            if (period === 'year') return y;
+            return isoDate;
+        }
+
+        // ป้ายแกน X ของแต่ละมุมมอง (ปี พ.ศ. ให้ตรงกับป้ายช่วงวันที่)
+        function formatDailyPeriodLabel(key, period) {
+            if (period === 'day') return formatDailyChartLabel(key);
+            const y = Number(String(key).slice(0, 4));
+            const be = y + 543;
+            if (period === 'month') return [THAI_SHORT_MONTHS[Number(String(key).slice(5, 7)) - 1], String(be)];
+            if (period === 'quarter') return [`ไตรมาส ${String(key).slice(6)}`, String(be)];
+            return String(be);
+        }
+
+        function renderDailyPeriodTabs() {
+            document.querySelectorAll('#daily-period-tabs button').forEach(btn => {
+                const active = btn.dataset.period === dailyChartPeriod;
+                btn.classList.toggle('bg-white', active);
+                btn.classList.toggle('shadow-sm', active);
+                btn.classList.toggle('text-indigo-600', active);
+                btn.classList.toggle('text-slate-500', !active);
+            });
+            const desc = document.getElementById('daily-model-period-desc');
+            if (desc) desc.textContent = DAILY_PERIOD_TEXT[dailyChartPeriod];
+        }
+
+        function setDailyChartPeriod(period) {
+            if (period === dailyChartPeriod) return;
+            dailyChartPeriod = period;
+            try { localStorage.setItem('barcode_daily_chart_period', period); } catch (e) {}
+            renderDailyPeriodTabs();
+            renderCharts();
+        }
 
         // ป้ายแกน X สองบรรทัด: วันที่ไทยแบบสั้น และชื่อวันในสัปดาห์
         function formatDailyChartLabel(isoDate) {
@@ -2149,6 +2205,20 @@ function doPost(e) {
                     ctx.fillStyle = '#475569';
                     const topY = Math.min(...segments.map(s => s.y));
                     ctx.fillText(totals[indexKey].toLocaleString(), segments[0].x, topY - 8);
+                });
+
+                // ตัวเลข %EEF ใต้จุดของเส้น
+                chart.data.datasets.forEach((dataset, datasetIndex) => {
+                    if (dataset.label !== DAILY_EEF_LABEL) return;
+                    const meta = chart.getDatasetMeta(datasetIndex);
+                    if (meta.hidden) return;
+                    ctx.font = 'bold 9px Prompt';
+                    ctx.fillStyle = dataset.borderColor;
+                    meta.data.forEach((pt, index) => {
+                        const v = dataset.data[index];
+                        if (v === null || v === undefined || !isFinite(v)) return;
+                        ctx.fillText(`${v}%`, pt.x, pt.y + 11);
+                    });
                 });
 
                 ctx.restore();
@@ -2225,7 +2295,19 @@ function doPost(e) {
 
             const rangeDates = eachDateInRange(startDate, rangeEnd);
             const datesWithScans = rangeDates.filter(d => qtyByDate[d]);
-            const dateSequence = rangeDates.length <= DAILY_CHART_FULL_RANGE_LIMIT ? rangeDates : datesWithScans;
+            const period = dailyChartPeriod;
+            renderDailyPeriodTabs();
+            // มุมมองรายวัน: แท่งละวัน (ช่วงยาวเกินไปแสดงเฉพาะวันที่มีสแกน)
+            // มุมมองอื่น: รวมวันเข้าเป็นเดือน / ไตรมาส / ปี แสดงทุกช่วงที่อยู่ในช่วงวันที่ที่เลือก
+            const dateSequence = period === 'day'
+                ? (rangeDates.length <= DAILY_CHART_FULL_RANGE_LIMIT ? rangeDates : datesWithScans)
+                : Array.from(new Set(rangeDates.map(d => dailyPeriodKey(d, period))));
+            const bucketQty = (byDate, key) => {
+                if (period === 'day') return byDate[key] || 0;
+                let sum = 0;
+                Object.keys(byDate).forEach(d => { if (dailyPeriodKey(d, period) === key) sum += byDate[d]; });
+                return sum;
+            };
 
             const scrollEl = document.getElementById('daily-model-chart-scroll');
             const holderEl = document.getElementById('daily-model-chart-holder');
@@ -2244,14 +2326,25 @@ function doPost(e) {
                 return;
             }
 
+            const targets = targetByDate || {};
             const grandTotal = datesWithScans.reduce((sum, d) => sum + qtyByDate[d], 0);
             const avgPerDay = Math.round(grandTotal / datesWithScans.length);
+            // %EEF รวมทั้งช่วง = ยอดจริงรวม ÷ เป้ารวม (นับเฉพาะวันที่มีเป้า)
+            let eefActual = 0, eefTarget = 0;
+            datesWithScans.forEach(d => { if (targets[d] > 0) { eefActual += qtyByDate[d]; eefTarget += targets[d]; } });
+            const overallEef = eefTarget > 0 ? (eefActual / eefTarget) * 100 : null;
             if (summaryEl) {
-                summaryEl.innerHTML = `รวม <span class="font-mono text-indigo-600">${grandTotal.toLocaleString()}</span> PCS · เฉลี่ย <span class="font-mono text-indigo-600">${avgPerDay.toLocaleString()}</span> PCS/วัน<span class="block text-[10px] font-normal text-slate-400">${datesWithScans.length} วันที่มีการสแกน</span>`;
+                const eefClass = overallEef === null ? 'text-slate-400' : overallEef < 80 ? 'text-rose-600' : overallEef < 95 ? 'text-amber-500' : 'text-emerald-600';
+                const eefHtml = overallEef === null ? '' : ` · %EEF <span class="font-mono ${eefClass}">${overallEef.toFixed(1)}%</span>`;
+                summaryEl.innerHTML = `รวม <span class="font-mono text-indigo-600">${grandTotal.toLocaleString()}</span> PCS · เฉลี่ย <span class="font-mono text-indigo-600">${avgPerDay.toLocaleString()}</span> PCS/วัน${eefHtml}<span class="block text-[10px] font-normal text-slate-400">${datesWithScans.length} วันที่มีการสแกน</span>`;
             }
 
-            const labels = dateSequence.map(formatDailyChartLabel);
-            const dailyTargets = dateSequence.map(d => Math.round((targetByDate || {})[d] || 0));
+            const labels = dateSequence.map(k => formatDailyPeriodLabel(k, period));
+            const dailyTargets = dateSequence.map(k => Math.round(bucketQty(targets, k)));
+            const dailyActuals = dateSequence.map(k => bucketQty(qtyByDate, k));
+            const dailyEef = dateSequence.map((k, i) => dailyTargets[i] > 0 && dailyActuals[i] > 0
+                ? Math.round((dailyActuals[i] / dailyTargets[i]) * 1000) / 10
+                : null);
 
             // เส้นเป้าหมายมาก่อนเสมอ (order 0) จะได้วาดทับแท่งไม่ถูกบัง เหมือนกราฟรายชั่วโมง
             const datasets = [{
@@ -2266,15 +2359,36 @@ function doPost(e) {
                 fill: false,
                 tension: 0,
                 order: 0
+            }, {
+                // %EEF ใช้แกนขวา (เปอร์เซ็นต์) แยกจากแกนจำนวนชิ้น
+                type: 'line',
+                label: DAILY_EEF_LABEL,
+                data: dailyEef,
+                yAxisID: 'yEef',
+                borderColor: '#7c3aed',
+                backgroundColor: '#7c3aed',
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: '#7c3aed',
+                spanGaps: true,
+                fill: false,
+                tension: 0.25,
+                order: 0
             }];
 
+            const modelBucketData = {};
+            uniqueModels.forEach(modelName => {
+                const byDate = qtyByModelDate[modelName] || {};
+                modelBucketData[modelName] = dateSequence.map(k => bucketQty(byDate, k));
+            });
+
             uniqueModels
-                .filter(modelName => dateSequence.some(d => (qtyByModelDate[modelName] || {})[d]))
+                .filter(modelName => modelBucketData[modelName].some(v => v > 0))
                 .forEach(modelName => {
                     datasets.push({
                         type: 'bar',
                         label: modelName,
-                        data: dateSequence.map(d => (qtyByModelDate[modelName] || {})[d] || 0),
+                        data: modelBucketData[modelName],
                         backgroundColor: getModelColor(modelName),
                         stack: 'daily',
                         borderRadius: 4,
@@ -2293,8 +2407,10 @@ function doPost(e) {
             const labelsJson = JSON.stringify(labels);
             const dataJson = JSON.stringify(datasets.map(d => ({ label: d.label, data: d.data })));
 
+            const incidentDateKeys = period === 'day' ? dateSequence : null;
+
             if (dailyModelChartObj) {
-                dailyModelChartObj.dateKeys = dateSequence;
+                dailyModelChartObj.dateKeys = incidentDateKeys;
                 if (dailyModelChartObj.prevLabelsJson !== labelsJson || dailyModelChartObj.prevDataJson !== dataJson) {
                     dailyModelChartObj.data.labels = labels;
 
@@ -2341,15 +2457,17 @@ function doPost(e) {
                         },
                         tooltip: {
                             callbacks: {
-                                label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString()} PCS`,
+                                label: (ctx) => ctx.dataset.label === DAILY_EEF_LABEL
+                                    ? `${DAILY_EEF_LABEL}: ${ctx.parsed.y}%`
+                                    : `${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString()} PCS`,
                                 footer: (items) => {
-                                    const actualItems = items.filter(it => it.dataset.label !== DAILY_TARGET_LABEL);
+                                    const actualItems = items.filter(it => it.dataset.label !== DAILY_TARGET_LABEL && it.dataset.label !== DAILY_EEF_LABEL);
                                     const total = actualItems.reduce((sum, it) => sum + (it.parsed.y || 0), 0);
                                     const targetItem = items.find(it => it.dataset.label === DAILY_TARGET_LABEL);
                                     const targetVal = targetItem ? (targetItem.parsed.y || 0) : 0;
-                                    const lines = [`รวมทั้งวัน: ${total.toLocaleString()} PCS`];
+                                    const lines = [`รวมทั้ง${DAILY_PERIOD_UNIT[dailyChartPeriod]}: ${total.toLocaleString()} PCS`];
                                     if (targetVal > 0) {
-                                        lines.push(`เทียบเป้า: ${Math.round((total / targetVal) * 100)}%`);
+                                        lines.push(`%EEF (เทียบเป้า): ${((total / targetVal) * 100).toFixed(1)}%`);
                                     }
                                     return lines;
                                 },
@@ -2359,11 +2477,10 @@ function doPost(e) {
                                 }
                             },
                             itemSort: (a, b) => {
-                                if (a.dataset.label === DAILY_TARGET_LABEL) return 1;
-                                if (b.dataset.label === DAILY_TARGET_LABEL) return -1;
-                                return b.parsed.y - a.parsed.y;
+                                const rank = it => it.dataset.label === DAILY_EEF_LABEL ? 2 : it.dataset.label === DAILY_TARGET_LABEL ? 1 : 0;
+                                return (rank(a) - rank(b)) || (b.parsed.y - a.parsed.y);
                             },
-                            filter: (item) => item.dataset.label === DAILY_TARGET_LABEL || (item.parsed.y || 0) > 0,
+                            filter: (item) => item.dataset.label === DAILY_TARGET_LABEL || (item.dataset.label === DAILY_EEF_LABEL ? item.parsed.y !== null : (item.parsed.y || 0) > 0),
                             bodyFont: { family: 'Prompt', size: 10 },
                             titleFont: { family: 'Prompt', size: 11 },
                             footerFont: { family: 'Prompt', size: 10 }
@@ -2377,6 +2494,14 @@ function doPost(e) {
                             grid: { color: '#f1f5f9' },
                             ticks: { font: { family: 'Prompt', size: 10 } }
                         },
+                        yEef: {
+                            position: 'right',
+                            beginAtZero: true,
+                            suggestedMax: 120,
+                            grid: { display: false },
+                            title: { display: true, text: '%EEF', color: '#7c3aed', font: { family: 'Prompt', size: 10, weight: 'bold' } },
+                            ticks: { color: '#7c3aed', font: { family: 'Prompt', size: 10 }, callback: v => `${v}%` }
+                        },
                         x: {
                             stacked: true,
                             grid: { display: false },
@@ -2387,7 +2512,7 @@ function doPost(e) {
             });
             dailyModelChartObj.prevLabelsJson = labelsJson;
             dailyModelChartObj.prevDataJson = dataJson;
-            dailyModelChartObj.dateKeys = dateSequence;
+            dailyModelChartObj.dateKeys = incidentDateKeys;
         }
 
         function renderCharts() {
