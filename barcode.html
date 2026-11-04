@@ -9180,6 +9180,8 @@ function doPost(e) {
         }
 
         function parseWithIndices(rows, headerIdx, modelColIdx, lineColIdx, maxCapColIdx, planningCapColIdx) {
+            // กำลังผลิตของทุกแถวของรุ่นเดียวกัน (ทุกไลน์) ใช้หาค่าเฉลี่ยสำหรับกรณีไม่มีคู่ ไลน์ + รุ่น ในชีต
+            const capsByModel = {};
             for (let i = headerIdx + 1; i < rows.length; i++) {
                 const row = rows[i];
                 if (!row) continue;
@@ -9199,11 +9201,23 @@ function doPost(e) {
                     if (normLine) {
                         capacityDataMap[`${normLine}_${model}`] = val;
                     }
-                    if (!capacityDataMap[model]) {
-                        capacityDataMap[model] = val;
-                    }
+                    (capsByModel[model] || (capsByModel[model] = [])).push(val);
                 }
             }
+
+            // ค่าของรุ่นแบบไม่ระบุไลน์ = ค่าเฉลี่ยของทุกไลน์ที่มีรุ่นนั้นในชีต
+            // ใช้ตอนรุ่นไปเดินบนไลน์ที่ยังไม่มีแถวในชีต แทนการหยิบค่าของแถวแรกที่เจอ (ซึ่งอาจเป็นไลน์ที่เร็ว/ช้ากว่ามาก)
+            // เฉลี่ยเฉพาะแถวที่มีค่ามากกว่า 0 แถวที่ยังไม่กรอกจะได้ไม่ดึงค่าเฉลี่ยให้ต่ำลง
+            const avgPositive = nums => {
+                const valid = nums.filter(n => n > 0);
+                return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
+            };
+            Object.entries(capsByModel).forEach(([model, vals]) => {
+                capacityDataMap[model] = {
+                    planning: avgPositive(vals.map(v => v.planning)),
+                    max: avgPositive(vals.map(v => v.max))
+                };
+            });
         }
 
         function findCapacityInfo(logLine, logModel) {
