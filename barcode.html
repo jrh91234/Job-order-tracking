@@ -392,12 +392,14 @@
 
         <!-- Chart 3: Daily Output by Model (Stacked) -->
         <div id="daily-model-chart-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
-            <div class="flex items-start justify-between gap-3 flex-wrap">
+            <!-- ปุ่มขยายอยู่มุมขวาบนเสมอ ส่วนหัวที่เหลือขึ้นบรรทัดใหม่เองเมื่อการ์ดแคบ -->
+            <div class="flex items-start gap-3">
+            <div class="flex-1 min-w-0 flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตามรุ่น (Daily Output)</h3>
                     <p class="text-xs text-slate-400"><span id="daily-model-period-desc">แท่งละ 1 วัน</span> สแตกทุกรุ่นเข้าด้วยกัน · เส้น %EEF = ยอดจริง ÷ เป้าหมาย · เลือกช่วงวันที่ด้านบนเพื่อดูทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
-                <div class="flex items-start gap-3">
+                <div class="flex items-start gap-3 flex-wrap">
                     <!-- เลือกมุมมองรายวัน / รายเดือน / รายไตรมาส / รายปี -->
                     <div id="daily-period-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold shrink-0" title="รวมยอดเป็นรายวัน / เดือน / ไตรมาส / ปี">
                         <button type="button" data-period="day" onclick="setDailyChartPeriod('day')" class="px-2 py-1 rounded-md">วัน</button>
@@ -406,8 +408,9 @@
                         <button type="button" data-period="year" onclick="setDailyChartPeriod('year')" class="px-2 py-1 rounded-md">ปี</button>
                     </div>
                     <div id="daily-model-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
-                    <button type="button" onclick="toggleChartFullscreen('daily')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
                 </div>
+            </div>
+                <button type="button" onclick="toggleChartFullscreen('daily')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
             </div>
             <div id="daily-model-chart-scroll" class="chart-fs-area relative h-80 w-full overflow-x-auto overflow-y-hidden">
                 <div id="daily-model-chart-holder" class="relative h-full w-full">
@@ -2177,6 +2180,7 @@ function doPost(e) {
 
                 const totals = {};
                 const barPositions = {};
+                const totalLabelY = {};
 
                 chart.data.datasets.forEach((dataset, datasetIndex) => {
                     // ข้ามเส้นเป้าหมาย พล็อตเป็นเส้นไม่มีฐานแท่งให้วางตัวเลข
@@ -2202,22 +2206,50 @@ function doPost(e) {
                             }
                         });
                     }
-                    ctx.fillStyle = '#475569';
+                    // พื้นขาวหลังตัวเลขยอดรวม กันเส้นเป้า / เส้น %EEF ที่ลากผ่านหัวแท่งทับจนอ่านไม่ออก
                     const topY = Math.min(...segments.map(s => s.y));
-                    ctx.fillText(totals[indexKey].toLocaleString(), segments[0].x, topY - 8);
+                    const totalText = totals[indexKey].toLocaleString();
+                    const totalW = ctx.measureText(totalText).width + 8;
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(segments[0].x - totalW / 2, topY - 15, totalW, 14, 4);
+                    else ctx.rect(segments[0].x - totalW / 2, topY - 15, totalW, 14);
+                    ctx.fill();
+                    ctx.fillStyle = '#475569';
+                    ctx.fillText(totalText, segments[0].x, topY - 8);
+                    totalLabelY[indexKey] = topY - 8;
                 });
 
-                // ตัวเลข %EEF ใต้จุดของเส้น
+                // ตัวเลข %EEF ของเส้น วาดบนป้ายพื้นขาวขอบม่วง ให้อ่านออกแม้จุดจะทับแท่งสีหรือเส้นเป้า
+                // วางเหนือจุดเป็นหลัก ถ้าชนกับยอดรวมบนหัวแท่งให้ย้ายไปไว้ใต้จุดแทน
                 chart.data.datasets.forEach((dataset, datasetIndex) => {
                     if (dataset.label !== DAILY_EEF_LABEL) return;
                     const meta = chart.getDatasetMeta(datasetIndex);
                     if (meta.hidden) return;
-                    ctx.font = 'bold 9px Prompt';
-                    ctx.fillStyle = dataset.borderColor;
+                    ctx.font = 'bold 10px Prompt';
+                    const area = chart.chartArea;
+                    const boxH = 16;
                     meta.data.forEach((pt, index) => {
                         const v = dataset.data[index];
                         if (v === null || v === undefined || !isFinite(v)) return;
-                        ctx.fillText(`${v}%`, pt.x, pt.y + 11);
+                        const text = `${v}%`;
+                        const boxW = ctx.measureText(text).width + 10;
+                        let cy = pt.y - 14;
+                        const totalY = totalLabelY[index];
+                        const clashesTotal = totalY !== undefined && Math.abs(cy - totalY) < boxH + 2;
+                        if (clashesTotal || cy - boxH / 2 < area.top) cy = pt.y + 14;
+                        const x = pt.x - boxW / 2;
+                        const y = cy - boxH / 2;
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(x, y, boxW, boxH, 8);
+                        else ctx.rect(x, y, boxW, boxH);
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                        ctx.fill();
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = dataset.borderColor;
+                        ctx.stroke();
+                        ctx.fillStyle = dataset.borderColor;
+                        ctx.fillText(text, pt.x, cy + 0.5);
                     });
                 });
 
