@@ -642,6 +642,14 @@
                 headerIdx = 11; // fallback default
             }
 
+            // คอลัมน์ Line (หาจากหัวตาราง ไม่เจอใช้ตำแหน่งเดียวกับหน้า barcode)
+            const headerRow = (rows[headerIdx] || []).map(c => String(c).trim().toLowerCase());
+            let lineColIdx = headerRow.findIndex(c => c === 'line');
+            if (lineColIdx === -1) lineColIdx = 13;
+
+            // กำลังผลิตของทุกแถวของรุ่นเดียวกัน (ทุกไลน์) ใช้หาค่าเฉลี่ยสำหรับกรณีไม่มีคู่ ไลน์ + รุ่น ในชีต
+            const capsByModel = {};
+
             // Parse subsequent rows
             for (let i = headerIdx + 1; i < rows.length; i++) {
                 const row = rows[i];
@@ -655,13 +663,25 @@
                 const maxCap = parseFloat(String(row[4] || '0').replace(/,/g, '')) || 0;
                 const planningCap = parseFloat(String(row[6] || '0').replace(/,/g, '')) || 0;
                 
-                if (model) {
-                    capacityDataMap[model] = {
-                        planning: planningCap,
-                        max: maxCap
-                    };
-                }
+                const val = { planning: planningCap, max: maxCap };
+                // แต่ละไลน์ผลิตรุ่นเดียวกันได้เร็วไม่เท่ากัน เก็บแยกเป็น "เลขไลน์_รุ่น" เช่น 5_EZ9EPL104
+                const normLine = String(row[lineColIdx] || '').replace(/[^0-9]/g, '');
+                if (normLine) capacityDataMap[`${normLine}_${model}`] = val;
+                (capsByModel[model] || (capsByModel[model] = [])).push(val);
             }
+
+            // ค่าของรุ่นแบบไม่ระบุไลน์ = ค่าเฉลี่ยของทุกไลน์ที่มีรุ่นนั้นในชีต (เฉพาะแถวที่มีค่ามากกว่า 0)
+            // ใช้ตอนรุ่นไปเดินบนไลน์ที่ยังไม่มีแถวในชีต
+            const avgPositive = nums => {
+                const valid = nums.filter(n => n > 0);
+                return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
+            };
+            Object.entries(capsByModel).forEach(([model, vals]) => {
+                capacityDataMap[model] = {
+                    planning: avgPositive(vals.map(v => v.planning)),
+                    max: avgPositive(vals.map(v => v.max))
+                };
+            });
         }
 
         function parseActualLogsSheet(data, fields) {
@@ -780,9 +800,26 @@
             applyFilters();
         }
 
-        function findCapacityInfo(logModel) {
+        // หากำลังผลิตของรุ่นบนไลน์ที่ระบุก่อน ไม่เจอค่อยใช้ค่าของรุ่น (ค่าเฉลี่ยทุกไลน์)
+        function findCapacityInfo(logLine, logModel) {
             if (!logModel) return null;
-            
+
+            const cleanLine = logLine ? String(logLine).replace(/[^0-9]/g, '') : '';
+            if (cleanLine) {
+                const upper = String(logModel).trim().toUpperCase();
+                const cleanModelForLine = upper.replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+                const lineKeys = [`${cleanLine}_${logModel}`, `${cleanLine}_${upper}`, `${cleanLine}_${cleanModelForLine}`];
+                for (const k of lineKeys) {
+                    if (capacityDataMap[k]) return capacityDataMap[k];
+                }
+                for (const key of Object.keys(capacityDataMap)) {
+                    const sep = key.indexOf('_');
+                    if (sep === -1 || key.slice(0, sep) !== cleanLine) continue;
+                    const keyModel = key.slice(sep + 1).trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
+                    if (keyModel === cleanModelForLine) return capacityDataMap[key];
+                }
+            }
+
             // 1. Exact match
             if (capacityDataMap[logModel]) {
                 return capacityDataMap[logModel];
@@ -794,8 +831,8 @@
                 return capacityDataMap[cleanModel];
             }
             
-            // 2. Fuzzy prefix / substring matching
-            const keys = Object.keys(capacityDataMap);
+            // 2. Fuzzy prefix / substring matching (ข้ามคีย์แบบ "ไลน์_รุ่น" ใช้เฉพาะคีย์ของรุ่น)
+            const keys = Object.keys(capacityDataMap).filter(k => !/^\d+_/.test(k));
             for (const key of keys) {
                 const cleanKey = key.trim().toUpperCase().replace(/[-/](S|SNE|SN|G\/SN|G\/SNE)$/i, '');
                 if (cleanModel === cleanKey) {
@@ -842,7 +879,7 @@
                 const activeHours = g.hoursSet.size;
                 
                 // Lookup capacity
-                const capInfo = findCapacityInfo(g.model);
+                const capInfo = findCapacityInfo(g.line, g.model);
                 let capPerHour = 0;
                 
                 if (capInfo) {
