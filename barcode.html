@@ -397,7 +397,7 @@
             <div class="flex-1 min-w-0 flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตามรุ่น (Daily Output)</h3>
-                    <p class="text-xs text-slate-400"><span id="daily-model-period-desc">แท่งละ 1 วัน</span> สแตกทุกรุ่นเข้าด้วยกัน · เส้น %EEF = ยอดจริง ÷ เป้าหมาย · เลือกช่วงวันที่ด้านบนเพื่อดูทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400"><span id="daily-model-period-desc">แท่งละ 1 วัน</span> สแตกทุกรุ่นเข้าด้วยกัน · เส้น %EEF = ยอดจริง ÷ เป้าหมาย (นับเฉพาะชั่วโมงที่จบแล้ว เหมือนการ์ด Eff%) · เลือกช่วงวันที่ด้านบนเพื่อดูทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <!-- เลือกมุมมองรายวัน / รายเดือน / รายไตรมาส / รายปี -->
@@ -2308,7 +2308,7 @@ function doPost(e) {
             return lines;
         }
 
-        function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate, targetByDate) {
+        function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate, targetByDate, eefBasis) {
             const canvasEl = document.getElementById('dailyModelChart');
             if (!canvasEl) return;
 
@@ -2361,9 +2361,13 @@ function doPost(e) {
             const targets = targetByDate || {};
             const grandTotal = datesWithScans.reduce((sum, d) => sum + qtyByDate[d], 0);
             const avgPerDay = Math.round(grandTotal / datesWithScans.length);
+            // %EEF ใช้ยอดจริงและเป้าเฉพาะชั่วโมงที่จบแล้ว (เกณฑ์เดียวกับ Eff% บนการ์ด KPI)
+            // ส่วนแท่งและเส้นเป้ายังแสดงยอดทั้งหมดและเป้าเต็มกะตามเดิม
+            const eefActuals = (eefBasis && eefBasis.actualByDate) || qtyByDate;
+            const eefTargets = (eefBasis && eefBasis.targetByDate) || targets;
             // %EEF รวมทั้งช่วง = ยอดจริงรวม ÷ เป้ารวม (นับเฉพาะวันที่มีเป้า)
             let eefActual = 0, eefTarget = 0;
-            datesWithScans.forEach(d => { if (targets[d] > 0) { eefActual += qtyByDate[d]; eefTarget += targets[d]; } });
+            datesWithScans.forEach(d => { if (eefTargets[d] > 0) { eefActual += eefActuals[d] || 0; eefTarget += eefTargets[d]; } });
             const overallEef = eefTarget > 0 ? (eefActual / eefTarget) * 100 : null;
             if (summaryEl) {
                 const eefClass = overallEef === null ? 'text-slate-400' : overallEef < 80 ? 'text-rose-600' : overallEef < 95 ? 'text-amber-500' : 'text-emerald-600';
@@ -2374,9 +2378,11 @@ function doPost(e) {
             const labels = dateSequence.map(k => formatDailyPeriodLabel(k, period));
             const dailyTargets = dateSequence.map(k => Math.round(bucketQty(targets, k)));
             const dailyActuals = dateSequence.map(k => bucketQty(qtyByDate, k));
-            const dailyEef = dateSequence.map((k, i) => dailyTargets[i] > 0 && dailyActuals[i] > 0
-                ? Math.round((dailyActuals[i] / dailyTargets[i]) * 1000) / 10
-                : null);
+            const dailyEef = dateSequence.map(k => {
+                const eefT = bucketQty(eefTargets, k);
+                const eefA = bucketQty(eefActuals, k);
+                return eefT > 0 && eefA > 0 ? Math.round((eefA / eefT) * 1000) / 10 : null;
+            });
 
             // เส้นเป้าหมายมาก่อนเสมอ (order 0) จะได้วาดทับแท่งไม่ถูกบัง เหมือนกราฟรายชั่วโมง
             const datasets = [{
@@ -2498,8 +2504,10 @@ function doPost(e) {
                                     const targetItem = items.find(it => it.dataset.label === DAILY_TARGET_LABEL);
                                     const targetVal = targetItem ? (targetItem.parsed.y || 0) : 0;
                                     const lines = [`รวมทั้ง${DAILY_PERIOD_UNIT[dailyChartPeriod]}: ${total.toLocaleString()} PCS`];
-                                    if (targetVal > 0) {
-                                        lines.push(`%EEF (เทียบเป้า): ${((total / targetVal) * 100).toFixed(1)}%`);
+                                    const eefItem = items.find(it => it.dataset.label === DAILY_EEF_LABEL);
+                                    const eefVal = eefItem ? eefItem.parsed.y : (items.length ? dailyEef[items[0].dataIndex] : null);
+                                    if (targetVal > 0 && eefVal !== null && eefVal !== undefined) {
+                                        lines.push(`%EEF (เฉพาะชั่วโมงที่จบแล้ว): ${eefVal.toFixed(1)}%`);
                                     }
                                     return lines;
                                 },
@@ -2743,6 +2751,22 @@ function doPost(e) {
             const targetByDate = {};
             activeProdDates.forEach(d => { targetByDate[d] = 0; });
 
+            // ชั่วโมงที่จบสมบูรณ์ 60 นาทีแล้ว (เกณฑ์เดียวกับ Eff% บนการ์ด KPI):
+            // 1. ถ้าไม่ใช่การดูวันปัจจุบัน -> ทุกชั่วโมงในกะคือชั่วโมงที่จบแล้ว
+            // 2. ถ้าดูวันปัจจุบัน -> เฉพาะชั่วโมงที่อยู่ก่อนชั่วโมงปัจจุบันตามลำดับในกะเท่านั้น
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const currentHour = now.getHours();
+            const isViewingToday = (els.filterStartDate.value === todayStr && els.filterEndDate.value === todayStr);
+            const currentHourIdx = hourSequence.indexOf(currentHour);
+            const isHourCompleted = idx => !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx);
+
+            // ยอดจริงและเป้าแยกรายวัน สำหรับคิด %EEF บนกราฟรายวัน
+            // นับเฉพาะชั่วโมงที่จบแล้วและมีการสแกน เหมือน Eff% บนการ์ด KPI ตัวเลขสองที่จึงตรงกัน
+            // (ไม่นับชั่วโมงที่กำลังเดินอยู่ และชั่วโมงในอนาคตที่เป้าเป็นค่าประมาณ)
+            const eefActualByDate = {};
+            const eefTargetByDate = {};
+
             // คำนวณเป้าหมายรายชั่วโมงสะสมตามจริง (โดยนับวันผลิตเฉพาะชั่วโมงที่มีการสแกนจริงเพื่อไม่ให้เป้าหมายเพี้ยน)
             // ช่วงเปลี่ยนรุ่นจากเครื่องสแกน (แถว CHANGEOVER): ตั้งแต่เวลายืนยันเปลี่ยนรุ่น จนถึงชิ้นแรกที่สแกนเข้ามาหลังจากนั้น
             // ไลน์ถือว่ากำลังเดินรุ่นใหม่อยู่แล้ว จึงนำกำลังผลิตของรุ่นใหม่มาคิดเป้าในช่วงนั้นด้วย (ตามสัดส่วนนาทีในชั่วโมง)
@@ -2859,23 +2883,16 @@ function doPost(e) {
                     });
                     totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
                     targetByDate[scanDate] = (targetByDate[scanDate] || 0) + sumOfLineTargets * getDowntimeMultiplier(hr);
+                    if (isHourCompleted(hrIdx) && hourScans.length > 0) {
+                        eefTargetByDate[scanDate] = (eefTargetByDate[scanDate] || 0) + sumOfLineTargets * getDowntimeMultiplier(hr);
+                        eefActualByDate[scanDate] = (eefActualByDate[scanDate] || 0) + dateScans.reduce((sum, s) => sum + (s.qty || 1), 0);
+                    }
                 });
                 
                 return Math.round(totalTargetForHour);
             });
 
             // คำนวณประสิทธิภาพการผลิตสะสม (Eff%) เทียบกับเป้าหมายสะสม (เฉพาะชั่วโมงที่จบสมบูรณ์ 60 นาทีแล้วเท่านั้น)
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const todayStr = `${year}-${month}-${day}`;
-            const currentHour = now.getHours();
-            
-            // ตรวจสอบว่ากำลังดูข้อมูลวันปัจจุบัน (Today) หรือไม่
-            const isViewingToday = (els.filterStartDate.value === todayStr && els.filterEndDate.value === todayStr);
-            const currentHourIdx = hourSequence.indexOf(currentHour);
-            
             let totalTargetVal = 0;
             let totalActualVal = 0;
 
@@ -2891,10 +2908,7 @@ function doPost(e) {
             };
 
             hourSequence.forEach((hr, idx) => {
-                // ชั่วโมงที่จบสมบูรณ์คือ:
-                // 1. ถ้าไม่ใช่การดูวันปัจจุบัน -> ทุกชั่วโมงในกะคือชั่วโมงที่จบแล้ว
-                // 2. ถ้าดูวันปัจจุบัน -> เฉพาะชั่วโมงที่อยู่ก่อนชั่วโมงปัจจุบันตามลำดับในกะเท่านั้น
-                const isCompleted = !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx);
+                const isCompleted = isHourCompleted(idx);
                 const hourScans = okScans.filter(s => s.hour === hr);
 
                 hourScans.forEach(s => {
@@ -2937,9 +2951,7 @@ function doPost(e) {
                 // นาทีที่เปิดให้ผลิตของแต่ละชั่วโมง เป็น 0 สำหรับชั่วโมงที่ไม่มีการสแกนเลย
                 // เพราะไม่มีทางรู้ว่าชั่วโมงนั้นตั้งใจให้เดินกี่ไลน์ (อาจเป็นนอกเวลาทำงานก็ได้)
                 availableMinutes: availableMinutesByHour.slice(),
-                completed: hourSequence.map((hr, idx) =>
-                    !isViewingToday || (currentHourIdx !== -1 && idx < currentHourIdx)
-                ),
+                completed: hourSequence.map((hr, idx) => isHourCompleted(idx)),
                 totalTargetVal: totalTargetVal,
                 totalActualVal: totalActualVal,
                 effPercent: totalTargetVal > 0 ? Math.round((totalActualVal / totalTargetVal) * 100) : null,
@@ -3335,7 +3347,8 @@ function doPost(e) {
             }
 
             // --- 3. Daily Output Stacked Bar Chart (ยอดรายวัน สแตกทุกรุ่นเข้าด้วยกัน) ---
-            renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd, targetByDate);
+            renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd, targetByDate,
+                { actualByDate: eefActualByDate, targetByDate: eefTargetByDate });
 
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
