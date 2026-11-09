@@ -24,7 +24,11 @@ vm.runInContext(
   html.match(/const INCIDENT_NEARBY_MIN_LOST = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_NEARBY_WINDOW_MIN = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_FROM_REPORT_CATEGORIES = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
-  ['breakOverlapMs', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
+  html.match(/const END_OF_SHIFT_CLEANUP_MINUTES = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  html.match(/const END_OF_SHIFT_NORMAL_HOURS = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  html.match(/const END_OF_SHIFT_OT_HOURS = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
+  ['breakOverlapMs', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime',
+    'getDowntimeMultiplier', 'getCleanupMinutes'].map(extract).join('\n'),
   ctx
 );
 
@@ -233,3 +237,42 @@ r = run([{ id: 'ai3', date: '2026-10-12', time: '20:13', line: '5', category: 'O
   { aiSummaries: { 'ai3|4': { minutes: 99 } } });
 assert.notEqual(r[0].matchedBy, 'ai');
 console.log('Incident downtime: AI summaries take precedence passed');
+
+// 14) 5 ส. + เคลียร์พาร์ท 15 นาทีก่อนเลิกงาน ไม่นับเป็นเวลาที่หายไป
+const cleanup = { cleanupMinutes: 15 };
+// 14a) ไม่มีการผลิตทั้งกะเช้า ไม่มี OT → 480 − 15 (16:45-17:00) = 465
+r = run(fullDay, [], cleanup);
+assert.equal(Math.round(r[0].cleanupMin), 15);
+assert.equal(Math.round(r[0].lostMin), 465);
+// 14b) ทำ OT → ช่วง 5 ส. ย้ายไป 19:45-20:00 → 630 − 15 = 615
+r = run(fullDay, [], { ...cleanup, hasOT: () => true });
+assert.equal(Math.round(r[0].lostMin), 615);
+// 14c) หยุด 16:30 กลับมาสแกน 17:00 ไม่มี OT → สแกน 17:00 อยู่หลังเลิกงาน จึงนับถึง 17:00 = 30 − 15 = 15
+r = run([{ id: 'c1', date: '2026-10-28', time: '16:32', line: '5', category: 'Material' }],
+  [scan('5', '2026-10-28', '16:00'), scan('5', '2026-10-28', '16:30')], cleanup);
+assert.equal(Math.round(r[0].gapMin), 30);
+assert.equal(Math.round(r[0].lostMin), 15);
+// 14d) ทำ OT และหยุดช่วง 16:30-17:00 → ไม่ทับช่วง 5 ส. (ย้ายไป 19:45) ไม่หัก
+r = run([{ id: 'c2', date: '2026-10-28', time: '16:32', line: '5', category: 'Material' }],
+  [scan('5', '2026-10-28', '16:30'), scan('5', '2026-10-28', '17:40')], cleanup);
+assert.equal(r[0].hasOT, true);
+assert.equal(r[0].cleanupMin, 0);
+// 14e) กะดึกไม่มี OT → หัก 04:45-05:00 = 470 − 15 = 455
+r = run([{ id: 'n2', date: '2026-10-26', time: '20:10', line: '4', category: 'Other' }], [], cleanup);
+assert.equal(Math.round(r[0].lostMin), 455);
+// 14f) ผล AI ที่ทับช่วง 5 ส. ก็หักออกด้วย: 16:30-17:00 (30 นาที) → 15
+r = run([{ id: 'c3', date: '2026-10-28', time: '16:30', line: '5', category: 'Material' }],
+  [scan('5', '2026-10-28', '16:00')],
+  { ...cleanup, aiSummaries: { 'c3|5': { minutes: 30, start: '16:30', end: '17:00' } } });
+assert.equal(r[0].matchedBy, 'ai');
+assert.equal(r[0].lostMin, 15);
+// 14g) ตัวคูณเป้าหมาย: ชั่วโมง 16 / 04 เหลือ 45 นาทีเมื่อไม่ทำ OT · ทำ OT ย้ายไปชั่วโมง 19 / 07 · พักเดิมไม่เปลี่ยน
+assert.equal(ctx.getDowntimeMultiplier(16), 45 / 60);
+assert.equal(ctx.getDowntimeMultiplier(4), 45 / 60);
+assert.equal(ctx.getDowntimeMultiplier(16, true), 1);
+assert.equal(ctx.getDowntimeMultiplier(19, true), 45 / 60);
+assert.equal(ctx.getDowntimeMultiplier(7, true), 45 / 60);
+assert.equal(ctx.getDowntimeMultiplier(19), 1);
+assert.equal(ctx.getDowntimeMultiplier(12), 0);
+assert.equal(ctx.getDowntimeMultiplier(17), 30 / 60);
+console.log('Incident downtime: end-of-shift 5S cleanup passed');
