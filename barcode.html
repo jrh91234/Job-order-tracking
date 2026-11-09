@@ -491,7 +491,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพัก เวลาทำ 5 ส./เคลียร์พาร์ท 15 นาทีก่อนเลิกงาน และ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -1720,11 +1720,20 @@ function doPost(e) {
         // ==========================================
 
         // คืนค่าตัวคูณเป้าหมายตามช่วงเวลาพักเบรคมาตรฐาน (Downtime Multiplier)
-        // หักเฉพาะช่วงพักใน BREAK_MINUTES_BY_HOUR: 12:00-13:00, 00:00-01:00, 17:00-17:30, 05:00-05:30
+        // หักช่วงพักใน BREAK_MINUTES_BY_HOUR: 12:00-13:00, 00:00-01:00, 17:00-17:30, 05:00-05:30
+        // และหักเวลาทำ 5 ส. + เคลียร์พาร์ท 15 นาทีก่อนเลิกงาน (ดู getCleanupMinutes) ซึ่งขึ้นกับว่าไลน์ทำ OT หรือไม่
         // ชั่วโมงอื่นนับเต็ม 60 นาที (ไม่หักชั่วโมงแรกของกะ และไม่หักพัก 10 นาทีช่วงสาย/บ่าย)
-        function getDowntimeMultiplier(hour) {
+        function getDowntimeMultiplier(hour, hasOT) {
             const breakMinutes = BREAK_MINUTES_BY_HOUR[hour] || 0;
-            return (60 - breakMinutes) / 60;
+            return Math.max(0, 60 - breakMinutes - getCleanupMinutes(hour, hasOT)) / 60;
+        }
+
+        // นาทีทำ 5 ส. + เคลียร์พาร์ทที่อยู่ในถังชั่วโมงนั้น (15 นาทีสุดท้ายก่อนเลิกงาน)
+        // ไม่ทำ OT: เลิก 17:00 / 05:00 → 16:45-17:00 / 04:45-05:00
+        // ทำ OT:   เลิก 20:00 / 08:00 → 19:45-20:00 / 07:45-08:00
+        function getCleanupMinutes(hour, hasOT) {
+            const endHours = hasOT ? END_OF_SHIFT_OT_HOURS : END_OF_SHIFT_NORMAL_HOURS;
+            return endHours.some(endHr => (endHr + 23) % 24 === Number(hour)) ? END_OF_SHIFT_CLEANUP_MINUTES : 0;
         }
 
         /**
@@ -2767,6 +2776,21 @@ function doPost(e) {
             const eefActualByDate = {};
             const eefTargetByDate = {};
 
+            // ไลน์ที่ทำ OT ในกะนั้น (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงานปกติ) ใช้เลือกช่วงทำ 5 ส. ก่อนเลิกงาน
+            // ไม่ทำ OT: 16:45-17:00 / 04:45-05:00 · ทำ OT: 19:45-20:00 / 07:45-08:00
+            const shiftOfHour = hr => (hr >= 8 && hr < 20) ? 'Day' : 'Night';
+            const otScanKeys = new Set();
+            okScans.forEach(s => {
+                if ([17, 18, 19, 5, 6, 7].indexOf(s.hour) === -1) return;
+                otScanKeys.add(`${s.prodDate}|${shiftOfHour(s.hour)}|${s.line || 'DEFAULT'}`);
+            });
+            const lineHasOT = (date, hr, lineKey) => {
+                const shift = shiftOfHour(hr);
+                if (otScanKeys.has(`${date}|${shift}|${lineKey}`)) return true;
+                const mp = manpowerLogs[manpowerKey(date, shift, lineKey)];
+                return !!mp && ((mp.otAssembler || 0) + (mp.otFeeder || 0) + (mp.otLeader || 0)) > 0;
+            };
+
             // คำนวณเป้าหมายรายชั่วโมงสะสมตามจริง (โดยนับวันผลิตเฉพาะชั่วโมงที่มีการสแกนจริงเพื่อไม่ให้เป้าหมายเพี้ยน)
             // ช่วงเปลี่ยนรุ่นจากเครื่องสแกน (แถว CHANGEOVER): ตั้งแต่เวลายืนยันเปลี่ยนรุ่น จนถึงชิ้นแรกที่สแกนเข้ามาหลังจากนั้น
             // ไลน์ถือว่ากำลังเดินรุ่นใหม่อยู่แล้ว จึงนำกำลังผลิตของรุ่นใหม่มาคิดเป้าในช่วงนั้นด้วย (ตามสัดส่วนนาทีในชั่วโมง)
@@ -2877,14 +2901,16 @@ function doPost(e) {
                             const frac = totalLineScans > 0 ? Math.min(1, seg.minutes / 60) : 1;
                             lineWeightedSum = lineWeightedSum * (1 - frac) + segCap * frac;
                         }
-                        sumOfLineTargets += lineWeightedSum;
-                        lineTargets[lineKey] = (lineTargets[lineKey] || 0) + lineWeightedSum * getDowntimeMultiplier(hr);
-                        availableMinutesByHour[hrIdx] += 60 * getDowntimeMultiplier(hr);
+                        // ตัวคูณแยกรายไลน์ เพราะช่วง 5 ส. ก่อนเลิกงานขึ้นกับว่าไลน์นั้นทำ OT หรือไม่
+                        const lineMultiplier = getDowntimeMultiplier(hr, lineHasOT(scanDate, hr, lineKey));
+                        sumOfLineTargets += lineWeightedSum * lineMultiplier;
+                        lineTargets[lineKey] = (lineTargets[lineKey] || 0) + lineWeightedSum * lineMultiplier;
+                        availableMinutesByHour[hrIdx] += 60 * lineMultiplier;
                     });
-                    totalTargetForHour += sumOfLineTargets * getDowntimeMultiplier(hr);
-                    targetByDate[scanDate] = (targetByDate[scanDate] || 0) + sumOfLineTargets * getDowntimeMultiplier(hr);
+                    totalTargetForHour += sumOfLineTargets;
+                    targetByDate[scanDate] = (targetByDate[scanDate] || 0) + sumOfLineTargets;
                     if (isHourCompleted(hrIdx) && hourScans.length > 0) {
-                        eefTargetByDate[scanDate] = (eefTargetByDate[scanDate] || 0) + sumOfLineTargets * getDowntimeMultiplier(hr);
+                        eefTargetByDate[scanDate] = (eefTargetByDate[scanDate] || 0) + sumOfLineTargets;
                         eefActualByDate[scanDate] = (eefActualByDate[scanDate] || 0) + dateScans.reduce((sum, s) => sum + (s.qty || 1), 0);
                     }
                 });
@@ -3114,16 +3140,19 @@ function doPost(e) {
                     const formulaStr = formulaParts.join(' + ');
                     const detailsStr = capDetails.join(', ');
                     
-                    const multiplier = getDowntimeMultiplier(hr);
+                    const multiplier = getDowntimeMultiplier(hr, lineHasOT(lineScans[0].prodDate, hr, lineKey));
                     const lineTargetSingleDay = Math.round(lineWeightedSum * multiplier);
                     const lineTargetTotal = Math.round(lineWeightedSum * numActiveDays * multiplier);
                     
                     let breakText = '';
+                    const cleanupMins = getCleanupMinutes(hr, lineHasOT(lineScans[0].prodDate, hr, lineKey));
                     if (multiplier === 0) {
                         breakText = ` (พักเที่ยง/พักเที่ยงคืน)`;
                     } else if (multiplier < 1) {
                         const runMins = Math.round(multiplier * 60);
-                        breakText = ` (หักพักเบรค, รัน ${runMins} นาที)`;
+                        breakText = cleanupMins > 0 && !BREAK_MINUTES_BY_HOUR[hr]
+                            ? ` (หัก 5 ส. + เคลียร์พาร์ท ${cleanupMins} นาที, รัน ${runMins} นาที)`
+                            : ` (หักพักเบรค, รัน ${runMins} นาที)`;
                     }
                     
                     lineCalculationsHtml += `
@@ -3139,8 +3168,10 @@ function doPost(e) {
                 let hourBreakText = '';
                 if (multiplier === 0) {
                     hourBreakText = ' (พักกลางวัน/กะดึก)';
-                } else if (multiplier < 1) {
+                } else if (BREAK_MINUTES_BY_HOUR[hr]) {
                     hourBreakText = ' (มีช่วงพักเบรค)';
+                } else if (getCleanupMinutes(hr, false) || getCleanupMinutes(hr, true)) {
+                    hourBreakText = ' (ไลน์ที่เลิกงานชั่วโมงนี้มีเวลา 5 ส. + เคลียร์พาร์ท 15 นาที)';
                 }
                 
                 calcListHtml += `
@@ -4461,6 +4492,7 @@ function doPost(e) {
          * incidents: บันทึกปัญหาที่กรองช่วงแล้ว ต้องมี date (วันผลิต), time "HH:mm" หรือ hour, line ("All" = ทุกไลน์)
          * scans:     สแกน OK { line, ts, prodDate, model }
          * opts:      { nowMs, cycleSecondsByModel, onlyLine, breakOverlap(fromMs, toMs), hasOT(date, shift, line),
+         *              cleanupMinutes (นาที 5 ส. + เคลียร์พาร์ทก่อนเลิกงาน ค่าเริ่มต้น 0),
          *              aiSummaries: { "รหัสเหตุการณ์|ไลน์": { minutes, start, end, confidence, reason } } }
          *
          * ถ้า AI สรุปเหตุการณ์ไว้แล้ว (Apps Script แท็บ IncidentDowntime) ใช้ค่านั้นก่อนเสมอ กติกาข้างล่างใช้เฉพาะรายการที่ยังไม่มีผลจาก AI
@@ -4472,6 +4504,8 @@ function doPost(e) {
          *   - ถือว่าทำ OT เมื่อ opts.hasOT(date, shift, line) บอกว่าใช่ (กรอกคนช่วง OT) หรือมีสแกนหลังเลิกงานปกติ
          *   - หลายเหตุการณ์ตกในช่วงหยุดเดียวกัน แบ่งช่วงตามลำดับเวลาที่แจ้ง ไม่นับเวลาเดียวกันซ้ำ
          *   - หักเวลาพักที่ทับ และหัก Cycle Time ของชิ้นที่กลับมาสแกน 1 รอบ (ใช้เวลาประกอบอยู่แล้ว)
+         *   - หักช่วงทำ 5 ส. + เคลียร์พาร์ทก่อนเลิกงานที่ทับ (cleanupMinutes นาทีสุดท้ายก่อน workEnd)
+         *     รวมรายการที่ AI สรุปด้วย เพราะช่วงนั้นไลน์หยุดตามแผน ไม่ใช่เวลาที่เสียจากเหตุการณ์
          *   - ช่องว่างที่ครอบเวลาที่แจ้งเสียไม่ถึง 5 นาที (แจ้งตอนไลน์ยังสแกนอยู่) ใช้ช่องว่างที่ยาวสุดในช่วง ±60 นาทีแทน
          *   - เหตุการณ์ "ทุกไลน์" คิดเฉพาะไลน์ที่มีสแกนในช่วง ±60 นาทีรอบเวลาที่แจ้ง (ไลน์ที่เดินอยู่ตอนนั้น)
          *   - หมวดใน INCIDENT_FROM_REPORT_CATEGORIES (เครื่องจักรขัดข้อง/แจ้งซ่อม) นับตั้งแต่เวลาที่แจ้งถึงสแกนแรกที่กลับมาเดินเท่านั้น
@@ -4480,6 +4514,14 @@ function doPost(e) {
             const nowMs = opts.nowMs;
             const cycleSecondsByModel = opts.cycleSecondsByModel || {};
             const breakOverlap = opts.breakOverlap;
+            const cleanupMs = Math.max(0, Number(opts.cleanupMinutes) || 0) * 60000;
+            // นาทีที่ช่วง [fromTs, toTs] ทับช่วงทำ 5 ส. ก่อนเลิกงาน (cleanupMs สุดท้ายก่อน workEnd)
+            const cleanupOverlapMin = (fromTs, toTs, workEnd) => {
+                if (!cleanupMs || !(toTs > fromTs)) return 0;
+                const lo = Math.max(fromTs, workEnd - cleanupMs);
+                const hi = Math.min(toTs, workEnd);
+                return hi > lo ? (hi - lo) / 60000 : 0;
+            };
 
             const scansByLine = {};
             const linesByDate = {};
@@ -4535,6 +4577,11 @@ function doPost(e) {
                 if (opts.onlyLine && opts.onlyLine !== 'All') lines = lines.filter(l => l === String(opts.onlyLine));
 
                 lines.forEach(line => {
+                    const list = scansByLine[line] || [];
+                    // หลังเลิกงานไม่นับ ยกเว้นไลน์นั้นทำ OT (กรอกคนช่วง OT ไว้ หรือมีสแกนหลังเวลาเลิกงาน)
+                    const hasOT = (opts.hasOT && opts.hasOT(inc.date, shift, line)) ||
+                        list.some(s => s.ts >= normalEnd && s.ts < shiftEnd);
+                    const workEnd = hasOT ? shiftEnd : normalEnd;
                     // AI สรุปไว้แล้ว (แท็บ IncidentDowntime) ใช้ค่านั้นเลย ไม่ต้องหาจากช่วงหยุดสแกน
                     const ai = opts.aiSummaries && opts.aiSummaries[`${inc.id}|${line}`];
                     if (ai) {
@@ -4545,19 +4592,15 @@ function doPost(e) {
                         const minutes = Math.max(0, Number(ai.minutes) || 0);
                         const startTs = Number.isFinite(at(ai.start)) ? at(ai.start) : reportTs;
                         const endTs = Number.isFinite(at(ai.end)) ? at(ai.end) : startTs + minutes * 60000;
+                        const cleanupMin = Math.min(minutes, cleanupOverlapMin(startTs, endTs, workEnd));
                         aiRecords.push({
                             incident: inc, line, prodDate: inc.date, reportTs, startTs, endTs,
-                            startFrom: 'ai', endBy: 'ai', hasOT: false, matchedBy: 'ai', soleInGap: false,
-                            gapMin: minutes, breakMin: 0, cycleMin: 0, lostMin: minutes,
+                            startFrom: 'ai', endBy: 'ai', hasOT, matchedBy: 'ai', soleInGap: false,
+                            gapMin: minutes, breakMin: 0, cleanupMin, cycleMin: 0, lostMin: Math.max(0, minutes - cleanupMin),
                             aiReason: ai.reason || '', aiConfidence: ai.confidence || '', aiBy: ai.by || 'AI'
                         });
                         return;
                     }
-                    const list = scansByLine[line] || [];
-                    // หลังเลิกงานไม่นับ ยกเว้นไลน์นั้นทำ OT (กรอกคนช่วง OT ไว้ หรือมีสแกนหลังเวลาเลิกงาน)
-                    const hasOT = (opts.hasOT && opts.hasOT(inc.date, shift, line)) ||
-                        list.some(s => s.ts >= normalEnd && s.ts < shiftEnd);
-                    const workEnd = hasOT ? shiftEnd : normalEnd;
                     if (reportTs >= workEnd) return; // แจ้งหลังเลิกงานและไม่มี OT ไม่ใช่เวลาที่ควรผลิต
                     let prev = null;
                     let next = null;
@@ -4590,6 +4633,7 @@ function doPost(e) {
                     const endTs = Math.max(startTs, isLast ? gapEnd : gap.items[i + 1].reportTs);
                     const gapMin = (endTs - startTs) / 60000;
                     const breakMin = breakOverlap(startTs, endTs) / 60000;
+                    const cleanupMin = cleanupOverlapMin(startTs, endTs, gap.workEnd);
                     const cycleMin = isLast && gap.next ? (cycleSecondsByModel[gap.next.model] || 0) / 60 : 0;
                     records.push({
                         incident: item.inc,
@@ -4611,19 +4655,21 @@ function doPost(e) {
                         workEnd: gap.workEnd,
                         gapMin,
                         breakMin,
+                        cleanupMin,
                         cycleMin,
-                        lostMin: Math.max(0, gapMin - breakMin - cycleMin)
+                        lostMin: Math.max(0, gapMin - breakMin - cleanupMin - cycleMin)
                     });
                 });
             });
             // ผู้ใช้มักแจ้งหลังไลน์หยุดไปแล้ว (หรือก่อนหยุดจริง) ตอนแจ้งไลน์จึงยังสแกนอยู่ ช่องว่างที่ครอบเวลาที่แจ้งสั้นมาก
             // กรณีนั้นให้หาช่องว่างที่ยาวสุดของไลน์เดียวกันในช่วง ±60 นาทีรอบเวลาที่แจ้ง (ภายในเวลาทำงานของกะ)
             // แทน ช่องว่างหนึ่งถูกใช้ได้ครั้งเดียว ไม่ทับกับช่องว่างที่เหตุการณ์อื่นครอบอยู่แล้ว
-            const lostOf = (fromTs, toTs, model) => {
+            const lostOf = (fromTs, toTs, model, workEnd) => {
                 const gapMin = (toTs - fromTs) / 60000;
                 const breakMin = breakOverlap(fromTs, toTs) / 60000;
+                const cleanupMin = cleanupOverlapMin(fromTs, toTs, workEnd);
                 const cycleMin = (cycleSecondsByModel[model] || 0) / 60;
-                return { gapMin, breakMin, cycleMin, lostMin: Math.max(0, gapMin - breakMin - cycleMin) };
+                return { gapMin, breakMin, cleanupMin, cycleMin, lostMin: Math.max(0, gapMin - breakMin - cleanupMin - cycleMin) };
             };
             const claimed = new Set();
             gaps.forEach(gap => {
@@ -4644,7 +4690,7 @@ function doPost(e) {
                     let best = null;
                     const consider = (fromTs, b, key) => {
                         if (b.ts <= lo || fromTs >= hi || claimed.has(key)) return;
-                        const calc = lostOf(fromTs, b.ts, b.model);
+                        const calc = lostOf(fromTs, b.ts, b.model, r.workEnd);
                         if (!best || calc.lostMin > best.calc.lostMin) best = { fromTs, b, key, calc };
                     };
                     // ต้นกะถึงสแกนแรกของกะ ก็นับเป็นช่วงหยุดได้ (ไลน์เริ่มช้าเพราะปัญหาที่แจ้ง)
@@ -4713,6 +4759,7 @@ function doPost(e) {
                 cycleSecondsByModel: modelCycleSecondsCache,
                 onlyLine: activeLine,
                 breakOverlap: breakOverlapMs,
+                cleanupMinutes: END_OF_SHIFT_CLEANUP_MINUTES,
                 aiSummaries: incidentDowntimeAI,
                 hasOT: (date, shift, line) => {
                     const mp = manpowerLogs[manpowerKey(date, shift, line)];
@@ -4787,7 +4834,7 @@ function doPost(e) {
                         <th class="p-3 text-center">เริ่มหยุด</th>
                         <th class="p-3 text-center">กลับมาเดิน</th>
                         <th class="p-3 text-right">ช่องว่าง</th>
-                        <th class="p-3 text-right">หักพัก</th>
+                        <th class="p-3 text-right" title="เวลาพัก + เวลาทำ 5 ส./เคลียร์พาร์ท 15 นาทีก่อนเลิกงาน ที่ทับช่วงหยุด">หักพัก / 5 ส.</th>
                         <th class="p-3 text-right">หัก CT</th>
                         <th class="p-3 text-right">เสีย</th>
                     </tr>`;
@@ -4827,7 +4874,7 @@ function doPost(e) {
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${startCell}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${endCell}</td>
                             <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">${Math.round(r.gapMin)} นาที</td>
-                            <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${fmtMin(r.breakMin)}</td>
+                            <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${fmtMin((r.breakMin || 0) + (r.cleanupMin || 0))}${r.cleanupMin > 0 ? `<div class="text-[10px] text-sky-600 font-sans">รวม 5 ส. ${fmtMin(r.cleanupMin)}</div>` : ''}</td>
                             <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${r.cycleMin > 0 ? r.cycleMin.toFixed(1) + ' นาที' : '<span class="text-slate-300">-</span>'}</td>
                             <td class="p-3 text-right font-mono font-bold whitespace-nowrap ${lostCls(r.lostMin)}">${Math.round(r.lostMin)} นาที</td>
                         </tr>`;
@@ -5851,6 +5898,13 @@ function doPost(e) {
         //   12:00-13:00 (60) · 17:00-17:30 (30) · 00:00-01:00 (60) · 05:00-05:30 (30)
         // กะหนึ่ง 12 ชั่วโมงจึงเหลือเวลาทำงานสุทธิ 10.5 ชั่วโมง
         const BREAK_MINUTES_BY_HOUR = { 0: 60, 5: 30, 12: 60, 17: 30 };
+
+        // ก่อนเลิกงานมีเวลาให้ทำ 5 ส. และเคลียร์พาร์ท 15 นาที ช่วงนี้ไลน์ไม่ได้ผลิต จึงไม่คิดเป้าหมาย
+        // และไม่นับเป็นเวลาที่หายไปของเหตุการณ์ที่แจ้ง (ทับช่วงนี้เท่าไรหักออกเท่านั้น)
+        // ไม่ใช่เวลาพัก จึงไม่หักจากชั่วโมงทำงานสุทธิ (countNetWorkHours) ที่ต้องตรงกับชีตสรุปชั่วโมง
+        const END_OF_SHIFT_CLEANUP_MINUTES = 15;
+        const END_OF_SHIFT_NORMAL_HOURS = [17, 5]; // เลิกงานปกติ กะเช้า / กะดึก
+        const END_OF_SHIFT_OT_HOURS = [20, 8];     // เลิกงานเมื่อทำ OT (สิ้นกะ)
 
         // ==========================================
         // สถานะไลน์แบบเรียลไทม์ (Running / หยุดนิ่ง / พัก / Idle)
@@ -8381,7 +8435,7 @@ function doPost(e) {
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('รายการที่มี (AI) ในคอลัมน์แยกตามไลน์ = AI สรุปจากข้อความที่แจ้งประกอบกับช่วงหยุดสแกน · รายการอื่นคิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
-                    '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
+                    '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพัก เวลาทำ 5 ส./เคลียร์พาร์ท 15 นาทีก่อนเลิกงาน และ Cycle Time 1 รอบ · ' +
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
                     'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
