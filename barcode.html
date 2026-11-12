@@ -382,6 +382,7 @@
                     <button type="button" onclick="toggleChartFullscreen('model')" class="chart-fs-btn shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="ขยายเต็มจอ"><i data-lucide="maximize-2" class="w-4 h-4"></i></button>
                 </div>
                 <div id="live-running-container" class="mt-2 flex flex-wrap gap-2 text-xs border-b border-slate-100 pb-3"></div>
+                <div id="group-summary-container" class="hidden flex flex-wrap items-center gap-2 text-xs border-b border-slate-100 pb-3"></div>
                 <div id="model-chart-scroll" class="chart-fs-area relative h-72 w-full overflow-y-auto overflow-x-hidden pr-1">
                     <div id="model-chart-holder" class="relative w-full h-full">
                         <canvas id="modelChart"></canvas>
@@ -396,11 +397,16 @@
             <div class="flex items-start gap-3">
             <div class="flex-1 min-w-0 flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                    <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตามรุ่น (Daily Output)</h3>
+                    <h3 class="text-base font-bold text-slate-800">ยอดผลิตรายวันแยกตาม<span id="daily-groupby-title">รุ่น</span> (Daily Output)</h3>
                     <p class="text-xs text-slate-400"><span id="daily-model-period-desc">แท่งละ 1 วัน</span> สแตกทุกรุ่นเข้าด้วยกัน · เส้น %EEF = ยอดจริง ÷ เป้าหมาย (นับเฉพาะชั่วโมงที่จบแล้ว เหมือนการ์ด Eff%) · เลือกช่วงวันที่ด้านบนเพื่อดูทั้งช่วง · <span id="daily-model-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <!-- เลือกมุมมองรายวัน / รายเดือน / รายไตรมาส / รายปี -->
+                    <!-- สแตกตามรุ่น หรือรวมตามกรุ๊ป -->
+                    <div id="daily-groupby-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold shrink-0" title="สแตกแท่งตามรุ่น หรือรวมตามกรุ๊ป">
+                        <button type="button" data-groupby="model" onclick="setDailyChartGroupBy('model')" class="px-2 py-1 rounded-md">รายรุ่น</button>
+                        <button type="button" data-groupby="group" onclick="setDailyChartGroupBy('group')" class="px-2 py-1 rounded-md">รายกรุ๊ป</button>
+                    </div>
                     <div id="daily-period-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold shrink-0" title="รวมยอดเป็นรายวัน / เดือน / ไตรมาส / ปี">
                         <button type="button" data-period="day" onclick="setDailyChartPeriod('day')" class="px-2 py-1 rounded-md">วัน</button>
                         <button type="button" data-period="month" onclick="setDailyChartPeriod('month')" class="px-2 py-1 rounded-md">เดือน</button>
@@ -1418,6 +1424,11 @@ function doPost(e) {
         const CAPACITY_GID = '1140596720';
         // ชีต Plan อยู่ในเอกสารเผยแพร่ตัวเดียวกับ Capacity ใช้ดูแผนงานกับความคืบหน้าของแต่ละ Job order
         const PLAN_GID = '1416776201';
+        // แท็บ MODEL / BARCODE / Multiply / Group ในไฟล์ Barcode Record ใช้จับรุ่นเข้ากรุ๊ป (NMS, PDB, LC ...) เพื่อรวมยอดตามกรุ๊ป
+        const MODEL_GROUP_GID = '986043305';
+        const UNGROUPED_LABEL = 'ไม่ระบุกรุ๊ป';
+        let groupByModel = {};   // MODEL (ตัวพิมพ์ใหญ่) -> Group
+        let groupByBarcode = {}; // BARCODE -> Group (ใช้เมื่อหารุ่นไม่เจอ)
         
         let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_SHEET_URL || '';
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
@@ -1440,6 +1451,11 @@ function doPost(e) {
                 const v = localStorage.getItem('barcode_daily_chart_period');
                 return ['day', 'month', 'quarter', 'year'].includes(v) ? v : 'day';
             } catch (e) { return 'day'; }
+        })();
+        // กราฟยอดผลิตรายวัน: สแตกตามรุ่น ('model') หรือตามกรุ๊ป ('group') จำไว้ในเครื่องผู้ใช้
+        let dailyChartGroupBy = (() => {
+            try { return localStorage.getItem('barcode_daily_chart_group_by') === 'group' ? 'group' : 'model'; }
+            catch (e) { return 'model'; }
         })();
         let prevModelLabels = []; // To track if model list or order changed
         let prevHourlyLabels = []; // To track if hourly labels changed
@@ -2149,6 +2165,107 @@ function doPost(e) {
             });
             const desc = document.getElementById('daily-model-period-desc');
             if (desc) desc.textContent = DAILY_PERIOD_TEXT[dailyChartPeriod];
+        }
+
+        function renderDailyGroupByTabs() {
+            document.querySelectorAll('#daily-groupby-tabs button').forEach(btn => {
+                const active = btn.dataset.groupby === dailyChartGroupBy;
+                btn.classList.toggle('bg-white', active);
+                btn.classList.toggle('shadow-sm', active);
+                btn.classList.toggle('text-indigo-600', active);
+                btn.classList.toggle('text-slate-500', !active);
+            });
+            const title = document.getElementById('daily-groupby-title');
+            if (title) title.textContent = dailyChartGroupBy === 'group' ? 'กรุ๊ป' : 'รุ่น';
+        }
+
+        function setDailyChartGroupBy(mode) {
+            if (mode === dailyChartGroupBy) return;
+            dailyChartGroupBy = mode;
+            try { localStorage.setItem('barcode_daily_chart_group_by', mode); } catch (e) {}
+            renderDailyGroupByTabs();
+            renderCharts();
+        }
+
+        // อ่านแท็บ MODEL / BARCODE / Multiply / Group หาแถวหัวตารางเอง เผื่อมีแถวว่างหรือหัวเรื่องอยู่ด้านบน
+        function parseModelGroupSheet(rows) {
+            const byModel = {};
+            const byBarcode = {};
+            const headerIdx = rows.findIndex(r => r.some(c => String(c).trim().toUpperCase() === 'GROUP'));
+            if (headerIdx < 0) return;
+            const header = rows[headerIdx].map(c => String(c).trim().toUpperCase());
+            const modelCol = header.indexOf('MODEL');
+            const barcodeCol = header.indexOf('BARCODE');
+            const groupCol = header.indexOf('GROUP');
+            rows.slice(headerIdx + 1).forEach(r => {
+                const group = String(r[groupCol] || '').trim();
+                if (!group) return;
+                const model = modelCol >= 0 ? String(r[modelCol] || '').trim().toUpperCase() : '';
+                const barcode = barcodeCol >= 0 ? String(r[barcodeCol] || '').replace(/\s+/g, '') : '';
+                if (model) byModel[model] = group;
+                if (barcode && !byBarcode[barcode]) byBarcode[barcode] = group;
+            });
+            groupByModel = byModel;
+            groupByBarcode = byBarcode;
+        }
+
+        // หากรุ๊ปของสแกน: ใช้ชื่อรุ่นก่อน (บางบาร์โค้ดใช้ร่วมหลายรุ่น) ไม่เจอค่อยใช้บาร์โค้ด
+        function getScanGroup(scan) {
+            const model = String(scan.model || '').trim().toUpperCase();
+            if (groupByModel[model]) return groupByModel[model];
+            const barcode = String(scan.barcode || '').replace(/\s+/g, '');
+            return groupByBarcode[barcode] || UNGROUPED_LABEL;
+        }
+
+        // ลำดับกรุ๊ปตามที่เรียงในชีต และ "ไม่ระบุกรุ๊ป" ไว้ท้ายสุด
+        function sortGroups(groups) {
+            const order = Array.from(new Set(Object.values(groupByModel)));
+            const rank = g => g === UNGROUPED_LABEL ? Infinity : (order.indexOf(g) < 0 ? order.length : order.indexOf(g));
+            return [...groups].sort((a, b) => (rank(a) - rank(b)) || a.localeCompare(b));
+        }
+
+        const GROUP_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#06b6d4', '#8b5cf6', '#f97316', '#3b82f6', '#14b8a6', '#ef4444'];
+        function getGroupColor(group) {
+            if (group === UNGROUPED_LABEL) return '#94a3b8';
+            const order = Array.from(new Set(Object.values(groupByModel)));
+            const idx = order.indexOf(group);
+            return GROUP_COLORS[(idx < 0 ? order.length : idx) % GROUP_COLORS.length];
+        }
+
+        function renderGroupSummary(okScans) {
+            const el = document.getElementById('group-summary-container');
+            if (!el) return;
+            if (Object.keys(groupByModel).length === 0 && Object.keys(groupByBarcode).length === 0) {
+                el.classList.add('hidden');
+                el.innerHTML = '';
+                return;
+            }
+            const totals = {};
+            let grand = 0;
+            okScans.forEach(s => {
+                const qty = s.qty || 1;
+                const g = getScanGroup(s);
+                totals[g] = (totals[g] || 0) + qty;
+                grand += qty;
+            });
+            const groups = sortGroups(Object.keys(totals));
+            let html = '<span class="font-semibold text-slate-500">ยอดตามกรุ๊ป:</span>';
+            if (groups.length === 0) {
+                html += '<span class="text-slate-400 italic text-[11px]">ยังไม่มียอดในช่วงที่เลือก</span>';
+            } else {
+                groups.forEach(g => {
+                    const pct = grand > 0 ? Math.round(totals[g] / grand * 100) : 0;
+                    html += `
+                        <div class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-sm" title="${pct}% ของยอดทั้งหมด">
+                            <span class="w-2 h-2 rounded-full" style="background:${getGroupColor(g)}"></span>
+                            <span class="font-semibold text-slate-600">${escapeHtml(g)}</span>
+                            <span class="font-mono font-bold text-slate-800">${totals[g].toLocaleString()}</span>
+                        </div>`;
+                });
+                html += `<span class="ml-auto font-semibold text-slate-500">รวม <span class="font-mono text-indigo-600">${grand.toLocaleString()}</span> PCS</span>`;
+            }
+            el.innerHTML = html;
+            el.classList.remove('hidden');
         }
 
         function setDailyChartPeriod(period) {
@@ -3347,8 +3464,17 @@ function doPost(e) {
             }
 
             // --- 3. Daily Output Stacked Bar Chart (ยอดรายวัน สแตกทุกรุ่นเข้าด้วยกัน) ---
-            renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd, targetByDate,
-                { actualByDate: eefActualByDate, targetByDate: eefTargetByDate });
+            renderDailyGroupByTabs();
+            if (dailyChartGroupBy === 'group') {
+                const groupScans = okScans.map(s => ({ ...s, model: getScanGroup(s) }));
+                const groups = sortGroups(new Set(groupScans.map(s => s.model)));
+                renderDailyModelChart(groupScans, groups, getGroupColor, hourlyStart, hourlyEnd, targetByDate,
+                    { actualByDate: eefActualByDate, targetByDate: eefTargetByDate });
+            } else {
+                renderDailyModelChart(okScans, uniqueModels, getModelColor, hourlyStart, hourlyEnd, targetByDate,
+                    { actualByDate: eefActualByDate, targetByDate: eefTargetByDate });
+            }
+            renderGroupSummary(okScans);
 
             // --- 2. Model Breakdown Horizontal Bar Chart with Synced Colors & Energy Surge ---
             const modelGroups = {};
@@ -6985,6 +7111,7 @@ function doPost(e) {
             });
 
             const planCsvUrl = buildGoogleSheetCsvUrl(oeeSheetUrl, PLAN_GID);
+            const groupCsvUrl = buildGoogleSheetCsvUrl(FIXED_BARCODE_SHEET_URL, MODEL_GROUP_GID);
 
             const promises = [
                 fetchText(csvUrl + (csvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now()),
@@ -6993,6 +7120,12 @@ function doPost(e) {
                 fetchText(planCsvUrl + (planCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now())
                     .catch(err => {
                         console.warn('ดึงชีต Plan ไม่สำเร็จ หัวข้อ Job ค้างจะไม่ถูกใส่ในรายงาน:', err);
+                        return '';
+                    }),
+                // ชีตกรุ๊ปรุ่นใช้แค่รวมยอดตามกรุ๊ป ดึงไม่ได้ก็ไม่ควรทำให้ทั้งหน้าพัง
+                fetchText(groupCsvUrl + (groupCsvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now())
+                    .catch(err => {
+                        console.warn('ดึงชีตกรุ๊ปรุ่นไม่สำเร็จ จะไม่แสดงยอดตามกรุ๊ป:', err);
                         return '';
                     })
             ];
@@ -7010,7 +7143,14 @@ function doPost(e) {
             }
 
             Promise.all(promises)
-            .then(([barcodeText, capacityText, planText, incidentText]) => {
+            .then(([barcodeText, capacityText, planText, groupText, incidentText]) => {
+                if (groupText) {
+                    Papa.parse(groupText, {
+                        header: false,
+                        skipEmptyLines: true,
+                        complete: groupResults => parseModelGroupSheet(groupResults.data)
+                    });
+                }
                 if (planText) {
                     Papa.parse(planText, {
                         header: true,
