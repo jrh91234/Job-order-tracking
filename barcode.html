@@ -368,6 +368,8 @@
                     </div>
                     <div class="flex items-center gap-3 ml-auto">
                     <!-- เลือกวิธีเรียงรุ่นในกราฟ -->
+                    <!-- แถบยอดตามกรุ๊ปซ่อนไว้ก่อน กดปุ่มนี้ถึงจะแสดง -->
+                    <button type="button" id="toggle-group-summary" onclick="toggleGroupSummary()" class="px-2 py-1 rounded-lg border text-[11px] font-semibold transition-colors" title="แสดง/ซ่อนยอดตามกรุ๊ป">ยอดตามกรุ๊ป</button>
                     <div id="model-sort-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold" title="วิธีเรียงรุ่นในกราฟ">
                         <button type="button" data-sort="qty" onclick="setModelChartSort('qty')" class="px-2 py-1 rounded-md">ยอดมาก→น้อย</button>
                         <button type="button" data-sort="sequence" onclick="setModelChartSort('sequence')" class="px-2 py-1 rounded-md" title="รุ่นที่เริ่มผลิตหลังสุดอยู่บนสุด">ลำดับที่ผลิต (ล่าสุดบน)</button>
@@ -1429,6 +1431,12 @@ function doPost(e) {
         const UNGROUPED_LABEL = 'ไม่ระบุกรุ๊ป';
         let groupByModel = {};   // MODEL (ตัวพิมพ์ใหญ่) -> Group
         let groupByBarcode = {}; // BARCODE -> Group (ใช้เมื่อหารุ่นไม่เจอ)
+        // แถบยอดตามกรุ๊ปซ่อนไว้เป็นค่าเริ่มต้น ผู้ใช้กดปุ่มถึงจะแสดง จำไว้ในเครื่องผู้ใช้
+        let showGroupSummary = (() => {
+            try { return localStorage.getItem('barcode_show_group_summary') === '1'; }
+            catch (e) { return false; }
+        })();
+        let lastGroupSummaryScans = [];
         
         let barcodeSheetUrl = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_SHEET_URL || '';
         let barcodeTargetSpeed = parseInt(localStorage.getItem('job_tracker_barcode_target_speed')) || 100;
@@ -2232,10 +2240,29 @@ function doPost(e) {
             return GROUP_COLORS[(idx < 0 ? order.length : idx) % GROUP_COLORS.length];
         }
 
+        function renderGroupSummaryToggle() {
+            const btn = document.getElementById('toggle-group-summary');
+            if (!btn) return;
+            btn.classList.toggle('bg-indigo-600', showGroupSummary);
+            btn.classList.toggle('text-white', showGroupSummary);
+            btn.classList.toggle('border-indigo-600', showGroupSummary);
+            btn.classList.toggle('bg-slate-100', !showGroupSummary);
+            btn.classList.toggle('text-slate-500', !showGroupSummary);
+            btn.classList.toggle('border-slate-200', !showGroupSummary);
+        }
+
+        function toggleGroupSummary() {
+            showGroupSummary = !showGroupSummary;
+            try { localStorage.setItem('barcode_show_group_summary', showGroupSummary ? '1' : '0'); } catch (e) {}
+            renderGroupSummary(lastGroupSummaryScans);
+        }
+
         function renderGroupSummary(okScans) {
+            lastGroupSummaryScans = okScans;
+            renderGroupSummaryToggle();
             const el = document.getElementById('group-summary-container');
             if (!el) return;
-            if (Object.keys(groupByModel).length === 0 && Object.keys(groupByBarcode).length === 0) {
+            if (!showGroupSummary || (Object.keys(groupByModel).length === 0 && Object.keys(groupByBarcode).length === 0)) {
                 el.classList.add('hidden');
                 el.innerHTML = '';
                 return;
