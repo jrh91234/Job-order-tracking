@@ -2275,7 +2275,9 @@ function doPost(e) {
                 totals[g] = (totals[g] || 0) + qty;
                 grand += qty;
             });
-            const groups = sortGroups(Object.keys(totals));
+            // แสดงกรุ๊ป -ACC หลังกรุ๊ปปกติ โดยยังคงกรุ๊ปที่ไม่ระบุไว้ท้ายสุด
+            const summaryRank = g => g === UNGROUPED_LABEL ? 2 : (/-ACC$/i.test(g.trim()) ? 1 : 0);
+            const groups = sortGroups(Object.keys(totals)).sort((a, b) => summaryRank(a) - summaryRank(b));
             let html = '<span class="font-semibold text-slate-500">ยอดตามกรุ๊ป:</span>';
             if (groups.length === 0) {
                 html += '<span class="text-slate-400 italic text-[11px]">ยังไม่มียอดในช่วงที่เลือก</span>';
@@ -2452,6 +2454,18 @@ function doPost(e) {
             return lines;
         }
 
+        // นับวันผลิตที่มีสแกนตั้งแต่เวลาเลิกงานปกติของกะ รวมชั่วโมงที่โอนเข้ากะ
+        function countDailyOtDates(scans, datesWithScans) {
+            const dates = new Set(datesWithScans);
+            const otDates = new Set();
+            scans.forEach(s => {
+                if (!dates.has(s.prodDate) || !['Day', 'Night'].includes(s.shift) || !Number.isInteger(s.hour) || s.hour < 0 || s.hour > 23) return;
+                const startHour = s.shift === 'Day' ? 8 : 20;
+                if ((s.hour - startHour + 24) % 24 >= 9) otDates.add(s.prodDate);
+            });
+            return otDates.size;
+        }
+
         function renderDailyModelChart(okScans, uniqueModels, getModelColor, startDate, endDate, targetByDate, eefBasis) {
             const canvasEl = document.getElementById('dailyModelChart');
             if (!canvasEl) return;
@@ -2516,7 +2530,8 @@ function doPost(e) {
             if (summaryEl) {
                 const eefClass = overallEef === null ? 'text-slate-400' : overallEef < 80 ? 'text-rose-600' : overallEef < 95 ? 'text-amber-500' : 'text-emerald-600';
                 const eefHtml = overallEef === null ? '' : ` · %EEF <span class="font-mono ${eefClass}">${overallEef.toFixed(1)}%</span>`;
-                summaryEl.innerHTML = `รวม <span class="font-mono text-indigo-600">${grandTotal.toLocaleString()}</span> PCS · เฉลี่ย <span class="font-mono text-indigo-600">${avgPerDay.toLocaleString()}</span> PCS/วัน${eefHtml}<span class="block text-[10px] font-normal text-slate-400">${datesWithScans.length} วันที่มีการสแกน</span>`;
+                const otDays = countDailyOtDates(okScans, datesWithScans);
+                summaryEl.innerHTML = `รวม <span class="font-mono text-indigo-600">${grandTotal.toLocaleString()}</span> PCS · เฉลี่ย <span class="font-mono text-indigo-600">${avgPerDay.toLocaleString()}</span> PCS/วัน${eefHtml}<span class="block text-[10px] font-normal text-slate-400">${datesWithScans.length} วันที่มีการสแกน · <span title="นับวันผลิตที่มีสแกนตั้งแต่ 17:00 สำหรับกะเช้า หรือ 05:00 สำหรับกะดึก รวมชั่วโมงที่โอนเข้ากะ">มีสแกนช่วง OT ${otDays} วัน</span></span>`;
             }
 
             const labels = dateSequence.map(k => formatDailyPeriodLabel(k, period));
