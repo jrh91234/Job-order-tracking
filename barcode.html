@@ -499,7 +499,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <b>🔄 เปลี่ยนรุ่น</b> ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน (ชุดเดียวกับการ์ด Changeover Lost ด้านบน) แทนบันทึก "เปลี่ยนรุ่นล่าช้า" ซึ่งไปแสดงในช่องบันทึกปัญหาของการ์ดเปลี่ยนรุ่นแทน · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -4300,12 +4300,13 @@ function doPost(e) {
         // และหัก Cycle Time ปกติของรุ่นใหม่ 1 รอบ (เวลาที่ต้องใช้ประกอบชิ้นแรกอยู่แล้วแม้ไม่มีการเปลี่ยนรุ่น)
         // includeUntimed: รวมการเปลี่ยนรุ่นที่คิดเวลาเสียไม่ได้ด้วย (ข้ามกะ/ข้ามวัน หรือห่างเกินเกณฑ์)
         // ใช้นับจำนวนครั้งที่เปลี่ยนรุ่นทั้งหมด ส่วนการ์ด Changeover Lost ใช้เฉพาะครั้งที่คิดเวลาได้
-        function computeChangeoverEvents({ includeUntimed = false } = {}) {
-            const startDate = els.filterStartDate.value;
-            const endDate = els.filterEndDate.value || startDate;
-            const activeShift = els.filterShift.value;
-            const activeLine = els.filterLine ? els.filterLine.value : 'All';
-            const activeModel = els.filterModel.value;
+        // ส่งช่วงวันที่/กะ/ไลน์/รุ่นเองได้ (เช่น รายงาน PDF) ไม่ส่งใช้ตัวกรองบนหน้าจอ
+        function computeChangeoverEvents({ includeUntimed = false, startDate, endDate, shift, line, model } = {}) {
+            startDate = startDate || els.filterStartDate.value;
+            endDate = endDate || els.filterEndDate.value || startDate;
+            const activeShift = shift || els.filterShift.value;
+            const activeLine = line || (els.filterLine ? els.filterLine.value : 'All');
+            const activeModel = model || els.filterModel.value;
 
             // ไม่กรองรุ่นและ Job ตรงนี้ เพราะการเปลี่ยนรุ่นต้องเห็นทั้งรุ่นก่อนและรุ่นหลัง
             const byLine = {};
@@ -4603,6 +4604,9 @@ function doPost(e) {
             return !!inc && INCIDENT_FROM_REPORT_CATEGORIES.indexOf(inc.category) !== -1;
         }
 
+        const CHANGEOVER_INCIDENT_CATEGORY = 'Changeover';
+        const CHANGEOVER_DOWNTIME_TEXT = '🔄 เปลี่ยนรุ่น (Changeover)';
+
         function setIncidentDowntimeTab(tab) {
             incidentDowntimeTab = tab;
             renderIncidentDowntime();
@@ -4861,7 +4865,7 @@ function doPost(e) {
             const scans = processedScans
                 .filter(s => s.status.toUpperCase() === 'OK')
                 .map(s => ({ line: s.line, ts: s.ts, prodDate: s.prodDate, model: s.model }));
-            const records = computeIncidentDowntimeCore(incidents, scans, {
+            const coreRecords = computeIncidentDowntimeCore(incidents, scans, {
                 nowMs: Date.now(),
                 cycleSecondsByModel: modelCycleSecondsCache,
                 onlyLine: activeLine,
@@ -4872,6 +4876,37 @@ function doPost(e) {
                     return !!mp && ((mp.otAssembler || 0) + (mp.otFeeder || 0) + (mp.otLeader || 0)) > 0;
                 }
             });
+            // หมวดเปลี่ยนรุ่น: ไม่ใช้เวลาจากบันทึก "เปลี่ยนรุ่นล่าช้า" แต่ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน
+            // (ชุดเดียวกับการ์ด Changeover Lost) เพื่อไม่ให้ช่วงเดียวกันถูกนับซ้ำ และนับครบแม้ไม่มีใครแจ้ง
+            // บันทึก "เปลี่ยนรุ่นล่าช้า" ยังคำนวณร่วมในตัวหลักอยู่ เพื่อให้ใช้เป็นจุดตัดของเหตุการณ์ก่อนหน้าได้เหมือนเดิม
+            const records = coreRecords.filter(r => r.incident.category !== CHANGEOVER_INCIDENT_CATEGORY);
+            computeChangeoverEvents({ startDate, endDate, shift: activeShift, line: activeLine, model: 'All' }).forEach(e => {
+                records.push({
+                    fromChangeover: true,
+                    changeover: e,
+                    incident: {
+                        category: CHANGEOVER_INCIDENT_CATEGORY,
+                        categoryText: CHANGEOVER_DOWNTIME_TEXT,
+                        date: e.prodDate,
+                        shift: e.shift,
+                        line: e.line,
+                        notes: `${e.fromModel} → ${e.toModel}`
+                    },
+                    line: e.line,
+                    prodDate: e.prodDate,
+                    reportTs: e.confirmTs || null,
+                    startTs: e.fromTs,
+                    endTs: e.toTs,
+                    gapMin: e.gapMin,
+                    breakMin: e.breakMin,
+                    cycleMin: e.cycleMin,
+                    lostMin: e.lostMin,
+                    startFrom: 'changeover',
+                    matchedBy: 'changeover',
+                    endBy: 'changeover'
+                });
+            });
+            records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
             return {
                 records,
                 byCategory: summarizeIncidentDowntime(records, false),
@@ -4951,23 +4986,31 @@ function doPost(e) {
                 const fmtMin = m => m > 0 ? `${Math.round(m)} นาที` : '<span class="text-slate-300">-</span>';
                 tbody.innerHTML = [...data.records].sort((a, b) => b.lostMin - a.lostMin).map(r => {
                     const inc = r.incident;
-                    const shift = getIncidentShift(inc);
+                    const shift = r.fromChangeover ? inc.shift : getIncidentShift(inc);
                     const aiLabel = { high: 'สูง', medium: 'กลาง', low: 'ต่ำ' }[r.aiConfidence] || '-';
                     // By = Rule คือระบบตัดสินเองโดยไม่ถาม AI (ไลน์สแกนต่อเนื่อง ข้อความไม่บอกระยะเวลา) เพื่อประหยัดโควตา
-                    const startCell = r.matchedBy === 'ai'
+                    const startCell = r.fromChangeover
+                        ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">ชิ้นสุดท้ายรุ่นเดิม</div>`
+                        : r.matchedBy === 'ai'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-fuchsia-600 font-sans" title="${escapeHtml(r.aiReason)}">${r.aiBy === 'Rule' ? '✓ ไลน์เดินต่อเนื่อง' : `🤖 AI สรุป · มั่นใจ${aiLabel}`}</div>`
                         : r.matchedBy === 'nearby'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-indigo-500 font-sans" title="ตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±${INCIDENT_NEARBY_WINDOW_MIN} นาทีรอบเวลาที่แจ้ง">หยุดนานสุดช่วง ±${INCIDENT_NEARBY_WINDOW_MIN} นาที</div>`
                         : r.startFrom === 'scan'
                         ? `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">สแกนสุดท้ายก่อนแจ้ง</div>`
                         : `${formatScanDateTime(r.startTs)}<div class="text-[10px] text-slate-400 font-sans">นับจากเวลาที่แจ้ง</div>`;
-                    const endCell = r.endBy === 'ai'
+                    const endCell = r.fromChangeover
+                        ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">ชิ้นแรกรุ่นใหม่</div>`
+                        : r.endBy === 'ai'
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-fuchsia-600 font-sans">${r.aiBy === 'Rule' ? 'ไม่มีช่วงหยุด' : `🤖 AI สรุป${/^AI:/.test(r.aiBy) ? ` (${escapeHtml(r.aiBy.slice(3))})` : ''}`}</div>`
                         : r.endBy === 'resumed'
                         ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-emerald-600 font-sans">สแกนแรกที่กลับมาเดิน</div>`
                         : r.endBy === 'next'
                             ? `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-slate-400 font-sans">แจ้งปัญหาถัดไป</div>`
                             : `${formatScanDateTime(r.endTs)}<div class="text-[10px] text-rose-500 font-sans">ไม่กลับมาสแกน · นับถึง${r.hasOT ? 'สิ้น OT' : 'เลิกงาน'}</div>`;
+                    // เปลี่ยนรุ่นคิดจากสแกน ไม่มีเวลาที่แจ้ง ใช้เวลาที่กดยืนยันเปลี่ยนรุ่นบนเครื่องสแกนแทนถ้ามี
+                    const reportCell = r.fromChangeover
+                        ? (r.reportTs ? `${formatScanDateTime(r.reportTs)}<div class="text-[10px] text-slate-400 font-sans">กดยืนยันเปลี่ยนรุ่น</div>` : '<span class="text-slate-300">-</span><div class="text-[10px] text-slate-400 font-sans">คิดจากสแกน</div>')
+                        : formatScanDateTime(r.reportTs);
                     const notes = inc.notes ? `<div class="text-[10px] text-slate-400 font-normal whitespace-pre-wrap max-w-xs">${escapeHtml(inc.notes)}</div>` : '';
                     const aiNote = r.matchedBy === 'ai' && r.aiBy !== 'Rule' && r.aiReason
                         ? `<div class="text-[10px] text-fuchsia-600 font-normal whitespace-pre-wrap max-w-xs">🤖 ${escapeHtml(r.aiReason)}</div>` : '';
@@ -4976,7 +5019,7 @@ function doPost(e) {
                             <td class="p-3 text-slate-600 whitespace-nowrap">${formatThaiDate(r.prodDate)} <span class="text-slate-400">${shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก'}</span></td>
                             <td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${lineLabel(r.line)}${inc.line === 'All' ? '<div class="text-[10px] text-slate-400 font-normal">แจ้งว่าทุกไลน์</div>' : ''}</td>
                             <td class="p-3 font-semibold text-slate-700">${escapeHtml(inc.categoryText || inc.category || '-')}${notes}${aiNote}</td>
-                            <td class="p-3 text-center font-mono text-slate-700 whitespace-nowrap">${formatScanDateTime(r.reportTs)}</td>
+                            <td class="p-3 text-center font-mono text-slate-700 whitespace-nowrap">${reportCell}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${startCell}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${endCell}</td>
                             <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">${Math.round(r.gapMin)} นาที</td>
@@ -8457,6 +8500,7 @@ function doPost(e) {
             const downtimeById = new Map();
             const downtimeLinesById = new Map(); // เหตุการณ์ "ทุกไลน์" แจกแจงว่าแต่ละไลน์เสียเท่าไหร่
             computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue).records.forEach(r => {
+                if (r.fromChangeover) return; // เวลาเปลี่ยนรุ่นคิดจากสแกน ไม่ได้ผูกกับบันทึกปัญหารายการใด
                 const key = incidentKey(r.incident);
                 downtimeById.set(key, (downtimeById.get(key) || 0) + r.lostMin);
                 if (!downtimeLinesById.has(key)) downtimeLinesById.set(key, []);
