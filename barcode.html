@@ -468,33 +468,6 @@
             </div>
         </div>
 
-        <!-- Changeover Lost Panel -->
-        <div class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
-            <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
-                <div>
-                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
-                        <i data-lucide="repeat" class="w-5 h-5 text-indigo-500"></i>
-                        เวลาที่เสียจากการเปลี่ยนรุ่น (Changeover Lost)
-                    </h3>
-                    <p class="text-xs text-slate-400">คิดจากสแกนอัตโนมัติ: ชิ้นแรกของรุ่นใหม่ − ชิ้นสุดท้ายของรุ่นเดิมในไลน์เดียวกัน หักเวลาพักและ Cycle Time ปกติ 1 รอบ · ไม่นับการเปลี่ยนข้ามกะ ช่วงห่างเกิน 180 นาที และรุ่นที่สแกนติดกันไม่เกิน 5 ชิ้น (ถือเป็นสแกนเก็บตก) · <span id="changeover-range-label" class="font-semibold text-slate-500"></span></p>
-                </div>
-                <div class="flex items-start gap-3 flex-wrap">
-                    <div id="changeover-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
-                    <div id="changeover-tabs" class="flex bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
-                        <button type="button" data-tab="line" onclick="setChangeoverTab('line')" class="px-2.5 py-1 rounded-md">ตามไลน์</button>
-                        <button type="button" data-tab="pair" onclick="setChangeoverTab('pair')" class="px-2.5 py-1 rounded-md">ตามคู่รุ่น</button>
-                        <button type="button" data-tab="event" onclick="setChangeoverTab('event')" class="px-2.5 py-1 rounded-md">รายครั้ง</button>
-                    </div>
-                </div>
-            </div>
-            <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100 shadow-sm">
-                <table class="w-full text-left border-collapse text-xs">
-                    <thead id="changeover-thead" class="bg-slate-50 sticky top-0 z-10"></thead>
-                    <tbody id="changeover-tbody" class="divide-y divide-slate-100 font-medium"></tbody>
-                </table>
-            </div>
-        </div>
-
         <!-- Incident Downtime Panel -->
         <div id="incident-downtime-card" class="glass-card rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex justify-between items-start pb-2 border-b border-slate-100 gap-3 flex-wrap">
@@ -503,7 +476,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <b>🔄 เปลี่ยนรุ่น</b> ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน (ชุดเดียวกับการ์ด Changeover Lost ด้านบน) แทนบันทึก "เปลี่ยนรุ่นล่าช้า" ซึ่งไปแสดงในช่องบันทึกปัญหาของการ์ดเปลี่ยนรุ่นแทน · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <b>🔄 เปลี่ยนรุ่น</b> ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน แทนเวลาจากบันทึก "เปลี่ยนรุ่นล่าช้า" · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -2027,7 +2000,6 @@ function doPost(e) {
             renderManpowerTable();
             renderShiftTransferTable();
             renderJobProgressTable();
-            renderChangeoverLost();
             renderIncidentDowntime();
         }
 
