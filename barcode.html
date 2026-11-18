@@ -189,7 +189,7 @@
                     </h2>
                     <p class="text-xs text-slate-400">การสแกนและคัดแยกวันผลิตตามเวลาทำกะจริง (Day: 08:00 - 20:00 | Night: 20:00 - 08:00)</p>
                 </div>
-                <div class="flex items-center gap-2.5">
+                <div class="flex flex-wrap items-center gap-2.5">
                     <!-- Auto Refresh Toggle -->
                     <label class="relative inline-flex items-center cursor-pointer">
                         <input type="checkbox" id="refresh-toggle" checked class="sr-only peer">
@@ -200,6 +200,10 @@
                     <button onclick="openExportModal()" class="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-md active:scale-95 flex items-center gap-1.5 text-xs font-bold" title="ส่งออกรายงานเป็นไฟล์ PDF">
                         <i data-lucide="file-down" class="w-4 h-4"></i>
                         <span>Export PDF</span>
+                    </button>
+                    <button type="button" onclick="downloadDashboardSnapshot()" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl border border-indigo-100 transition-colors flex items-center gap-1.5 text-xs font-bold" title="ดาวน์โหลดสรุปและกราฟเป็นไฟล์ HTML ที่เปิดออฟไลน์ได้">
+                        <i data-lucide="camera" class="w-4 h-4"></i>
+                        <span>Snapshot</span>
                     </button>
 
                     <button onclick="openConfigModal()" class="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors border border-slate-200 text-slate-600 shadow-sm" title="ตั้งค่าการเชื่อมต่อ">
@@ -8694,7 +8698,111 @@ function doPost(e) {
         }
 
         // ==========================================
-        // ตัวเปิด/ปิดหน้าต่างเลือกหัวข้อ และตัวสั่งสร้างไฟล์
+        // Snapshot: เก็บสรุปและภาพกราฟไว้ใน HTML ไฟล์เดียว
+        // ==========================================
+        function buildDashboardSnapshot(scope, metrics, charts, capturedAt, demo) {
+            const { startDate, endDate, line, shift, job, model } = scope;
+            const range = startDate === endDate ? startDate : `${startDate} – ${endDate}`;
+            const metricCards = metrics.map(([label, value]) => `
+                <div class="card"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
+            const chartCards = charts.map(({ title, summary, png, width, height }) => `
+                <section class="card">
+                    <h2>${escapeHtml(title)}</h2>
+                    ${summary ? `<p class="summary" lang="th">${escapeHtml(summary)}</p>` : ''}
+                    <div class="chart" tabindex="0" aria-label="${escapeHtml(title)}">
+                        <img src="${escapeHtml(png)}" alt="${escapeHtml(title)}" width="${width}" height="${height}">
+                    </div>
+                </section>`).join('');
+
+            return `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
+    <title>H9 Production Snapshot</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: clamp(12px, 3vw, 28px); color: #1e293b; background: #f1f5f9; font: 15px/1.5 system-ui, Tahoma, sans-serif; }
+        main { max-width: 1280px; margin: auto; display: grid; gap: 16px; }
+        .card { min-width: 0; padding: 16px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; }
+        h1, h2, p, dl, dd { margin: 0; }
+        h1 { font-size: 1.6rem; }
+        h2 { font-size: 1rem; }
+        p { margin-top: 6px; color: #475569; overflow-wrap: anywhere; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+        dt { color: #475569; }
+        dd { margin-top: 3px; font-size: 1.2rem; font-weight: 700; }
+        .summary { white-space: pre-line; }
+        .chart { margin-top: 10px; max-height: 65vh; overflow: auto; }
+        img { display: block; }
+    </style>
+</head>
+<body>
+    <main>
+        <header class="card">
+            <h1>H9 Production Snapshot</h1>
+            <p>Production dates: ${escapeHtml(range)}</p>
+            <p>Line: ${escapeHtml(line)} · Shift: ${escapeHtml(shift)} · Job: ${escapeHtml(job)} · Model: ${escapeHtml(model)}</p>
+            <p>Exported: ${escapeHtml(capturedAt)} (Bangkok time) · ${demo ? 'Demo data · ' : ''}Read-only</p>
+        </header>
+        <dl class="metrics">${metricCards}</dl>
+        ${chartCards}
+    </main>
+</body>
+</html>`;
+        }
+
+        function downloadDashboardSnapshot() {
+            try {
+                const scope = getReportScope();
+                if (!scope.okScanCount || !dailyModelChartObj) {
+                    return Swal.fire({ icon: 'info', title: 'ไม่มีข้อมูลให้สร้าง Snapshot', text: 'เลือกช่วงวันที่ที่มีข้อมูลการสแกนก่อนครับ' });
+                }
+
+                const metrics = [
+                    ['Total scanned (PCS)', els.kpiTotalScans.textContent],
+                    ['Average (PCS/hour)', els.kpiAvgSpeed.textContent],
+                    ['Models scanned', els.kpiActiveModels.textContent],
+                    ['Model changes', els.kpiModelChanges.textContent],
+                    ['Efficiency', document.getElementById('kpi-eff-percent').textContent]
+                ];
+                const groupSummary = document.getElementById('group-summary-container');
+                const charts = [
+                    [dailyModelChartObj, 'Daily Output', document.getElementById('daily-model-summary').innerText],
+                    [hourlyChartObj, 'Hourly Output'],
+                    [modelChartObj, 'Output by Model', groupSummary.classList.contains('hidden') ? '' : groupSummary.innerText]
+                ].filter(([chart]) => chart).map(([chart, title, summary]) => {
+                    chart.stop();
+                    chart.update('none');
+                    const png = chart.toBase64Image('image/png');
+                    if (!png.startsWith('data:image/png;base64,')) {
+                        throw new Error('บันทึกภาพกราฟไม่สำเร็จ ลองเลือกช่วงวันที่สั้นลงแล้วส่งออกอีกครั้ง');
+                    }
+                    return { title, summary, png, width: Math.round(chart.width), height: Math.round(chart.height) };
+                });
+
+                const capturedAt = new Intl.DateTimeFormat('en-GB', {
+                    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok'
+                }).format(new Date());
+                const html = buildDashboardSnapshot(scope, metrics, charts, capturedAt, isDemoMode);
+                const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+                const link = document.createElement('a');
+                const range = scope.startDate === scope.endDate ? scope.startDate : `${scope.startDate}_${scope.endDate}`;
+                link.href = url;
+                link.download = `H9-Production-Snapshot_${range}.html`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (err) {
+                console.error(err);
+                Swal.fire({ icon: 'error', title: 'สร้าง Snapshot ไม่สำเร็จ', text: err.message || String(err) });
+            }
+        }
+
+        // ==========================================
+        // ตัวเปิด/ปิดหน้าต่างเลือกหัวข้อ และตัวสั่งสร้างไฟล์รายงาน
         // ==========================================
         function openExportModal() {
             const modal = document.getElementById('export-modal');
