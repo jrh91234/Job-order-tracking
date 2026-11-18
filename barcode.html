@@ -501,7 +501,7 @@
                 <div>
                     <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
-                        เวลาที่หายไปตามสาเหตุที่แจ้ง (Incident Downtime)
+                        เวลาที่หายไปตามสาเหตุที่แจ้ง (Downtime)
                     </h3>
                     <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <b>🔄 เปลี่ยนรุ่น</b> ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน (ชุดเดียวกับการ์ด Changeover Lost ด้านบน) แทนบันทึก "เปลี่ยนรุ่นล่าช้า" ซึ่งไปแสดงในช่องบันทึกปัญหาของการ์ดเปลี่ยนรุ่นแทน · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
@@ -8709,6 +8709,7 @@ function doPost(e) {
                 <section class="card">
                     <h2>${escapeHtml(title)}</h2>
                     ${summary ? `<p class="summary" lang="th">${escapeHtml(summary)}</p>` : ''}
+                    <p class="chart-hint">Swipe to view the full chart</p>
                     <div class="chart" tabindex="0" aria-label="${escapeHtml(title)}">
                         <img src="${escapeHtml(png)}" alt="${escapeHtml(title)}" width="${width}" height="${height}">
                     </div>
@@ -8734,8 +8735,18 @@ function doPost(e) {
         dt { color: #475569; }
         dd { margin-top: 3px; font-size: 1.2rem; font-weight: 700; }
         .summary { white-space: pre-line; }
-        .chart { margin-top: 10px; max-height: 65vh; overflow: auto; }
-        img { display: block; }
+        .chart { margin-top: 10px; max-height: 65vh; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+        .chart-hint { display: none; }
+        img { display: block; max-width: none; }
+        @media (max-width: 600px) {
+            body { padding: 12px; font-size: 14px; }
+            main { gap: 12px; }
+            .card { padding: 12px; }
+            h1 { font-size: 1.35rem; }
+            .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .chart { max-height: 60vh; }
+            .chart-hint { display: block; font-size: 12px; color: #64748b; }
+        }
     </style>
 </head>
 <body>
