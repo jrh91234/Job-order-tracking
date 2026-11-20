@@ -1142,7 +1142,7 @@ function doPost(e) {
                     <div>
                         <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i data-lucide="trending-up" class="w-5 h-5 text-emerald-600"></i>
-                            วางแผนลำดับ Job (Forecast)
+                            <span id="forecast-modal-title">วางแผนลำดับ Job (Forecast)</span>
                         </h3>
                         <p class="text-xs text-slate-400 mt-0.5">เรียง Job ที่เปิดค้างอยู่ตามลำดับที่จะขึ้นไลน์ ระบบคำนวณยอดที่คาดว่าจะได้ทันที · บันทึกแล้วทุกเครื่องเห็นแผนเดียวกัน</p>
                     </div>
@@ -5461,7 +5461,9 @@ function doPost(e) {
             return {
                 plan, win, byHour, baseline, rolling, co, jobStatus,
                 planTotal: jobs.reduce((s, j) => s + j.qty, 0),
-                expectedTotal: rolling ? rolling.actualTotal + rolling.sim.total : baseline.total
+                // เทียบกับแผนเฉพาะ Job ในแผน (ตัดส่วนที่เกินแผนของแต่ละ Job) ยอดรุ่นอื่นที่ไลน์ผลิตนอกแผนแยกไว้ต่างหาก
+                expectedTotal: jobStatus.reduce((s, j) => s + Math.min(j.forecastQty, j.qty), 0),
+                offPlanQty: rolling ? Math.max(0, rolling.actualTotal - jobStatus.reduce((s, j) => s + j.done, 0)) : 0
             };
         }
 
@@ -5521,16 +5523,21 @@ function doPost(e) {
                         ? ` · ความเร็วตอนนี้ ${(r.rolling.live.ratePerMin * 60).toFixed(0)} ชิ้น/ชม.`
                         : ' · ชั่วโมงนี้ใช้ความเร็วจากประวัติ')
                     : '';
+                const offPlan = r.offPlanQty > 0
+                    ? `<span class="text-amber-600"> · ผลิตนอกแผนแล้ว ${Math.round(r.offPlanQty).toLocaleString()} ชิ้น</span>` : '';
                 return `
                     <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2 space-y-1">
-                        <div class="flex flex-wrap items-baseline justify-between gap-2">
-                            <span class="font-bold text-slate-700">Line ${escapeHtml(p.line)} · ${p.shift === 'Night' ? '🌙 ดึก' : '☀️ เช้า'}${p.ot ? ' + OT' : ''}</span>
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="flex items-center gap-2">
+                                <span class="font-bold text-slate-700">Line ${escapeHtml(p.line)} · ${p.shift === 'Night' ? '🌙 ดึก' : '☀️ เช้า'}${p.ot ? ' + OT' : ''}</span>
+                                <button type="button" onclick="openForecastModal('${escapeHtml(p.id)}')" class="px-2 py-0.5 rounded-md text-[11px] font-bold text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 transition-colors" title="แก้ไขแผนนี้">✏️ แก้ไข</button>
+                            </span>
                             <span class="font-mono">${r.rolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'} <b class="text-slate-800">${Math.round(r.expectedTotal).toLocaleString()}</b> / แผน ${r.planTotal.toLocaleString()} <b class="${diffCls}">(${diff >= 0 ? '+' : ''}${diff.toLocaleString()})</b></span>
                         </div>
                         <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
                             ${r.jobStatus.map(j => `<span>${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
                         </div>
-                        <div class="text-[10px] text-slate-400">เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}</div>
+                        <div class="text-[10px] text-slate-400">เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
                     </div>`;
             }).join('');
         }
@@ -5564,15 +5571,23 @@ function doPost(e) {
             }).filter(j => !j.closed && j.plan > 0 && j.remaining > 0 && j.model && j.model !== '-');
         }
 
-        function openForecastModal() {
-            const lines = forecastLineOptions();
-            const filterLine = els.filterLine ? els.filterLine.value : 'All';
-            const filterShift = els.filterShift ? els.filterShift.value : 'All';
-            const hour = new Date().getHours();
-            const date = els.filterStartDate.value || toLocalDateKey(new Date());
-            const shift = filterShift !== 'All' ? filterShift : (hour >= 8 && hour < 20 ? 'Day' : 'Night');
-            const line = filterLine !== 'All' ? filterLine : (lines[0] || '');
-            loadForecastDraft(date, shift, line);
+        // planId: เปิดแก้ไขแผนที่มีอยู่ (ปุ่มแก้ไขบนการ์ด) ไม่ส่งมา = เปิดตามตัวกรองบนหน้าจอ
+        function openForecastModal(planId) {
+            const existing = planId ? forecastPlans[planId] : null;
+            if (existing) {
+                loadForecastDraft(existing.date, existing.shift, String(existing.line));
+            } else {
+                const lines = forecastLineOptions();
+                const filterLine = els.filterLine ? els.filterLine.value : 'All';
+                const filterShift = els.filterShift ? els.filterShift.value : 'All';
+                const hour = new Date().getHours();
+                const date = els.filterStartDate.value || toLocalDateKey(new Date());
+                const shift = filterShift !== 'All' ? filterShift : (hour >= 8 && hour < 20 ? 'Day' : 'Night');
+                // ไม่ได้เลือกไลน์: เปิดไลน์ที่มีแผนของวันและกะนั้นอยู่แล้วก่อน จะได้เห็นแผนเดิมทันที
+                const planned = lines.find(l => forecastPlans[forecastPlanId(date, shift, l)]);
+                const line = filterLine !== 'All' ? filterLine : (planned || lines[0] || '');
+                loadForecastDraft(date, shift, line);
+            }
             document.getElementById('forecast-modal').classList.remove('hidden');
             renderForecastModal();
         }
@@ -5651,6 +5666,8 @@ function doPost(e) {
             lineSel.value = d.line;
             document.getElementById('forecast-ot').checked = d.ot;
             document.getElementById('forecast-delete-btn').classList.toggle('hidden', !d.exists);
+            document.getElementById('forecast-modal-title').textContent = d.exists
+                ? `แก้ไขแผน Line ${d.line} · ${d.shift === 'Night' ? 'กะดึก' : 'กะเช้า'}` : 'วางแผนลำดับ Job (Forecast)';
 
             const inDraft = new Set(d.jobs.map(j => j.job));
             const open = forecastOpenJobs().filter(j => !inDraft.has(j.job));
@@ -5706,6 +5723,7 @@ function doPost(e) {
                 </div>
                 <p class="text-[10px] text-slate-400 leading-relaxed">
                     ช่วงกะ ${forecastHM(r.win.startMs)}-${forecastHM(r.win.endMs)} · หักพัก ${breakMin} นาที (พักหลัก + พักย่อย 10:00, 15:00, 22:00, 03:00 ครั้งละ 10 นาที)
+                    ${r.offPlanQty > 0 ? `· <span class="text-amber-600">กะนี้ไลน์ผลิตนอกแผนไปแล้ว ${Math.round(r.offPlanQty).toLocaleString()} ชิ้น (ไม่นับรวมในยอดคาดการณ์ข้างบน)</span>` : ''}
                     · เปลี่ยนรุ่นเฉลี่ยของไลน์ ${Math.round(r.co.min)} นาที/ครั้ง ${r.co.n ? `(${r.co.n} ครั้งใน ${FORECAST_HISTORY_DAYS} วัน${r.co.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''})` : '(ยังไม่มีประวัติ)'}
                     · ความเร็วแต่ละรุ่นใช้ค่ากลางของยอดต่อชั่วโมงที่เดินรุ่นนั้นทั้งชั่วโมงใน ${FORECAST_HISTORY_DAYS} วันล่าสุด
                     ${r.rolling ? '· ระหว่างกะ: คิดต่อจากยอดคงเหลือจริง ชั่วโมงปัจจุบันใช้ความเร็ว 15 นาทีล่าสุด' : ''}
