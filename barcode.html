@@ -3202,6 +3202,7 @@ function doPost(e) {
                     type: 'line',
                     label: FORECAST_LABEL,
                     data: forecastSeries.data,
+                    changeoverNotes: forecastSeries.changeoverNotes,
                     borderColor: '#10b981',
                     backgroundColor: '#10b981',
                     borderWidth: 2,
@@ -3381,7 +3382,7 @@ function doPost(e) {
                 const prevLabels = hourlyChartObj.prevLabels || [];
                 const prevDataJson = hourlyChartObj.prevDataJson || '';
 
-                const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
+                const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data, co: d.changeoverNotes })));
                 
                 let hasHourlyChanged = false;
                 if (prevLabels.length !== hourLabels.length || prevDataJson !== hourlyDataJson) {
@@ -3410,6 +3411,7 @@ function doPost(e) {
                         const ds = existingDatasets[i];
                         if (newDatasetsMap[ds.label]) {
                             ds.data = newDatasetsMap[ds.label].data;
+                            ds.changeoverNotes = newDatasetsMap[ds.label].changeoverNotes;
                             delete newDatasetsMap[ds.label];
                         } else {
                             existingDatasets.splice(i, 1);
@@ -3483,9 +3485,31 @@ function doPost(e) {
                     }
                 };
 
+                // ไอคอน 🔄 เหนือจุด Forecast ของชั่วโมงที่คาดว่าจะมีการเปลี่ยนรุ่น
+                const forecastChangeoverIconPlugin = {
+                    id: 'forecastChangeoverIconPlugin',
+                    afterDatasetsDraw(chart) {
+                        const dsIndex = chart.data.datasets.findIndex(d => d.label === FORECAST_LABEL);
+                        if (dsIndex === -1 || !chart.isDatasetVisible(dsIndex)) return;
+                        const notes = chart.data.datasets[dsIndex].changeoverNotes || [];
+                        const meta = chart.getDatasetMeta(dsIndex);
+                        const { ctx } = chart;
+                        ctx.save();
+                        ctx.font = '13px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        notes.forEach((list, idx) => {
+                            const pt = meta.data[idx];
+                            if (!list || !list.length || !pt || pt.skip) return;
+                            ctx.fillText('🔄', pt.x, pt.y - 6);
+                        });
+                        ctx.restore();
+                    }
+                };
+
                 hourlyChartObj = new Chart(ctxHourly, {
                     type: 'bar',
-                    plugins: [hourlyChartValuePlugin, hourlyChartWarningPlugin],
+                    plugins: [hourlyChartValuePlugin, hourlyChartWarningPlugin, forecastChangeoverIconPlugin],
                     data: {
                         labels: hourLabels,
                         datasets: hourlyDatasets
@@ -3540,6 +3564,15 @@ function doPost(e) {
                             },
                             hourlyChartValuePlugin: {
                                 enabled: showChartValues
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    afterLabel: (item) => {
+                                        const list = (item.dataset.changeoverNotes || [])[item.dataIndex];
+                                        if (!list || !list.length) return '';
+                                        return list.map(n => `🔄 Line ${n.line}: ${n.fromModel} → ${n.toModel} ${forecastHM(n.startMs)}–${forecastHM(n.endMs)} (ชั่วโมงนี้ ${n.minutes} นาที)`);
+                                    }
+                                }
                             }
                         },
                         scales: {
@@ -3558,7 +3591,7 @@ function doPost(e) {
                     }
                 });
                 hourlyChartObj.prevLabels = [...hourLabels];
-                hourlyChartObj.prevDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data })));
+                hourlyChartObj.prevDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data, co: d.changeoverNotes })));
             }
 
             // --- 3. Daily Output Stacked Bar Chart (ยอดรายวัน สแตกทุกรุ่นเข้าด้วยกัน) ---
@@ -5333,9 +5366,18 @@ function doPost(e) {
             const byHour = {};
             let total = 0;
             let idx = 0;
-            let changeoverLeft = jobs.length
-                ? Math.max(0, Math.round(opts.startupMin || 0)) + (prevModel && jobs[0].model !== prevModel ? changeoverMin : 0)
-                : 0;
+            // เวลาเสียตอนเข้ากะกับเวลาเปลี่ยนรุ่นแยกกัน เพื่อบันทึกช่วงเปลี่ยนรุ่นไว้แสดงไอคอน 🔄 บนกราฟ
+            let startupLeft = jobs.length ? Math.max(0, Math.round(opts.startupMin || 0)) : 0;
+            let changeoverLeft = 0;
+            const changeovers = [];
+            let currentCo = null;
+            const beginChangeover = (fromModel, toModel) => {
+                if (!(changeoverMin > 0)) return;
+                changeoverLeft = changeoverMin;
+                currentCo = { fromModel, toModel, startMs: null, endMs: null, minutesByHour: {} };
+                changeovers.push(currentCo);
+            };
+            if (jobs.length && prevModel && jobs[0].model !== prevModel) beginChangeover(prevModel, jobs[0].model);
 
             // ตัดนาทีทำงานท้ายกะออก นับถอยหลังจาก endMs โดยข้ามนาทีพัก
             let stopMs = endMs;
@@ -5346,7 +5388,16 @@ function doPost(e) {
 
             for (let t = Math.floor(startMs / 60000) * 60000; t < stopMs && idx < jobs.length; t += 60000) {
                 if (isBreakMinute(t)) continue;
-                if (changeoverLeft > 0) { changeoverLeft--; continue; }
+                if (startupLeft > 0) { startupLeft--; continue; }
+                if (changeoverLeft > 0) {
+                    if (currentCo.startMs === null) currentCo.startMs = t;
+                    currentCo.endMs = t + 60000;
+                    const coHour = new Date(t);
+                    coHour.setMinutes(0, 0, 0);
+                    currentCo.minutesByHour[coHour.getTime()] = (currentCo.minutesByHour[coHour.getTime()] || 0) + 1;
+                    changeoverLeft--;
+                    continue;
+                }
                 const job = jobs[idx];
                 const rate = live && idx === 0 && t < live.untilMs ? live.ratePerMin : rateFor(job.model);
                 if (!(rate > 0)) continue;
@@ -5360,12 +5411,14 @@ function doPost(e) {
                 if (job.remaining <= 1e-9) {
                     job.finishMs = t + Math.round((made / rate) * 60000);
                     idx++;
-                    if (idx < jobs.length && jobs[idx].model !== job.model) changeoverLeft = changeoverMin;
+                    if (idx < jobs.length && jobs[idx].model !== job.model) beginChangeover(job.model, jobs[idx].model);
                 }
             }
             return {
                 byHour,
                 total,
+                // ช่วงเปลี่ยนรุ่นที่เกิดขึ้นจริงในการจำลอง (startMs-endMs อาจคร่อมช่วงพัก) ไม่รวมครั้งที่ไม่ทันได้เริ่มก่อนจบกะ
+                changeovers: changeovers.filter(c => c.startMs !== null),
                 jobs: jobs.map(j => ({ key: j.key, model: j.model, qty: j.qty, produced: j.produced, finishMs: j.finishMs }))
             };
         }
@@ -5556,8 +5609,13 @@ function doPost(e) {
                 };
             });
 
+            // ช่วงเปลี่ยนรุ่นที่คาดไว้: ระหว่างกะ ชั่วโมงที่ผ่านไปใช้ของตอนต้นกะ (ตรงกับเส้นที่แสดง) ที่เหลือใช้ผลจำลองล่าสุด
+            const changeovers = rolling
+                ? [...baseline.changeovers.filter(c => c.startMs < rolling.currentHourStart), ...rolling.sim.changeovers]
+                : baseline.changeovers;
+
             return {
-                plan, win, byHour, baseline, rolling, co, startup, ending, jobStatus,
+                plan, win, byHour, baseline, rolling, co, startup, ending, jobStatus, changeovers,
                 planTotal: jobs.reduce((s, j) => s + j.qty, 0),
                 // เทียบกับแผนเฉพาะ Job ในแผน (ตัดส่วนที่เกินแผนของแต่ละ Job) ยอดรุ่นอื่นที่ไลน์ผลิตนอกแผนแยกไว้ต่างหาก
                 expectedTotal: jobStatus.reduce((s, j) => s + Math.min(j.forecastQty, j.qty), 0),
@@ -5594,13 +5652,24 @@ function doPost(e) {
                     data[idx] = (data[idx] || 0) + val;
                 });
             });
-            return { data: data.map(v => v === null ? null : Math.round(v)), results, reason: '' };
+            // ชั่วโมงที่มีการเปลี่ยนรุ่น (นับเฉพาะชั่วโมงที่ใช้เวลาเปลี่ยนรุ่นจริง ข้ามชั่วโมงพักเที่ยง) ใช้วาดไอคอน 🔄
+            const changeoverNotes = hourSequence.map(() => []);
+            results.forEach(r => {
+                r.changeovers.forEach(c => {
+                    Object.entries(c.minutesByHour).forEach(([hs, minutes]) => {
+                        const idx = hourSequence.indexOf(new Date(Number(hs)).getHours());
+                        if (idx === -1 || data[idx] === null) return;
+                        changeoverNotes[idx].push({ line: r.plan.line, fromModel: c.fromModel, toModel: c.toModel, startMs: c.startMs, endMs: c.endMs, minutes });
+                    });
+                });
+            });
+            return { data: data.map(v => v === null ? null : Math.round(v)), changeoverNotes, results, reason: '' };
         }
 
         function forecastJobStatusText(j) {
             if (j.finishMs === -1) return '<span class="text-emerald-600 font-bold">ครบแล้ว</span>';
             if (j.finishMs) return `<span class="text-slate-700 font-bold">เสร็จ ~${forecastHM(j.finishMs)}</span>`;
-            return `<span class="text-rose-600 font-bold">ไม่ทันในกะ ขาด ${j.short.toLocaleString()}</span>`;
+            return `<span class="text-rose-600 font-bold">ไม่ทันในกะ ${j.short.toLocaleString()}</span>`;
         }
 
         function renderForecastSummary(series) {
@@ -5612,7 +5681,23 @@ function doPost(e) {
                     : '<p class="text-slate-400">ยังไม่มีแผนของวันที่และไลน์ที่เลือก กด "วางแผน" เพื่อเรียง Job ที่จะผลิต</p>';
                 return;
             }
-            el.innerHTML = series.results.map(r => {
+            // หลายแผน (หลายไลน์/กะ) ขึ้นยอดรวมไว้บนสุด
+            let totalHtml = '';
+            if (series.results.length > 1) {
+                const sum = key => series.results.reduce((acc, r) => acc + r[key], 0);
+                const exp = Math.round(sum('expectedTotal'));
+                const plan = sum('planTotal');
+                const off = Math.round(sum('offPlanQty'));
+                const d = exp - plan;
+                const anyRolling = series.results.some(r => r.rolling);
+                const lines = [...new Set(series.results.map(r => r.plan.line))].length;
+                totalHtml = `
+                    <div class="rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2 flex flex-wrap items-baseline justify-between gap-2">
+                        <span class="font-bold text-indigo-700">รวม ${lines} ไลน์ (${series.results.length} แผน)</span>
+                        <span class="font-mono">${anyRolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'} <b class="text-slate-800">${exp.toLocaleString()}</b> / แผน ${plan.toLocaleString()} <b class="${d >= 0 ? 'text-emerald-600' : 'text-rose-600'}">(${d >= 0 ? '+' : ''}${d.toLocaleString()})</b>${off > 0 ? `<span class="text-amber-600 text-[11px]"> · นอกแผน ${off.toLocaleString()}</span>` : ''}</span>
+                    </div>`;
+            }
+            el.innerHTML = totalHtml + series.results.map(r => {
                 const p = r.plan;
                 const diff = Math.round(r.expectedTotal - r.planTotal);
                 const diffCls = diff >= 0 ? 'text-emerald-600' : 'text-rose-600';
@@ -5635,6 +5720,7 @@ function doPost(e) {
                         <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
                             ${r.jobStatus.map(j => `<span>${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
                         </div>
+                        ${r.changeovers.length ? `<div class="text-[11px] text-indigo-600">${r.changeovers.map(c => `🔄 ${forecastHM(c.startMs)}–${forecastHM(c.endMs)} ${escapeHtml(c.fromModel)} → ${escapeHtml(c.toModel)}`).join(' · ')}</div>` : ''}
                         <div class="text-[10px] text-slate-400">ชั่วโมงแรกเสีย ~${Math.round(r.startup.min)} นาที${r.startup.n ? ` (${r.startup.n} กะ${r.startup.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · ชั่วโมงสุดท้ายเสีย ~${Math.round(r.ending.min)} นาที${r.ending.n ? ` (${r.ending.n} กะ${r.ending.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
                     </div>`;
             }).join('');
