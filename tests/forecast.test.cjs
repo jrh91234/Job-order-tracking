@@ -179,4 +179,10 @@ assert.equal(r.changeovers[0].minutesByHour[at(D, '12:00')], undefined);
 r = sim({ startupMin: 20, changeoverMin: 10, prevModel: 'A', jobs: [{ key: 'J1', model: 'A', qty: 5 }] });
 assert.equal(r.changeovers.length, 0);
 
+// ยอดรายรุ่นของแต่ละชั่วโมง: ชั่วโมงที่เปลี่ยนรุ่นมีทั้งรุ่นเดิมและรุ่นใหม่
+r = sim({ changeoverMin: 20, jobs: [{ key: 'J1', model: 'A', qty: 30 }, { key: 'J2', model: 'B', qty: 100 }] });
+assert.equal(Math.round(r.byHourModel[at(D, '08:00')].A), 30);
+assert.equal(Math.round(r.byHourModel[at(D, '08:00')].B), 10, 'เปลี่ยนรุ่น 08:30-08:50 แล้วผลิต B 10 นาที');
+assert.equal(Math.round(r.byHourModel[at(D, '09:00')].B), 60);
+
 console.log('forecast tests passed');
