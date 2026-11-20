@@ -3496,14 +3496,37 @@ function doPost(e) {
                         const notes = chart.data.datasets[dsIndex].changeoverNotes || [];
                         const meta = chart.getDatasetMeta(dsIndex);
                         const { ctx } = chart;
+                        const iconAt = idx => {
+                            const pt = meta.data[idx];
+                            return pt && !pt.skip ? { x: pt.x, y: pt.y - 14 } : null;
+                        };
                         ctx.save();
+                        // การเปลี่ยนรุ่นครั้งเดียวที่คร่อมหลายชั่วโมง: โยงเส้นจาง ๆ ระหว่างไอคอนของครั้งนั้น
+                        const spans = {};
+                        notes.forEach((list, idx) => (list || []).forEach(n => {
+                            const key = `${n.line}|${n.startMs}`;
+                            (spans[key] || (spans[key] = [])).push(idx);
+                        }));
+                        ctx.strokeStyle = 'rgba(99, 102, 241, 0.35)';
+                        ctx.lineWidth = 3;
+                        ctx.lineCap = 'round';
+                        ctx.setLineDash([6, 4]);
+                        Object.values(spans).forEach(idxs => {
+                            const pts = [...new Set(idxs)].sort((a, b) => a - b).map(iconAt).filter(Boolean);
+                            if (pts.length < 2) return;
+                            ctx.beginPath();
+                            ctx.moveTo(pts[0].x, pts[0].y);
+                            pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+                            ctx.stroke();
+                        });
+                        ctx.setLineDash([]);
                         ctx.font = '13px sans-serif';
                         ctx.textAlign = 'center';
-                        ctx.textBaseline = 'bottom';
+                        ctx.textBaseline = 'middle';
                         notes.forEach((list, idx) => {
-                            const pt = meta.data[idx];
-                            if (!list || !list.length || !pt || pt.skip) return;
-                            ctx.fillText('🔄', pt.x, pt.y - 6);
+                            const at = iconAt(idx);
+                            if (!list || !list.length || !at) return;
+                            ctx.fillText('🔄', at.x, at.y);
                         });
                         ctx.restore();
                     }
