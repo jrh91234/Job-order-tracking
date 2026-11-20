@@ -518,7 +518,8 @@ function doPost(e) {
       }
 
       var fpJobs = Array.isArray(data.jobs) ? data.jobs.map(function (j) {
-        return { job: String(j.job || ""), model: String(j.model || ""), qty: Math.max(0, Math.round(Number(j.qty) || 0)) };
+        // edited = ผู้ใช้กรอกจำนวนเอง หน้าจอจะไม่ตัดจำนวนนี้ตาม Capacity
+        return { job: String(j.job || ""), model: String(j.model || ""), qty: Math.max(0, Math.round(Number(j.qty) || 0)), edited: j.edited === true };
       }) : [];
       var fpData = [
         data.id,

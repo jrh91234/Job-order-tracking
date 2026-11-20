@@ -5894,9 +5894,11 @@ function doPost(e) {
             forecastDraft = {
                 date, shift, line,
                 ot: existing ? !!existing.ot : false,
-                jobs: existing ? existing.jobs.map(j => ({ ...j })) : [],
+                jobs: existing ? existing.jobs.map(j => ({ ...j, edited: !!j.edited })) : [],
                 exists: !!existing
             };
+            // Job ที่ไม่ได้แก้เอง คิดจำนวนเต็มใหม่จากยอดคงเหลือล่าสุด แล้วตัดตาม Capacity อีกครั้งตอนแสดง
+            forecastDraft.jobs.forEach(j => { j.want = j.edited ? j.qty : forecastJobWant(forecastDraft, j.job); });
         }
 
         function onForecastKeyChange() {
@@ -5912,20 +5914,56 @@ function doPost(e) {
             renderForecastPreview();
         }
 
+        // จำนวนเต็มที่ Job ต้องการในกะนี้ (ก่อนตัดตาม Capacity) = ยอดคงเหลือของ Job + ที่ไลน์นี้ผลิตไปแล้วในกะนี้
+        // ต้องบวกยอดที่ผลิตแล้วกลับ เพราะตอนคำนวณระหว่างกะจะหักยอดที่ผลิตแล้วในกะออกอีกที (ไม่งั้นถูกหักซ้ำสองรอบ)
+        function forecastJobWant(draft, jobId) {
+            const pj = (planJobs || []).find(j => j.job === jobId);
+            let scanned = 0;
+            let doneInShift = 0;
+            const win = forecastShiftWindow(draft.date, draft.shift, draft.ot);
+            const until = Math.min(Date.now(), win.endMs);
+            processedScans.forEach(s => {
+                if (String(s.status || '').toUpperCase() !== 'OK' || String(s.jobOrder || '').trim() !== jobId) return;
+                const q = s.qty || 1;
+                scanned += q;
+                if (String(s.line) === String(draft.line) && s.ts >= win.startMs && s.ts <= until) doneInShift += q;
+            });
+            const remaining = pj ? Math.max((pj.plan || 0) - Math.max(pj.actual || 0, scanned), 0) : 0;
+            return remaining + doneInShift;
+        }
+
+        // จำนวนในแผน = เท่าที่กะนี้ผลิตได้ตาม Capacity Job ที่ทำไม่ทันถูกตัดเหลือเท่าที่ทำได้
+        // Job หลังจากนั้นเป็น 0 (ไม่ได้ขึ้นกะนี้) ยกเว้น Job ที่ผู้ใช้กรอกจำนวนเอง (edited) ใช้ค่าที่กรอกตามเดิม
+        // ก่อนเริ่มกะ: จำลองตั้งแต่ต้นกะ · ระหว่างกะ: ยอดที่ผลิตแล้วในกะ + ที่คาดว่าจะได้ในเวลาที่เหลือ
+        function capForecastDraftToCapacity(d) {
+            if (!d.jobs.length) return;
+            const plan = {
+                id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot,
+                jobs: d.jobs.map(j => ({ job: j.job, model: j.model, qty: j.edited ? j.qty : j.want }))
+            };
+            const status = computePlanForecast(plan, Date.now()).jobStatus;
+            d.jobs.forEach((j, i) => {
+                if (j.edited) { j.capped = false; return; }
+                const st = status[i];
+                j.qty = Math.min(j.want, Math.floor((st ? st.forecastQty : 0) + 1e-6));
+                j.capped = j.qty < j.want;
+            });
+        }
+
         function addForecastJob() {
             const sel = document.getElementById('forecast-add-job');
             const job = forecastOpenJobs().find(j => j.job === sel.value);
             if (!job) return;
-            // จำนวนในแผน = ยอดของกะนี้ทั้งกะ ถ้ากะเริ่มไปแล้วและไลน์นี้ผลิต Job นี้ไปบ้าง ต้องบวกยอดนั้นกลับ
-            // เพราะตอนคำนวณระหว่างกะจะหักยอดที่ผลิตแล้วในกะออกอีกที (ไม่งั้นถูกหักซ้ำสองรอบ)
-            const win = forecastShiftWindow(forecastDraft.date, forecastDraft.shift, forecastDraft.ot);
-            const nowMs = Date.now();
-            const doneInShift = processedScans.reduce((sum, s) =>
-                String(s.status || '').toUpperCase() === 'OK' && String(s.line) === String(forecastDraft.line) &&
-                String(s.jobOrder || '').trim() === job.job && s.ts >= win.startMs && s.ts <= Math.min(nowMs, win.endMs)
-                    ? sum + (s.qty || 1) : sum, 0);
-            forecastDraft.jobs.push({ job: job.job, model: job.model, qty: job.remaining + doneInShift });
+            const want = forecastJobWant(forecastDraft, job.job);
+            forecastDraft.jobs.push({ job: job.job, model: job.model, want, qty: want, edited: false });
             renderForecastModal();
+        }
+
+        function resetForecastJobQty(idx) {
+            const j = forecastDraft.jobs[idx];
+            j.edited = false;
+            j.want = forecastJobWant(forecastDraft, j.job);
+            renderForecastPreview();
         }
 
         function moveForecastJob(idx, delta) {
@@ -5942,7 +5980,9 @@ function doPost(e) {
         }
 
         function setForecastJobQty(idx, value) {
-            forecastDraft.jobs[idx].qty = Math.max(0, Math.round(Number(value) || 0));
+            const j = forecastDraft.jobs[idx];
+            j.qty = Math.max(0, Math.round(Number(value) || 0));
+            j.edited = true;
             renderForecastPreview();
         }
 
@@ -5979,10 +6019,12 @@ function doPost(e) {
                 sumEl.innerHTML = '';
                 return;
             }
+            capForecastDraftToCapacity(d);
             const plan = { id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot, jobs: d.jobs };
             const r = computePlanForecast(plan, Date.now());
             const btn = 'w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:hover:bg-transparent';
             listEl.innerHTML = r.jobStatus.map((j, i) => {
+                const dj = d.jobs[i];
                 const rate = j.rate;
                 const secPer = rate && rate.rate > 0 ? (60 / rate.rate).toFixed(1) : '-';
                 const src = rate ? FORECAST_RATE_SOURCE_TEXT[rate.source] + (rate.n ? ` ${rate.n} ชม.` : '') : '';
@@ -5992,9 +6034,12 @@ function doPost(e) {
                         <span class="w-6 text-center text-xs font-bold text-indigo-600">${i + 1}</span>
                         <div class="flex-1 min-w-0">
                             <div class="text-xs font-bold text-slate-700 truncate">${escapeHtml(j.key)} <span class="font-normal text-slate-400">· ${escapeHtml(j.model)}</span></div>
-                            <div class="text-[10px] ${warn}">${secPer} วิ/ชิ้น (${src})${j.done ? ` · ผลิตแล้ว ${j.done.toLocaleString()}` : ''} · ${forecastJobStatusText(j)}</div>
+                            <div class="text-[10px] ${warn}">${secPer} วิ/ชิ้น (${src})${j.done ? ` · ผลิตแล้ว ${j.done.toLocaleString()}` : ''} · ${dj.qty === 0 && !dj.edited ? '<span class="text-slate-500 font-bold">เวลาไม่พอ ไม่ได้ขึ้นกะนี้</span>' : forecastJobStatusText(j)}</div>
+                            ${dj.edited
+                                ? `<div class="text-[10px] text-indigo-600">✍️ กรอกเอง (ไม่ตัดตาม Capacity) <button type="button" onclick="resetForecastJobQty(${i})" class="underline hover:text-indigo-800">คำนวณตาม Capacity</button></div>`
+                                : (dj.capped ? `<div class="text-[10px] text-amber-600">ตัดตาม Capacity ของกะ จากที่ต้องการ ${dj.want.toLocaleString()}</div>` : '')}
                         </div>
-                        <input type="number" min="0" value="${j.qty}" onchange="setForecastJobQty(${i}, this.value)" class="w-20 p-1.5 text-xs text-right font-mono bg-slate-50 border border-slate-200 rounded-lg" title="จำนวนที่จะผลิตในกะนี้">
+                        <input type="number" min="0" value="${j.qty}" onchange="setForecastJobQty(${i}, this.value)" class="w-20 p-1.5 text-xs text-right font-mono ${dj.edited ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-50 border-slate-200'} border rounded-lg" title="จำนวนที่จะผลิตในกะนี้ (แก้เองได้ ถ้าแก้จะไม่ตัดตาม Capacity)">
                         <button type="button" class="${btn}" onclick="moveForecastJob(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="เลื่อนขึ้น">▲</button>
                         <button type="button" class="${btn}" onclick="moveForecastJob(${i}, 1)" ${i === r.jobStatus.length - 1 ? 'disabled' : ''} title="เลื่อนลง">▼</button>
                         <button type="button" class="${btn} hover:!text-rose-600 hover:!bg-rose-50" onclick="removeForecastJob(${i})" title="เอาออก">✕</button>
@@ -6031,13 +6076,15 @@ function doPost(e) {
             const plan = {
                 id: forecastPlanId(d.date, d.shift, d.line),
                 date: d.date, shift: d.shift, line: d.line, ot: d.ot,
-                jobs: d.jobs.filter(j => j.qty > 0).map(j => ({ job: j.job, model: j.model, qty: j.qty }))
+                jobs: d.jobs.filter(j => j.qty > 0).map(j => ({ job: j.job, model: j.model, qty: j.qty, edited: !!j.edited }))
             };
             forecastPlans[plan.id] = plan;
             saveForecastPlansLocal();
             closeForecastModal();
             renderCharts();
+            forecastPendingSync[plan.id] = plan;
             syncForecastPlanToGoogleSheets(plan).then(ok => {
+                delete forecastPendingSync[plan.id];
                 if (ok === true) showIncidentToast('success', 'บันทึกแผน Forecast แล้ว', 'ทุกเครื่องจะเห็นแผนนี้');
                 else showIncidentToast('warning', 'เก็บแผนไว้ในเครื่องนี้แล้ว แต่ขึ้น Google Sheet ไม่สำเร็จ', String(ok));
             });
@@ -6053,7 +6100,9 @@ function doPost(e) {
             closeForecastModal();
             renderCharts();
             if (!old) return;
+            forecastPendingSync[id] = null;
             syncForecastPlanToGoogleSheets(old, 'DELETE_FORECAST_PLAN').then(ok => {
+                delete forecastPendingSync[id];
                 if (ok === true) showIncidentToast('success', 'ลบแผน Forecast แล้ว', '');
                 else {
                     forecastPlans[id] = old;
@@ -6518,12 +6567,20 @@ function doPost(e) {
             return (Array.isArray(list) ? list : []).map(j => ({
                 job: String(j.job || '').trim(),
                 model: String(j.model || '').trim(),
-                qty: Math.max(0, Math.round(Number(j.qty) || 0))
+                qty: Math.max(0, Math.round(Number(j.qty) || 0)),
+                // true = ผู้ใช้กรอกจำนวนเอง ไม่ตัดตาม Capacity
+                edited: j.edited === true || String(j.edited).toLowerCase() === 'true'
             })).filter(j => j.job && j.model);
         }
 
+        // แผนที่เพิ่งบันทึกแต่ยังขึ้นชีตไม่เสร็จ (กันไม่ให้การโหลดรอบถัดไปเขียนทับด้วยของเก่าบนชีต)
+        const forecastPendingSync = {};
+        let lastForecastPlansFetchMs = 0;
+        const FORECAST_PLANS_REFRESH_MS = 60000; // โหลดแผนจากชีตใหม่ทุก 1 นาที เครื่องอื่นจะเห็นแผนที่แก้ภายใน ~1 นาที
+
         function fetchForecastPlansFromAppsScript() {
             if (!appsScriptUrl) return Promise.resolve();
+            lastForecastPlansFetchMs = Date.now();
             return fetch(appsScriptUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -6546,10 +6603,14 @@ function doPost(e) {
                         updatedAt: String(row.UpdatedAt || '').trim()
                     };
                 });
-                if (Object.keys(cloud).length === 0 && Object.keys(forecastPlans).length > 0) return;
+                if (Object.keys(cloud).length === 0 && Object.keys(forecastPlans).length > 0 && !Object.keys(forecastPendingSync).length) return;
+                Object.entries(forecastPendingSync).forEach(([id, plan]) => {
+                    if (plan) cloud[id] = plan; else delete cloud[id];
+                });
+                const changed = JSON.stringify(cloud) !== JSON.stringify(forecastPlans);
                 forecastPlans = cloud;
                 saveForecastPlansLocal();
-                if (processedScans.length > 0) renderCharts();
+                if (changed && processedScans.length > 0) renderCharts();
             })
             .catch(err => console.warn('Failed to load forecast plans from cloud:', err));
         }
@@ -6563,7 +6624,7 @@ function doPost(e) {
                 body: JSON.stringify({
                     action: action || 'SAVE_FORECAST_PLAN',
                     id: plan.id, date: plan.date, shift: plan.shift, line: plan.line,
-                    ot: !!plan.ot, jobs: plan.jobs
+                    ot: !!plan.ot, jobs: plan.jobs.map(j => ({ job: j.job, model: j.model, qty: j.qty, edited: !!j.edited }))
                 }),
                 redirect: 'follow'
             })
@@ -8222,6 +8283,7 @@ function doPost(e) {
                     if (refreshSecondsLeft <= 0) {
                         refreshSecondsLeft = REFRESH_RATE;
                         loadBarcodeData(true);
+                        if (Date.now() - lastForecastPlansFetchMs >= FORECAST_PLANS_REFRESH_MS) fetchForecastPlansFromAppsScript();
                     }
                 } else if (isDemoMode) {
                     els.refreshTimer.textContent = 'Demo';
