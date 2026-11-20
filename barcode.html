@@ -5145,6 +5145,12 @@ function doPost(e) {
         const FORECAST_MIN_SAMPLE_HOURS = 3;   // ชั่วโมงตัวอย่างขั้นต่ำก่อนจะเชื่อค่าของไลน์ + รุ่นนั้น
         const FORECAST_EDGE_MIN = 10;          // ชั่วโมงตัวอย่างต้องสแกนครอบเกือบเต็มชั่วโมง (ขาดหัว/ท้ายไม่เกินกี่นาที)
         const FORECAST_LIVE_WINDOW_MIN = 15;   // ความเร็วสดของชั่วโมงปัจจุบัน คิดจากกี่นาทีทำงานล่าสุด
+        // ชั่วโมงเข้ากะ (morning talk / เตรียมไลน์ / ไลน์เพิ่งเริ่มเดิน) ได้น้อยกว่าปกติเสมอ
+        // ไม่เอามาคิดความเร็วปกติ แต่คิดแยกเป็น "นาทีที่เสียตอนเข้ากะ" แล้วหักตอนต้นกะใน Forecast
+        const FORECAST_SHIFT_START_HOURS = [8, 20];
+        // ชั่วโมงสุดท้ายก่อนเลิก (เก็บไลน์ / 5S / หยุดก่อนเวลา) ก็ได้น้อยเช่นกัน คิดแยกแบบเดียวกัน
+        // 16:00 = ก่อนเลิก 17:00 · 19:00 = ก่อนสิ้น OT 20:00 · 04:00 = ก่อนเลิก 05:00 · 07:00 = ก่อนสิ้น OT 08:00
+        const FORECAST_SHIFT_END_HOURS = [16, 19, 4, 7];
 
         // นาทีของวัน (0-1439) ที่เป็นเวลาพักทั้งหมด สำหรับ Forecast
         // สร้างครั้งแรกตอนใช้ เพราะ BREAK_MINUTES_BY_HOUR ประกาศไว้ถัดลงไปในสคริปต์
@@ -5200,6 +5206,7 @@ function doPost(e) {
                 d.setMinutes(0, 0, 0);
                 const hourStart = d.getTime();
                 if (hourStart + 3600000 > nowMs) return;
+                if (FORECAST_SHIFT_START_HOURS.includes(d.getHours()) || FORECAST_SHIFT_END_HOURS.includes(d.getHours())) return;
                 const key = `${s.line}|${hourStart}`;
                 const b = buckets[key] || (buckets[key] = { line: s.line, hourStart, models: new Set(), qty: 0, firstTs: Infinity, lastTs: 0 });
                 b.models.add(s.model);
@@ -5238,6 +5245,72 @@ function doPost(e) {
         }
 
         /**
+         * นาทีที่เสียในชั่วโมงแรกและชั่วโมงสุดท้ายของกะ จากประวัติ (ฟังก์ชันล้วน ทดสอบแยกได้)
+         * แต่ละกะที่ไลน์เดิน: นาทีทำงานของชั่วโมงนั้น − (ยอดของชั่วโมงนั้น ÷ ความเร็วปกติของรุ่นนั้นในไลน์นั้น)
+         * จึงรวมทั้งช่วงที่ไม่ได้สแกน (morning talk / เตรียมงาน / เก็บไลน์) และช่วงที่ไลน์เดินไม่เต็มสปีด
+         * - ชั่วโมงแรก: นับเฉพาะกะที่ชั่วโมงที่ 2 มีสแกน (ไลน์เดินกะนั้นจริง)
+         * - ชั่วโมงสุดท้าย: เลิกปกติ (17:00 / 05:00) หรือสิ้น OT (20:00 / 08:00) ถ้ามีสแกนหลังพักช่วงเลิกงาน
+         *   นับเฉพาะกะที่ชั่วโมงก่อนหน้ามีสแกน (ไลน์ยังเดินอยู่จนใกล้เลิก)
+         * ชั่วโมงที่มีหลายรุ่น (เปลี่ยนรุ่นปน) ไม่นับ
+         *
+         * scans: สแกน OK { line, model, ts, qty, prodDate, shift } · rates: ผลจาก computeForecastRatesCore
+         * คืน { start: { byLineShift: { "ไลน์|กะ": { min, n } }, byShift }, end: { byLineShift, byShift } }
+         */
+        function computeShiftEdgeLossCore(scans, isBreakMinute, rates, nowMs) {
+            const groups = {};
+            scans.forEach(s => {
+                if (!s.line || s.line === '-' || !s.prodDate || (s.shift !== 'Day' && s.shift !== 'Night')) return;
+                const key = `${s.line}|${s.prodDate}|${s.shift}`;
+                (groups[key] || (groups[key] = { line: s.line, date: s.prodDate, shift: s.shift, scans: [] })).scans.push(s);
+            });
+            const acc = { start: { byLineShift: {}, byShift: {} }, end: { byLineShift: {}, byShift: {} } };
+            const rateOf = (line, model) => {
+                const lm = rates.byLineModel[`${line}|${model}`];
+                const m = rates.byModel[model];
+                return lm && lm.n >= FORECAST_MIN_SAMPLE_HOURS ? lm.rate : (m && m.n >= FORECAST_MIN_SAMPLE_HOURS ? m.rate : 0);
+            };
+            const inWin = (list, from, to) => list.filter(s => s.ts >= from && s.ts < to);
+            // edge: ชั่วโมงที่วัด · ref: ชั่วโมงข้างเคียงที่ต้องมีสแกน (ยืนยันว่าไลน์เดินจริง)
+            const measure = (kind, g, from, refFrom) => {
+                const edge = inWin(g.scans, from, from + 3600000);
+                const ref = inWin(g.scans, refFrom, refFrom + 3600000);
+                if (!ref.length) return;
+                const models = new Set(edge.map(s => s.model));
+                if (models.size > 1) return;
+                const model = edge.length ? edge[0].model : ref[0].model;
+                const rate = rateOf(g.line, model);
+                if (!(rate > 0)) return;
+                let workMin = 0;
+                for (let t = from; t < from + 3600000; t += 60000) if (!isBreakMinute(t)) workMin++;
+                if (!workMin) return;
+                const qty = edge.reduce((sum, s) => sum + (s.qty || 1), 0);
+                const lost = Math.min(workMin, Math.max(0, workMin - qty / rate));
+                const k = `${g.line}|${g.shift}`;
+                (acc[kind].byLineShift[k] || (acc[kind].byLineShift[k] = [])).push(lost);
+                (acc[kind].byShift[g.shift] || (acc[kind].byShift[g.shift] = [])).push(lost);
+            };
+            Object.values(groups).forEach(g => {
+                g.scans.sort((a, b) => a.ts - b.ts);
+                const [y, mo, d] = g.date.split('-').map(Number);
+                const start = new Date(y, mo - 1, d, g.shift === 'Night' ? 20 : 8, 0, 0, 0).getTime();
+                if (start + 2 * 3600000 <= nowMs) measure('start', g, start, start + 3600000);
+                // ทำ OT = มีสแกนหลังพักช่วงเลิกงาน (17:30 / 05:30)
+                const ot = g.scans.some(s => s.ts >= start + 9.5 * 3600000);
+                const end = start + (ot ? 12 : NORMAL_SHIFT_SPAN_HOURS) * 3600000;
+                if (end <= nowMs) measure('end', g, end - 3600000, end - 2 * 3600000);
+            });
+            const summarize = obj => {
+                const out = {};
+                Object.entries(obj).forEach(([k, v]) => { out[k] = { min: forecastMedian(v), n: v.length }; });
+                return out;
+            };
+            return {
+                start: { byLineShift: summarize(acc.start.byLineShift), byShift: summarize(acc.start.byShift) },
+                end: { byLineShift: summarize(acc.end.byLineShift), byShift: summarize(acc.end.byShift) }
+            };
+        }
+
+        /**
          * จำลองการผลิตทีละนาที (ฟังก์ชันล้วน ทดสอบแยกได้)
          *
          * opts: {
@@ -5247,6 +5320,8 @@ function doPost(e) {
          *   rateFor(model),              ชิ้นต่อนาทีทำงาน
          *   changeoverMin,               เวลาที่เสียต่อการเปลี่ยนรุ่น 1 ครั้ง (นาทีทำงาน)
          *   prevModel,                   รุ่นที่ไลน์เดินอยู่ก่อนเริ่ม ถ้าไม่ตรงกับ Job แรกจะเสียเวลาเปลี่ยนรุ่นก่อน
+         *   startupMin,                  นาทีทำงานที่เสียตอนเข้ากะ (ใช้เมื่อจำลองตั้งแต่ต้นกะ) หักก่อนเปลี่ยนรุ่น
+         *   endLossMin,                  นาทีทำงานท้ายกะที่ไม่ได้ผลิต (เก็บไลน์ก่อนเลิก) นับถอยจาก endMs
          *   live: { ratePerMin, untilMs } ความเร็วสดของ Job แรก ใช้ถึงเวลาที่กำหนด (ชั่วโมงปัจจุบัน)
          * }
          * คืน { byHour: { hourStartMs: ชิ้น }, jobs: [{ key, produced, finishMs }], total }
@@ -5258,9 +5333,18 @@ function doPost(e) {
             const byHour = {};
             let total = 0;
             let idx = 0;
-            let changeoverLeft = jobs.length && prevModel && jobs[0].model !== prevModel ? changeoverMin : 0;
+            let changeoverLeft = jobs.length
+                ? Math.max(0, Math.round(opts.startupMin || 0)) + (prevModel && jobs[0].model !== prevModel ? changeoverMin : 0)
+                : 0;
 
-            for (let t = Math.floor(startMs / 60000) * 60000; t < endMs && idx < jobs.length; t += 60000) {
+            // ตัดนาทีทำงานท้ายกะออก นับถอยหลังจาก endMs โดยข้ามนาทีพัก
+            let stopMs = endMs;
+            for (let k = 0, lossMin = Math.max(0, Math.round(opts.endLossMin || 0)); k < lossMin && stopMs > startMs; ) {
+                stopMs -= 60000;
+                if (!isBreakMinute(stopMs)) k++;
+            }
+
+            for (let t = Math.floor(startMs / 60000) * 60000; t < stopMs && idx < jobs.length; t += 60000) {
                 if (isBreakMinute(t)) continue;
                 if (changeoverLeft > 0) { changeoverLeft--; continue; }
                 const job = jobs[idx];
@@ -5337,7 +5421,8 @@ function doPost(e) {
             });
             Object.values(scansByLine).forEach(arr => arr.sort((a, b) => a.ts - b.ts));
 
-            const stats = { rates, changeover, scansByLine };
+            const edge = computeShiftEdgeLossCore(okScans, isForecastBreakMinute, rates, Date.now());
+            const stats = { rates, changeover, edge, scansByLine };
             forecastStatsCache = { source: processedScans, refDate, stats };
             return stats;
         }
@@ -5352,6 +5437,15 @@ function doPost(e) {
             const few = lm || m;
             if (few && few.rate > 0) return { rate: few.rate, source: 'few', n: few.n };
             return { rate: (barcodeTargetSpeed || 0) / 60, source: 'default', n: 0 };
+        }
+
+        // kind: 'start' = ชั่วโมงแรกของกะ · 'end' = ชั่วโมงสุดท้ายก่อนเลิก
+        function forecastEdgeInfo(stats, kind, line, shift) {
+            const own = stats.edge[kind].byLineShift[`${line}|${shift}`];
+            if (own && own.n >= FORECAST_MIN_SAMPLE_HOURS) return { min: own.min, n: own.n, source: 'line' };
+            const all = stats.edge[kind].byShift[shift];
+            if (all && all.n >= FORECAST_MIN_SAMPLE_HOURS) return { min: all.min, n: all.n, source: 'all' };
+            return { min: 0, n: 0, source: 'none' };
         }
 
         function forecastChangeoverInfo(stats, line) {
@@ -5373,6 +5467,8 @@ function doPost(e) {
             const rateInfos = {};
             const rateFor = model => (rateInfos[model] || (rateInfos[model] = forecastRateInfo(stats, plan.line, model))).rate;
             const co = forecastChangeoverInfo(stats, plan.line);
+            const startup = forecastEdgeInfo(stats, 'start', plan.line, plan.shift);
+            const ending = forecastEdgeInfo(stats, 'end', plan.line, plan.shift);
             const lineScans = stats.scansByLine[plan.line] || [];
             const lastScanBefore = ts => {
                 let found = null;
@@ -5387,7 +5483,8 @@ function doPost(e) {
 
             const baseline = simulateForecastCore({
                 startMs: win.startMs, endMs: win.endMs, isBreakMinute: isForecastBreakMinute,
-                jobs, rateFor, changeoverMin: co.min, prevModel: prevStart ? prevStart.model : null, live: null
+                jobs, rateFor, changeoverMin: co.min, prevModel: prevStart ? prevStart.model : null, live: null,
+                startupMin: startup.min, endLossMin: ending.min
             });
 
             let rolling = null;
@@ -5428,7 +5525,8 @@ function doPost(e) {
                 }
                 const sim = simulateForecastCore({
                     startMs: nowMs, endMs: win.endMs, isBreakMinute: isForecastBreakMinute,
-                    jobs: remainingJobs, rateFor, changeoverMin: co.min, prevModel: curModel, live
+                    jobs: remainingJobs, rateFor, changeoverMin: co.min, prevModel: curModel, live,
+                    endLossMin: ending.min
                 });
                 const cur = new Date(nowMs);
                 cur.setMinutes(0, 0, 0);
@@ -5459,7 +5557,7 @@ function doPost(e) {
             });
 
             return {
-                plan, win, byHour, baseline, rolling, co, jobStatus,
+                plan, win, byHour, baseline, rolling, co, startup, ending, jobStatus,
                 planTotal: jobs.reduce((s, j) => s + j.qty, 0),
                 // เทียบกับแผนเฉพาะ Job ในแผน (ตัดส่วนที่เกินแผนของแต่ละ Job) ยอดรุ่นอื่นที่ไลน์ผลิตนอกแผนแยกไว้ต่างหาก
                 expectedTotal: jobStatus.reduce((s, j) => s + Math.min(j.forecastQty, j.qty), 0),
@@ -5537,7 +5635,7 @@ function doPost(e) {
                         <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
                             ${r.jobStatus.map(j => `<span>${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
                         </div>
-                        <div class="text-[10px] text-slate-400">เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
+                        <div class="text-[10px] text-slate-400">ชั่วโมงแรกเสีย ~${Math.round(r.startup.min)} นาที${r.startup.n ? ` (${r.startup.n} กะ${r.startup.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · ชั่วโมงสุดท้ายเสีย ~${Math.round(r.ending.min)} นาที${r.ending.n ? ` (${r.ending.n} กะ${r.ending.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
                     </div>`;
             }).join('');
         }
@@ -5724,6 +5822,8 @@ function doPost(e) {
                 <p class="text-[10px] text-slate-400 leading-relaxed">
                     ช่วงกะ ${forecastHM(r.win.startMs)}-${forecastHM(r.win.endMs)} · หักพัก ${breakMin} นาที (พักหลัก + พักย่อย 10:00, 15:00, 22:00, 03:00 ครั้งละ 10 นาที)
                     ${r.offPlanQty > 0 ? `· <span class="text-amber-600">กะนี้ไลน์ผลิตนอกแผนไปแล้ว ${Math.round(r.offPlanQty).toLocaleString()} ชิ้น (ไม่นับรวมในยอดคาดการณ์ข้างบน)</span>` : ''}
+                    · ชั่วโมงแรกของกะเสียค่ากลาง ${Math.round(r.startup.min)} นาที ${r.startup.n ? `(${r.startup.n} กะใน ${FORECAST_HISTORY_DAYS} วัน${r.startup.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''} รวมช่วงก่อนเริ่มสแกนและช่วงที่ยังเดินไม่เต็มสปีด)` : '(ยังไม่มีประวัติ)'}
+                    · ชั่วโมงสุดท้ายก่อนเลิกเสียค่ากลาง ${Math.round(r.ending.min)} นาที ${r.ending.n ? `(${r.ending.n} กะ${r.ending.source === 'all' ? ' ใช้ค่าทุกไลน์' : ''} เช่น เก็บไลน์ / 5S ก่อนเลิก)` : '(ยังไม่มีประวัติ)'}
                     · เปลี่ยนรุ่นเฉลี่ยของไลน์ ${Math.round(r.co.min)} นาที/ครั้ง ${r.co.n ? `(${r.co.n} ครั้งใน ${FORECAST_HISTORY_DAYS} วัน${r.co.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''})` : '(ยังไม่มีประวัติ)'}
                     · ความเร็วแต่ละรุ่นใช้ค่ากลางของยอดต่อชั่วโมงที่เดินรุ่นนั้นทั้งชั่วโมงใน ${FORECAST_HISTORY_DAYS} วันล่าสุด
                     ${r.rolling ? '· ระหว่างกะ: คิดต่อจากยอดคงเหลือจริง ชั่วโมงปัจจุบันใช้ความเร็ว 15 นาทีล่าสุด' : ''}
