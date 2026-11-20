@@ -162,4 +162,21 @@ r = sim({ endLossMin: 15, jobs: [{ key: 'J1', model: 'A', qty: 10000 }] });
 assert.equal(Math.round(r.byHour[at(D, '16:00')]), 45);
 assert.equal(Math.round(r.total), 540 - 15);
 
+// บันทึกช่วงเปลี่ยนรุ่น: เปลี่ยนรุ่นคร่อมพักเที่ยง นับนาทีแยกตามชั่วโมง (ชั่วโมงพักไม่มี)
+r = ctx.simulateForecastCore({
+  startMs: at(D, '11:00'), endMs: at(D, '17:00'), isBreakMinute: ctx.isForecastBreakMinute,
+  rateFor: () => 1, changeoverMin: 49, startupMin: 0, prevModel: null, live: null,
+  jobs: [{ key: 'J1', model: 'A', qty: 43 }, { key: 'J2', model: 'B', qty: 10 }]
+});
+assert.equal(r.changeovers.length, 1);
+assert.equal(r.changeovers[0].fromModel, 'A');
+assert.equal(r.changeovers[0].startMs, at(D, '11:43'));
+assert.equal(r.changeovers[0].endMs, at(D, '13:32'));
+assert.equal(r.changeovers[0].minutesByHour[at(D, '11:00')], 17);
+assert.equal(r.changeovers[0].minutesByHour[at(D, '13:00')], 32);
+assert.equal(r.changeovers[0].minutesByHour[at(D, '12:00')], undefined);
+// เวลาเข้ากะไม่นับเป็นการเปลี่ยนรุ่น
+r = sim({ startupMin: 20, changeoverMin: 10, prevModel: 'A', jobs: [{ key: 'J1', model: 'A', qty: 5 }] });
+assert.equal(r.changeovers.length, 0);
+
 console.log('forecast tests passed');
