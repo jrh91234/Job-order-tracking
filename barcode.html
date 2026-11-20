@@ -5872,7 +5872,7 @@ function doPost(e) {
                             <span class="font-mono">${r.rolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'} <b class="text-slate-800">${Math.round(r.expectedTotal).toLocaleString()}</b> / แผน ${r.planTotal.toLocaleString()} <b class="${diffCls}">(${diff >= 0 ? '+' : ''}${diff.toLocaleString()})</b></span>
                         </div>
                         <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                            ${r.jobStatus.map(j => `<span>${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
+                            ${r.jobStatus.map((j, i) => `<span><span class="font-bold text-indigo-600">${i + 1}.</span> ${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
                         </div>
                         ${r.changeovers.length ? `<div class="text-[11px] text-indigo-600">${r.changeovers.map(c => `🔄 ${forecastHM(c.startMs)}–${forecastHM(c.endMs)} ${escapeHtml(c.fromModel)} → ${escapeHtml(c.toModel)}`).join(' · ')}</div>` : ''}
                         <div class="text-[10px] text-slate-400">ชั่วโมงแรกเสีย ~${Math.round(r.startup.min)} นาที${r.startup.n ? ` (${r.startup.n} กะ${r.startup.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · ชั่วโมงสุดท้ายเสีย ~${Math.round(r.ending.min)} นาที${r.ending.n ? ` (${r.ending.n} กะ${r.ending.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
