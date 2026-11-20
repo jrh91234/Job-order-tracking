@@ -108,7 +108,8 @@ PCS/คน/ชม. = ยอดสแกน ÷ (ประกอบช่วงป
 ```
 ID = "2026-11-20_Day_4"
 คอลัมน์: ID | Date | Shift | Line | OT | Jobs | UpdatedAt
-Jobs = JSON ตามลำดับ เช่น [{"job":"J001","model":"A","qty":500},{"job":"J002","model":"B","qty":300}]
+Jobs = JSON ตามลำดับ เช่น [{"job":"J001","model":"A","qty":500,"edited":false},{"job":"J002","model":"B","qty":300,"edited":true}]
+       qty = จำนวนที่จะผลิตในกะ (หน้าจอตัดตาม Capacity ให้เอง) · edited = true ถ้าผู้ใช้กรอกจำนวนเอง (ไม่ตัด)
 OT = "Y" ถ้าแผนนี้ทำ OT (กะเช้าถึง 20:00 / กะดึกถึง 08:00)
 ```
 
