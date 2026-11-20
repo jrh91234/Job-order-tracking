@@ -55,6 +55,9 @@ let r = sim({ isBreakMinute: ctx.isForecastBreakMinute, jobs: [{ key: 'J1', mode
 assert.equal(Math.round(r.total), 460, 'นาทีทำงานสุทธิของกะเช้า');
 assert.equal(Math.round(r.byHour[at(D, '12:00')] || 0), 0, 'ชั่วโมงพักเที่ยงไม่ได้ยอด');
 assert.equal(Math.round(r.byHour[at(D, '10:00')]), 50, 'ชั่วโมงที่มีพักย่อยได้ 50 นาที');
+assert.equal(r.jobs[0].workMinutes, 460, 'รายละเอียดนับเฉพาะนาทีผลิต ไม่รวมเวลาพัก');
+assert.equal(r.jobs[0].workStartMs, at(D, '08:00'));
+assert.equal(r.jobs[0].workEndMs, at(D, '17:00'));
 
 // เรียง Job: เสร็จ Job แรกแล้วเปลี่ยนรุ่น เสียเวลาเปลี่ยนรุ่นก่อนเริ่ม Job ถัดไป
 r = sim({ changeoverMin: 30, jobs: [{ key: 'J1', model: 'A', qty: 60 }, { key: 'J2', model: 'B', qty: 60 }] });
@@ -184,5 +187,72 @@ r = sim({ changeoverMin: 20, jobs: [{ key: 'J1', model: 'A', qty: 30 }, { key: '
 assert.equal(Math.round(r.byHourModel[at(D, '08:00')].A), 30);
 assert.equal(Math.round(r.byHourModel[at(D, '08:00')].B), 10, 'เปลี่ยนรุ่น 08:30-08:50 แล้วผลิต B 10 นาที');
 assert.equal(Math.round(r.byHourModel[at(D, '09:00')].B), 60);
+assert.equal(r.jobs[0].workMinutes, 30);
+assert.equal(r.jobs[1].workMinutes, 100);
+assert.equal(r.jobs[1].workStartMs, at(D, '08:50'), 'เวลาผลิตเริ่มหลังเปลี่ยนรุ่น');
+
+// รายการคำนวณแสดงผลจำลองเต็มกะ จำนวนแผน และเวลาที่เสียระหว่างเปลี่ยนรุ่น
+vm.runInContext(`
+  var FORECAST_RATE_SOURCE_TEXT = { line: 'ประวัติไลน์นี้' };
+  function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  ${extract('forecastHM')}
+  ${extract('forecastCalculationDetails')}
+`, ctx);
+const details = ctx.forecastCalculationDetails({
+  plan: { id: 'plan1' }, win: { startMs: at(D, '08:00'), endMs: at(D, '17:00') },
+  startup: { min: 0 }, ending: { min: 0 }, baseline: r,
+  jobStatus: [
+    { key: 'J1', model: 'A', rate: { rate: 1, source: 'line', n: 3 } },
+    { key: 'J2', model: 'B', rate: { rate: 1, source: 'line', n: 3 } }
+  ]
+}, [{ qty: 30 }, { qty: 100 }], true);
+assert.match(details, /เปลี่ยน A → B 08:30–08:50 · 20 นาทีทำงาน/);
+assert.match(details, /เวลาผลิต 100 นาที · 08:50–10:30/);
+assert.match(details, /รวมจำลองเต็มกะ ≈ 130 ชิ้น · แผนรวม 130 ชิ้น/);
+assert.match(details, /<details[^>]* open /);
+
+// แผนที่เปิดแก้ไขต้องคงจำนวนเดิม แม้ยอดคงเหลือของ Job เปลี่ยนไปแล้ว
+vm.runInContext(`
+  var forecastPlans = {}, forecastDraft;
+  function forecastPlanId(date, shift, line) { return [date, shift, line].join('_'); }
+  function forecastJobWant() { throw new Error('opening a saved plan must not recalculate its quantity'); }
+  ${extract('loadForecastDraft')}
+  ${extract('capForecastDraftToCapacity')}
+`, ctx);
+ctx.forecastPlans[`${D}_Day_4`] = { ot: false, jobs: [{ job: 'J1', model: 'A', qty: 300 }] };
+ctx.loadForecastDraft(D, 'Day', '4');
+assert.equal(ctx.forecastDraft.jobs[0].want, 300);
+ctx.capForecastDraftToCapacity(ctx.forecastDraft);
+assert.equal(ctx.forecastDraft.jobs[0].qty, 300, 'เปิดแผนเดิมแล้วจำนวนไม่เปลี่ยน');
+
+// เมื่อต้องตัดตามกำลังผลิต ให้ใช้ผลจำลองตั้งแต่ต้นกะเสมอ แม้ขณะนี้อยู่ระหว่างกะ
+let simulationTime;
+ctx.computePlanForecast = (plan, now) => {
+  simulationTime = now;
+  return { jobStatus: plan.jobs.map(() => ({ forecastQty: 250.8 })) };
+};
+ctx.forecastDraft.preserveQty = false;
+ctx.capForecastDraftToCapacity(ctx.forecastDraft);
+assert.equal(simulationTime, at(D, '08:00'));
+assert.equal(ctx.forecastDraft.jobs[0].qty, 250);
+
+// สถิติอ้างอิงต้องไม่รวมข้อมูลการผลิตของวันในแผนที่กำลังเปลี่ยนระหว่างกะ
+const statsCtx = { processedScans: [
+  { status: 'OK', prodDate: '2026-11-19' },
+  { status: 'OK', prodDate: D }
+] };
+vm.createContext(statsCtx);
+vm.runInContext(`
+  var FORECAST_HISTORY_DAYS = 30, forecastStatsCache = {};
+  function isForecastBreakMinute() { return false; }
+  function computeForecastRatesCore(scans) { return { count: scans.length }; }
+  function computeShiftEdgeLossCore() { return {}; }
+  function computeChangeoverEvents(opts) { globalThis.lastChangeoverRange = opts; return []; }
+  ${extract('toLocalDateKey')}
+  ${extract('forecastAddDays')}
+  ${extract('getForecastStats')}
+`, statsCtx);
+assert.equal(statsCtx.getForecastStats(D).rates.count, 1);
+assert.equal(statsCtx.lastChangeoverRange.endDate, '2026-11-19');
 
 console.log('forecast tests passed');
