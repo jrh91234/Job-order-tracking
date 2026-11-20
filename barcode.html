@@ -3203,6 +3203,7 @@ function doPost(e) {
                     label: FORECAST_LABEL,
                     data: forecastSeries.data,
                     changeoverNotes: forecastSeries.changeoverNotes,
+                    forecastDetails: forecastSeries.details,
                     borderColor: '#10b981',
                     backgroundColor: '#10b981',
                     borderWidth: 2,
@@ -3382,7 +3383,7 @@ function doPost(e) {
                 const prevLabels = hourlyChartObj.prevLabels || [];
                 const prevDataJson = hourlyChartObj.prevDataJson || '';
 
-                const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data, co: d.changeoverNotes })));
+                const hourlyDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data, co: d.changeoverNotes, fd: d.forecastDetails })));
                 
                 let hasHourlyChanged = false;
                 if (prevLabels.length !== hourLabels.length || prevDataJson !== hourlyDataJson) {
@@ -3412,6 +3413,7 @@ function doPost(e) {
                         if (newDatasetsMap[ds.label]) {
                             ds.data = newDatasetsMap[ds.label].data;
                             ds.changeoverNotes = newDatasetsMap[ds.label].changeoverNotes;
+                            ds.forecastDetails = newDatasetsMap[ds.label].forecastDetails;
                             delete newDatasetsMap[ds.label];
                         } else {
                             existingDatasets.splice(i, 1);
@@ -3534,6 +3536,11 @@ function doPost(e) {
                                 const label = hourlyChartObj.data.labels[index];
                                 const hour = parseInt(label.split(':')[0]);
                                 const dataset = hourlyChartObj.data.datasets[datasetIndex];
+                                // กดที่จุด/เส้น Forecast: เปิดรายละเอียดว่าชั่วโมงนั้นไลน์ไหนเดินรุ่นอะไร ได้เท่าไหร่ และเปลี่ยนรุ่นอะไร
+                                if (dataset && dataset.label === FORECAST_LABEL) {
+                                    showForecastHourDetail(dataset, index, label);
+                                    return;
+                                }
                                 let clickedModel = 'All';
                                 if (dataset && dataset.type !== 'line' && dataset.label !== 'เป้าหมายผลิต' && dataset.label !== 'เป้าหมาย') {
                                     clickedModel = dataset.label;
@@ -3568,9 +3575,8 @@ function doPost(e) {
                             tooltip: {
                                 callbacks: {
                                     afterLabel: (item) => {
-                                        const list = (item.dataset.changeoverNotes || [])[item.dataIndex];
-                                        if (!list || !list.length) return '';
-                                        return list.map(n => `🔄 Line ${n.line}: ${n.fromModel} → ${n.toModel} ${forecastHM(n.startMs)}–${forecastHM(n.endMs)} (ชั่วโมงนี้ ${n.minutes} นาที)`);
+                                        if (item.dataset.label !== FORECAST_LABEL) return '';
+                                        return forecastHourTooltipLines(item.dataset, item.dataIndex);
                                     }
                                 }
                             }
@@ -3591,7 +3597,7 @@ function doPost(e) {
                     }
                 });
                 hourlyChartObj.prevLabels = [...hourLabels];
-                hourlyChartObj.prevDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data, co: d.changeoverNotes })));
+                hourlyChartObj.prevDataJson = JSON.stringify(hourlyDatasets.map(d => ({ label: d.label, data: d.data, co: d.changeoverNotes, fd: d.forecastDetails })));
             }
 
             // --- 3. Daily Output Stacked Bar Chart (ยอดรายวัน สแตกทุกรุ่นเข้าด้วยกัน) ---
@@ -5364,6 +5370,7 @@ function doPost(e) {
             const changeoverMin = Math.max(0, Math.round(opts.changeoverMin || 0));
             const jobs = (opts.jobs || []).filter(j => j.qty > 0).map(j => ({ ...j, remaining: j.qty, produced: 0, finishMs: null }));
             const byHour = {};
+            const byHourModel = {}; // { hourStartMs: { รุ่น: ชิ้น } } ใช้แสดงรายละเอียดตอนชี้/กดจุดบนกราฟ
             let total = 0;
             let idx = 0;
             // เวลาเสียตอนเข้ากะกับเวลาเปลี่ยนรุ่นแยกกัน เพื่อบันทึกช่วงเปลี่ยนรุ่นไว้แสดงไอคอน 🔄 บนกราฟ
@@ -5408,6 +5415,8 @@ function doPost(e) {
                 const h = new Date(t);
                 h.setMinutes(0, 0, 0);
                 byHour[h.getTime()] = (byHour[h.getTime()] || 0) + made;
+                const hm = byHourModel[h.getTime()] || (byHourModel[h.getTime()] = {});
+                hm[job.model] = (hm[job.model] || 0) + made;
                 if (job.remaining <= 1e-9) {
                     job.finishMs = t + Math.round((made / rate) * 60000);
                     idx++;
@@ -5416,6 +5425,7 @@ function doPost(e) {
             }
             return {
                 byHour,
+                byHourModel,
                 total,
                 // ช่วงเปลี่ยนรุ่นที่เกิดขึ้นจริงในการจำลอง (startMs-endMs อาจคร่อมช่วงพัก) ไม่รวมครั้งที่ไม่ทันได้เริ่มก่อนจบกะ
                 changeovers: changeovers.filter(c => c.startMs !== null),
@@ -5545,6 +5555,7 @@ function doPost(e) {
                 const shiftScans = lineScans.filter(s => s.ts >= win.startMs && s.ts <= nowMs);
                 const producedByJob = {};
                 const actualByHour = {};
+                const actualByHourModel = {};
                 let actualTotal = 0;
                 shiftScans.forEach(s => {
                     const q = s.qty || 1;
@@ -5553,6 +5564,8 @@ function doPost(e) {
                     const h = new Date(s.ts);
                     h.setMinutes(0, 0, 0);
                     actualByHour[h.getTime()] = (actualByHour[h.getTime()] || 0) + q;
+                    const am = actualByHourModel[h.getTime()] || (actualByHourModel[h.getTime()] = {});
+                    am[s.model] = (am[s.model] || 0) + q;
                     actualTotal += q;
                 });
                 const remainingJobs = jobs.map(j => ({ ...j, qty: Math.max(0, j.qty - (producedByJob[j.key] || 0)) }));
@@ -5583,14 +5596,31 @@ function doPost(e) {
                 });
                 const cur = new Date(nowMs);
                 cur.setMinutes(0, 0, 0);
-                rolling = { sim, actualByHour, actualTotal, producedByJob, currentHourStart: cur.getTime(), live };
+                rolling = { sim, actualByHour, actualByHourModel, actualTotal, producedByJob, currentHourStart: cur.getTime(), live };
             }
 
             const byHour = {};
+            // รายละเอียดรายรุ่นของแต่ละชั่วโมง: { hs: { รุ่น: { qty, actual } } } (actual = ยอดที่ได้แล้วในชั่วโมงปัจจุบัน)
+            const byHourModel = {};
+            const addModels = (hs, models, isActual) => {
+                Object.entries(models || {}).forEach(([model, qty]) => {
+                    const m = (byHourModel[hs] || (byHourModel[hs] = {}))[model] || (byHourModel[hs][model] = { qty: 0, actual: 0 });
+                    m.qty += qty;
+                    if (isActual) m.actual += qty;
+                });
+            };
             for (let hs = win.startMs; hs < win.endMs; hs += 3600000) {
-                if (!rolling || hs < rolling.currentHourStart) byHour[hs] = baseline.byHour[hs] || 0;
-                else if (hs === rolling.currentHourStart) byHour[hs] = (rolling.actualByHour[hs] || 0) + (rolling.sim.byHour[hs] || 0);
-                else byHour[hs] = rolling.sim.byHour[hs] || 0;
+                if (!rolling || hs < rolling.currentHourStart) {
+                    byHour[hs] = baseline.byHour[hs] || 0;
+                    addModels(hs, baseline.byHourModel[hs], false);
+                } else if (hs === rolling.currentHourStart) {
+                    byHour[hs] = (rolling.actualByHour[hs] || 0) + (rolling.sim.byHour[hs] || 0);
+                    addModels(hs, rolling.actualByHourModel[hs], true);
+                    addModels(hs, rolling.sim.byHourModel[hs], false);
+                } else {
+                    byHour[hs] = rolling.sim.byHour[hs] || 0;
+                    addModels(hs, rolling.sim.byHourModel[hs], false);
+                }
             }
 
             // สถานะราย Job: ระหว่างกะใช้ผลจำลองจากยอดคงเหลือจริง
@@ -5615,7 +5645,7 @@ function doPost(e) {
                 : baseline.changeovers;
 
             return {
-                plan, win, byHour, baseline, rolling, co, startup, ending, jobStatus, changeovers,
+                plan, win, byHour, byHourModel, baseline, rolling, co, startup, ending, jobStatus, changeovers,
                 planTotal: jobs.reduce((s, j) => s + j.qty, 0),
                 // เทียบกับแผนเฉพาะ Job ในแผน (ตัดส่วนที่เกินแผนของแต่ละ Job) ยอดรุ่นอื่นที่ไลน์ผลิตนอกแผนแยกไว้ต่างหาก
                 expectedTotal: jobStatus.reduce((s, j) => s + Math.min(j.forecastQty, j.qty), 0),
@@ -5663,7 +5693,62 @@ function doPost(e) {
                     });
                 });
             });
-            return { data: data.map(v => v === null ? null : Math.round(v)), changeoverNotes, results, reason: '' };
+            // รายละเอียดรายไลน์ของแต่ละชั่วโมง: ไลน์ไหน รุ่นอะไร ได้เท่าไหร่
+            const details = hourSequence.map(() => []);
+            results.forEach(r => {
+                Object.entries(r.byHourModel).forEach(([hs, models]) => {
+                    const idx = hourSequence.indexOf(new Date(Number(hs)).getHours());
+                    if (idx === -1) return;
+                    const list = Object.entries(models)
+                        .map(([model, v]) => ({ model, qty: Math.round(v.qty), actual: Math.round(v.actual) }))
+                        .filter(m => m.qty > 0);
+                    if (list.length) details[idx].push({ line: r.plan.line, shift: r.plan.shift, models: list, total: list.reduce((a, m) => a + m.qty, 0) });
+                });
+            });
+            details.forEach(list => list.sort((a, b) => String(a.line).localeCompare(String(b.line), undefined, { numeric: true })));
+            return { data: data.map(v => v === null ? null : Math.round(v)), changeoverNotes, details, results, reason: '' };
+        }
+
+        // บรรทัดใน tooltip ของจุด Forecast: แยกไลน์ / รุ่น / จำนวน และการเปลี่ยนรุ่นในชั่วโมงนั้น
+        function forecastHourTooltipLines(dataset, idx) {
+            const lines = [];
+            ((dataset.forecastDetails || [])[idx] || []).forEach(d => {
+                lines.push(`Line ${d.line}: ` + d.models.map(m => `${m.model} ${m.qty.toLocaleString()}${m.actual ? ` (ได้แล้ว ${m.actual.toLocaleString()})` : ''}`).join(' · '));
+            });
+            ((dataset.changeoverNotes || [])[idx] || []).forEach(n => {
+                lines.push(`🔄 Line ${n.line}: ${n.fromModel} → ${n.toModel} ${forecastHM(n.startMs)}–${forecastHM(n.endMs)} (ชั่วโมงนี้ ${n.minutes} นาที)`);
+            });
+            return lines;
+        }
+
+        function showForecastHourDetail(dataset, idx, label) {
+            const details = (dataset.forecastDetails || [])[idx] || [];
+            const notes = (dataset.changeoverNotes || [])[idx] || [];
+            const total = (dataset.data || [])[idx];
+            const rows = details.map(d => {
+                const lineNotes = notes.filter(n => String(n.line) === String(d.line));
+                return `
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-left space-y-1">
+                        <div class="flex justify-between text-xs font-bold"><span class="text-indigo-600">Line ${escapeHtml(d.line)} · ${d.shift === 'Night' ? '🌙 ดึก' : '☀️ เช้า'}</span><span class="font-mono text-slate-700">${d.total.toLocaleString()} ชิ้น</span></div>
+                        ${d.models.map(m => `<div class="flex justify-between text-xs text-slate-600"><span>${escapeHtml(m.model)}</span><span class="font-mono">${m.qty.toLocaleString()}${m.actual ? ` <span class="text-emerald-600">(ได้แล้ว ${m.actual.toLocaleString()})</span>` : ''}</span></div>`).join('')}
+                        ${lineNotes.map(n => `<div class="text-xs text-indigo-600">🔄 ${escapeHtml(n.fromModel)} → ${escapeHtml(n.toModel)} ${forecastHM(n.startMs)}–${forecastHM(n.endMs)} <span class="text-slate-400">(ชั่วโมงนี้ ${n.minutes} นาที)</span></div>`).join('')}
+                    </div>`;
+            });
+            // ไลน์ที่ชั่วโมงนี้เปลี่ยนรุ่นทั้งชั่วโมงจนไม่มียอด ก็ยังต้องแสดง
+            notes.filter(n => !details.some(d => String(d.line) === String(n.line))).forEach(n => {
+                rows.push(`
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-left space-y-1">
+                        <div class="flex justify-between text-xs font-bold"><span class="text-indigo-600">Line ${escapeHtml(n.line)}</span><span class="font-mono text-slate-700">0 ชิ้น</span></div>
+                        <div class="text-xs text-indigo-600">🔄 ${escapeHtml(n.fromModel)} → ${escapeHtml(n.toModel)} ${forecastHM(n.startMs)}–${forecastHM(n.endMs)} <span class="text-slate-400">(ชั่วโมงนี้ ${n.minutes} นาที)</span></div>
+                    </div>`);
+            });
+            Swal.fire({
+                title: `Forecast ${escapeHtml(String(label).replace(' ⤵', ''))}`,
+                html: `<div class="text-xs text-slate-500 mb-3">คาดว่ารวม <b class="text-emerald-600">${(total || 0).toLocaleString()}</b> ชิ้น</div>
+                       <div class="space-y-2 max-h-80 overflow-y-auto">${rows.join('') || '<p class="text-xs text-slate-400">ชั่วโมงนี้ไม่มีการผลิตตามแผน (พัก / เลิกงาน)</p>'}</div>`,
+                confirmButtonText: 'ปิด',
+                confirmButtonColor: '#10b981'
+            });
         }
 
         function forecastJobStatusText(j) {
