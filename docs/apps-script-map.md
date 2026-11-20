@@ -35,7 +35,7 @@ Apps Script รวมทุกไฟล์ในโปรเจกต์เด�
 | ชื่อโปรเจกต์ใน Apps Script | ตั้งชื่อให้สื่อ เช่น `Incident Sync` |
 | ประเภท | แยกอิสระ (standalone) เปิดจาก script.google.com เท่านั้น ไม่อยู่ในเมนูของชีต |
 | ไฟล์ต้นฉบับในรีโป | `gas_sync_incidents.js` |
-| เขียนลงแท็บ | `Incidents`, `IncidentCategories`, `Manpower` และ `ShiftTransfers` |
+| เขียนลงแท็บ | `Incidents`, `IncidentCategories`, `Manpower`, `ShiftTransfers` และ `ForecastPlans` |
 | Web App URL | `https://script.google.com/macros/s/AKfycbxZqA-HEsacO4Ie0Tn7Mw5tr0Zz1eYpmbza0dgNxyt30Qkku6HoT25ZLChbysUDHoRf/exec` |
 | ใครเรียก | `barcode.html` ผ่านค่า `incidentAppsScriptUrl` ใน `config.json` |
 | รับ action | `GET_INCIDENTS`, `SAVE`/`DELETE` (ต้องมี `id`), `GET_CATEGORIES`, `SAVE_CATEGORY`, `DELETE_CATEGORY`, `GET_MANPOWER`, `SAVE_MANPOWER`, `DELETE_MANPOWER`, `GET_SHIFT_TRANSFERS`, `SAVE_SHIFT_TRANSFER`, `DELETE_SHIFT_TRANSFER`, `TRANSLATE` (แปลไทย→อังกฤษด้วย Gemini สำหรับ PDF ภาษาอังกฤษ ต้องตั้ง Script property `GEMINI_API_KEY`) |
@@ -100,6 +100,20 @@ PCS/คน/ชม. = ยอดสแกน ÷ (ประกอบช่วงป
 ตัวหารนับเฉพาะ `Assembler` ส่วน `Feeder` และ `Leader` ยังต้องกรอกและเก็บไว้ทุกครั้ง
 แต่ถือเป็นกำลังสนับสนุน ไม่ใช่คนที่ผลิตชิ้นงานในไลน์ จึงไม่นำมาหาร
 คอลัมน์ `Total` ในชีตยังเป็นผลรวมทั้ง 3 บทบาทตามเดิม ใช้ดูกำลังพลจริงหน้างาน
+
+## แท็บ `ForecastPlans`
+
+ลำดับ Job ที่วางแผนจะผลิต ใช้วาดเส้น Forecast บนกราฟรายชั่วโมงของหน้า barcode 1 แถว = 1 วันผลิต + 1 กะ + 1 ไลน์
+
+```
+ID = "2026-11-20_Day_4"
+คอลัมน์: ID | Date | Shift | Line | OT | Jobs | UpdatedAt
+Jobs = JSON ตามลำดับ เช่น [{"job":"J001","model":"A","qty":500},{"job":"J002","model":"B","qty":300}]
+OT = "Y" ถ้าแผนนี้ทำ OT (กะเช้าถึง 20:00 / กะดึกถึง 08:00)
+```
+
+เก็บบนชีตเพื่อให้ทุกเครื่องเห็นแผนเดียวกัน ถ้า URL ยังเสิร์ฟโค้ดเก่า (ไม่มี `SAVE_FORECAST_PLAN` ใน `supportedActions`)
+หน้าจอจะเก็บแผนไว้ในเครื่องนั้นอย่างเดียวและขึ้นเตือน
 
 ## แท็บ `ShiftTransfers`
 
