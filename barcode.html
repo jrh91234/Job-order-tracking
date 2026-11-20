@@ -348,6 +348,19 @@
                 <div class="chart-fs-area relative h-72 w-full">
                     <canvas id="hourlyChart"></canvas>
                 </div>
+                <!-- Forecast Panel -->
+                <div class="border-t border-slate-100 pt-3 space-y-2">
+                    <div class="flex justify-between items-center gap-2 flex-wrap">
+                        <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-500"></i>
+                            คาดการณ์ตามแผน (Forecast)
+                        </span>
+                        <button type="button" onclick="openForecastModal()" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors flex items-center gap-1.5">
+                            <i data-lucide="list-ordered" class="w-3.5 h-3.5"></i> วางแผน / เรียง Job
+                        </button>
+                    </div>
+                    <div id="forecast-summary" class="space-y-2 text-xs text-slate-500"></div>
+                </div>
                 <!-- Target Calculation Details Panel -->
                 <div class="border-t border-slate-100 pt-3 space-y-2">
                     <button id="target-calc-toggle" type="button" aria-expanded="false" aria-controls="target-calc-content" onclick="toggleTargetCalcPanel()" class="w-full flex justify-between items-center text-xs font-bold text-slate-700 hover:text-indigo-600 focus:outline-none transition-colors">
@@ -1121,6 +1134,51 @@ function doPost(e) {
     </div>
 
     <!-- Shift Transfer Modal -->
+    <!-- Forecast Plan Modal -->
+    <div id="forecast-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="modal-panel bg-white rounded-2xl max-w-2xl w-full shadow-xl max-h-[92vh] overflow-y-auto">
+            <div class="modal-body p-6 space-y-4">
+                <div class="flex justify-between items-start border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="trending-up" class="w-5 h-5 text-emerald-600"></i>
+                            วางแผนลำดับ Job (Forecast)
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">เรียง Job ที่เปิดค้างอยู่ตามลำดับที่จะขึ้นไลน์ ระบบคำนวณยอดที่คาดว่าจะได้ทันที · บันทึกแล้วทุกเครื่องเห็นแผนเดียวกัน</p>
+                    </div>
+                    <button onclick="closeForecastModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <label class="space-y-1"><span class="font-semibold text-slate-500">วันผลิต</span>
+                        <input type="date" id="forecast-date" onchange="onForecastKeyChange()" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700"></label>
+                    <label class="space-y-1"><span class="font-semibold text-slate-500">กะ</span>
+                        <select id="forecast-shift" onchange="onForecastKeyChange()" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700">
+                            <option value="Day">☀️ เช้า</option><option value="Night">🌙 ดึก</option>
+                        </select></label>
+                    <label class="space-y-1"><span class="font-semibold text-slate-500">ไลน์</span>
+                        <select id="forecast-line" onchange="onForecastKeyChange()" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700"></select></label>
+                    <label class="flex items-center gap-2 sm:pt-5 font-semibold text-slate-600">
+                        <input type="checkbox" id="forecast-ot" onchange="onForecastOtChange()" class="w-4 h-4 accent-emerald-600"> ทำ OT</label>
+                </div>
+                <div class="flex gap-2">
+                    <select id="forecast-add-job" class="flex-1 min-w-0 p-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700"></select>
+                    <button id="forecast-add-btn" type="button" onclick="addForecastJob()" class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40">เพิ่ม</button>
+                </div>
+                <div id="forecast-job-list" class="space-y-1.5"></div>
+                <div id="forecast-preview" class="space-y-2"></div>
+                <div class="flex justify-between gap-2 pt-2 border-t border-slate-100">
+                    <button id="forecast-delete-btn" type="button" onclick="deleteForecastPlan()" class="px-4 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50">ลบแผนนี้</button>
+                    <div class="flex gap-2 ml-auto">
+                        <button type="button" onclick="closeForecastModal()" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100">ยกเลิก</button>
+                        <button type="button" onclick="saveForecastPlan()" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700">บันทึกแผน</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="shift-transfer-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="modal-panel bg-white rounded-2xl max-w-lg w-full shadow-xl">
             <div class="modal-body p-6 space-y-4">
@@ -1490,6 +1548,7 @@ function doPost(e) {
         // กะเช้าที่ทำ OT ลากยาวถึง 22:00 จึงถูกโยนยอดไปกะดึกทั้งที่คนกะเช้าเป็นคนทำ
         // Key เป็นรูปแบบ "YYYY-MM-DD_ไลน์_ชั่วโมงเริ่ม_ชั่วโมงจบ"
         let shiftTransfers = {};
+        let forecastPlans = {};       // แผนลำดับ Job สำหรับ Forecast: id (วัน_กะ_ไลน์) -> { date, shift, line, ot, jobs }
         let incidentCategories = [
             { code: "Breakdown", text: "🛠️ เครื่องจักรขัดข้อง (Machine Breakdown)" },
             { code: "Material", text: "📦 วัตถุดิบขาดแคลน (Material Shortage)" },
@@ -1706,6 +1765,8 @@ function doPost(e) {
                     applyShiftTransfers();
                     renderShiftTransferTable();
                     fetchShiftTransfersFromAppsScript();
+                    loadForecastPlans();
+                    fetchForecastPlansFromAppsScript();
 
                     // Load Data
                     if (barcodeSheetUrl) {
@@ -3122,6 +3183,7 @@ function doPost(e) {
                     type: 'line',
                     label: 'เป้าหมาย (Target)',
                     data: hourlyTargets,
+                    stack: 'target',
                     borderColor: '#ef4444',
                     borderWidth: 2,
                     borderDash: [5, 5],
@@ -3131,6 +3193,27 @@ function doPost(e) {
                     order: 0 // Render line on top
                 }
             ];
+
+            // เส้น Forecast แยกจากเส้น Target: คาดการณ์จากแผนลำดับ Job ที่วางไว้ (ดูทีละวัน)
+            const forecastSeries = buildForecastSeries(hourSequence);
+            renderForecastSummary(forecastSeries);
+            if (forecastSeries.data) {
+                hourlyDatasets.push({
+                    type: 'line',
+                    label: FORECAST_LABEL,
+                    data: forecastSeries.data,
+                    borderColor: '#10b981',
+                    backgroundColor: '#10b981',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    fill: false,
+                    tension: 0,
+                    spanGaps: false,
+                    stack: 'forecast',
+                    order: 0
+                });
+            }
 
             // Add stacked bar dataset for each model (using stable coloring)
             uniqueModels.forEach((modelName) => {
@@ -3327,9 +3410,6 @@ function doPost(e) {
                         const ds = existingDatasets[i];
                         if (newDatasetsMap[ds.label]) {
                             ds.data = newDatasetsMap[ds.label].data;
-                            if (ds.type === 'line') {
-                                ds.data = hourlyTargets; // Update line dynamic target
-                            }
                             delete newDatasetsMap[ds.label];
                         } else {
                             existingDatasets.splice(i, 1);
@@ -5056,6 +5136,622 @@ function doPost(e) {
             }).join('');
         }
 
+        // ==========================================
+        // FORECAST (คาดการณ์ยอดผลิตตามลำดับ Job ที่วางแผนไว้)
+        // ==========================================
+        // พักย่อย 10 นาที ใช้เฉพาะ Forecast เพิ่มจากพักหลักใน BREAK_MINUTES_BY_HOUR: [ชั่วโมง, นาทีเริ่ม, จำนวนนาที]
+        const FORECAST_EXTRA_BREAKS = [[10, 0, 10], [15, 0, 10], [22, 0, 10], [3, 0, 10]];
+        const FORECAST_HISTORY_DAYS = 30;      // ใช้ประวัติย้อนหลังกี่วันคิดความเร็วและเวลาเปลี่ยนรุ่น
+        const FORECAST_MIN_SAMPLE_HOURS = 3;   // ชั่วโมงตัวอย่างขั้นต่ำก่อนจะเชื่อค่าของไลน์ + รุ่นนั้น
+        const FORECAST_EDGE_MIN = 10;          // ชั่วโมงตัวอย่างต้องสแกนครอบเกือบเต็มชั่วโมง (ขาดหัว/ท้ายไม่เกินกี่นาที)
+        const FORECAST_LIVE_WINDOW_MIN = 15;   // ความเร็วสดของชั่วโมงปัจจุบัน คิดจากกี่นาทีทำงานล่าสุด
+
+        // นาทีของวัน (0-1439) ที่เป็นเวลาพักทั้งหมด สำหรับ Forecast
+        // สร้างครั้งแรกตอนใช้ เพราะ BREAK_MINUTES_BY_HOUR ประกาศไว้ถัดลงไปในสคริปต์
+        let forecastBreakMinutesCache = null;
+        function forecastBreakMinutes() {
+            if (forecastBreakMinutesCache) return forecastBreakMinutesCache;
+            const set = new Set();
+            Object.entries(BREAK_MINUTES_BY_HOUR).forEach(([h, mins]) => {
+                for (let m = 0; m < mins; m++) set.add(Number(h) * 60 + m);
+            });
+            FORECAST_EXTRA_BREAKS.forEach(([h, start, mins]) => {
+                for (let m = 0; m < mins; m++) set.add(h * 60 + start + m);
+            });
+            forecastBreakMinutesCache = set;
+            return set;
+        }
+
+        function isForecastBreakMinute(ms) {
+            const d = new Date(ms);
+            return forecastBreakMinutes().has(d.getHours() * 60 + d.getMinutes());
+        }
+
+        // ช่วงเวลาของกะตามวันผลิต: เช้า 08:00-17:00 (OT ถึง 20:00) · ดึก 20:00-05:00 (OT ถึง 08:00)
+        function forecastShiftWindow(date, shift, ot) {
+            const [y, mo, d] = String(date).split('-').map(Number);
+            const startHour = shift === 'Night' ? 20 : 8;
+            const startMs = new Date(y, mo - 1, d, startHour, 0, 0, 0).getTime();
+            const spanHours = ot ? 12 : NORMAL_SHIFT_SPAN_HOURS;
+            return { startMs, endMs: startMs + spanHours * 3600000 };
+        }
+
+        function forecastMedian(values) {
+            if (!values.length) return 0;
+            const s = [...values].sort((a, b) => a - b);
+            const mid = s.length >> 1;
+            return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+        }
+
+        /**
+         * ความเร็วผลิตจากประวัติ (ฟังก์ชันล้วน ทดสอบแยกได้) หน่วยชิ้นต่อนาทีทำงาน
+         * ใช้ชั่วโมงที่ไลน์เดินรุ่นเดียวทั้งชั่วโมง (ไม่มีเปลี่ยนรุ่นปน) และสแกนครอบเกือบเต็มชั่วโมง
+         * ความเร็ว = ยอดของชั่วโมงนั้น ÷ นาทีที่ไม่ใช่เวลาพัก แล้วเอาค่ากลาง (median) ของทุกชั่วโมง
+         * จึงรวมการหยุดสั้น ๆ และความเร็วที่ตกไว้แล้ว ต่างจาก Cycle Time ที่วัดตอนไลน์เดินลื่นอย่างเดียว
+         *
+         * scans: สแกน OK { line, model, ts, qty } · isBreakMinute(ms) · nowMs: ชั่วโมงที่ยังไม่จบไม่นับ
+         * คืน { byLineModel: { "ไลน์|รุ่น": { rate, n } }, byModel: { รุ่น: { rate, n } } }
+         */
+        function computeForecastRatesCore(scans, isBreakMinute, nowMs) {
+            const buckets = {};
+            scans.forEach(s => {
+                if (!s.line || s.line === '-' || !s.model || s.model === '-') return;
+                const d = new Date(s.ts);
+                d.setMinutes(0, 0, 0);
+                const hourStart = d.getTime();
+                if (hourStart + 3600000 > nowMs) return;
+                const key = `${s.line}|${hourStart}`;
+                const b = buckets[key] || (buckets[key] = { line: s.line, hourStart, models: new Set(), qty: 0, firstTs: Infinity, lastTs: 0 });
+                b.models.add(s.model);
+                b.qty += s.qty || 1;
+                if (s.ts < b.firstTs) b.firstTs = s.ts;
+                if (s.ts > b.lastTs) b.lastTs = s.ts;
+            });
+
+            const lineModel = {};
+            const model = {};
+            Object.values(buckets).forEach(b => {
+                if (b.models.size !== 1) return;
+                let workStart = null, workEnd = null, workMin = 0;
+                for (let m = 0; m < 60; m++) {
+                    const t = b.hourStart + m * 60000;
+                    if (isBreakMinute(t)) continue;
+                    workMin++;
+                    if (workStart === null) workStart = t;
+                    workEnd = t + 60000;
+                }
+                if (workMin < 30) return;
+                if (b.firstTs - workStart > FORECAST_EDGE_MIN * 60000) return;
+                if (workEnd - b.lastTs > FORECAST_EDGE_MIN * 60000) return;
+                const rate = b.qty / workMin;
+                const m = [...b.models][0];
+                (lineModel[`${b.line}|${m}`] || (lineModel[`${b.line}|${m}`] = [])).push(rate);
+                (model[m] || (model[m] = [])).push(rate);
+            });
+
+            const summarize = obj => {
+                const out = {};
+                Object.entries(obj).forEach(([k, rates]) => { out[k] = { rate: forecastMedian(rates), n: rates.length }; });
+                return out;
+            };
+            return { byLineModel: summarize(lineModel), byModel: summarize(model) };
+        }
+
+        /**
+         * จำลองการผลิตทีละนาที (ฟังก์ชันล้วน ทดสอบแยกได้)
+         *
+         * opts: {
+         *   startMs, endMs,              ช่วงที่จำลอง
+         *   isBreakMinute(ms),           นาทีพัก ไม่ผลิตและไม่นับเวลาเปลี่ยนรุ่น
+         *   jobs: [{ key, model, qty }], ตามลำดับที่จะผลิต
+         *   rateFor(model),              ชิ้นต่อนาทีทำงาน
+         *   changeoverMin,               เวลาที่เสียต่อการเปลี่ยนรุ่น 1 ครั้ง (นาทีทำงาน)
+         *   prevModel,                   รุ่นที่ไลน์เดินอยู่ก่อนเริ่ม ถ้าไม่ตรงกับ Job แรกจะเสียเวลาเปลี่ยนรุ่นก่อน
+         *   live: { ratePerMin, untilMs } ความเร็วสดของ Job แรก ใช้ถึงเวลาที่กำหนด (ชั่วโมงปัจจุบัน)
+         * }
+         * คืน { byHour: { hourStartMs: ชิ้น }, jobs: [{ key, produced, finishMs }], total }
+         */
+        function simulateForecastCore(opts) {
+            const { startMs, endMs, isBreakMinute, rateFor, prevModel, live } = opts;
+            const changeoverMin = Math.max(0, Math.round(opts.changeoverMin || 0));
+            const jobs = (opts.jobs || []).filter(j => j.qty > 0).map(j => ({ ...j, remaining: j.qty, produced: 0, finishMs: null }));
+            const byHour = {};
+            let total = 0;
+            let idx = 0;
+            let changeoverLeft = jobs.length && prevModel && jobs[0].model !== prevModel ? changeoverMin : 0;
+
+            for (let t = Math.floor(startMs / 60000) * 60000; t < endMs && idx < jobs.length; t += 60000) {
+                if (isBreakMinute(t)) continue;
+                if (changeoverLeft > 0) { changeoverLeft--; continue; }
+                const job = jobs[idx];
+                const rate = live && idx === 0 && t < live.untilMs ? live.ratePerMin : rateFor(job.model);
+                if (!(rate > 0)) continue;
+                const made = Math.min(rate, job.remaining);
+                job.remaining -= made;
+                job.produced += made;
+                total += made;
+                const h = new Date(t);
+                h.setMinutes(0, 0, 0);
+                byHour[h.getTime()] = (byHour[h.getTime()] || 0) + made;
+                if (job.remaining <= 1e-9) {
+                    job.finishMs = t + Math.round((made / rate) * 60000);
+                    idx++;
+                    if (idx < jobs.length && jobs[idx].model !== job.model) changeoverLeft = changeoverMin;
+                }
+            }
+            return {
+                byHour,
+                total,
+                jobs: jobs.map(j => ({ key: j.key, model: j.model, qty: j.qty, produced: j.produced, finishMs: j.finishMs }))
+            };
+        }
+
+        const FORECAST_LABEL = 'คาดการณ์ (Forecast)';
+        const FORECAST_RATE_SOURCE_TEXT = {
+            line: 'ประวัติไลน์นี้',
+            model: 'ประวัติรุ่นนี้ทุกไลน์',
+            capacity: 'ตาราง Capacity',
+            few: 'ประวัติน้อย',
+            default: 'ค่าตั้งต้น'
+        };
+
+        function forecastHM(ms) {
+            const d = new Date(ms);
+            return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+
+        function forecastAddDays(date, n) {
+            const [y, m, d] = String(date).split('-').map(Number);
+            return toLocalDateKey(new Date(y, m - 1, d + n));
+        }
+
+        // ประวัติที่ใช้คิด Forecast คิดครั้งเดียวต่อรอบโหลดข้อมูลและวันที่อ้างอิง (ไม่คิดใหม่ทุกครั้งที่วาดกราฟ)
+        let forecastStatsCache = { source: null, refDate: null, stats: null };
+
+        function getForecastStats(refDate) {
+            const c = forecastStatsCache;
+            if (c.source === processedScans && c.refDate === refDate && c.stats) return c.stats;
+            const from = forecastAddDays(refDate, -FORECAST_HISTORY_DAYS);
+            const okScans = processedScans.filter(s =>
+                String(s.status || '').toUpperCase() === 'OK' && s.prodDate >= from && s.prodDate <= refDate);
+            const rates = computeForecastRatesCore(okScans, isForecastBreakMinute, Date.now());
+
+            // เวลาเปลี่ยนรุ่นเฉลี่ยต่อไลน์ จากการเปลี่ยนรุ่นที่คิดเวลาได้ (สูตรเดียวกับ Changeover Lost)
+            const events = computeChangeoverEvents({ startDate: from, endDate: refDate, shift: 'All', line: 'All', model: 'All' });
+            const byLine = {};
+            let allSum = 0;
+            events.forEach(e => {
+                const g = byLine[e.line] || (byLine[e.line] = { sum: 0, n: 0 });
+                g.sum += e.lostMin;
+                g.n++;
+                allSum += e.lostMin;
+            });
+            const changeover = { byLine: {}, all: events.length ? { min: allSum / events.length, n: events.length } : null };
+            Object.entries(byLine).forEach(([line, g]) => { changeover.byLine[line] = { min: g.sum / g.n, n: g.n }; });
+
+            // สแกนแยกไลน์ เรียงตามเวลา ใช้หารุ่นที่เดินอยู่และยอดในกะ
+            const scansByLine = {};
+            processedScans.forEach(s => {
+                if (String(s.status || '').toUpperCase() !== 'OK' || !s.line || s.line === '-') return;
+                (scansByLine[s.line] || (scansByLine[s.line] = [])).push(s);
+            });
+            Object.values(scansByLine).forEach(arr => arr.sort((a, b) => a.ts - b.ts));
+
+            const stats = { rates, changeover, scansByLine };
+            forecastStatsCache = { source: processedScans, refDate, stats };
+            return stats;
+        }
+
+        function forecastRateInfo(stats, line, model) {
+            const lm = stats.rates.byLineModel[`${line}|${model}`];
+            if (lm && lm.n >= FORECAST_MIN_SAMPLE_HOURS) return { rate: lm.rate, source: 'line', n: lm.n };
+            const m = stats.rates.byModel[model];
+            if (m && m.n >= FORECAST_MIN_SAMPLE_HOURS) return { rate: m.rate, source: 'model', n: m.n };
+            const cap = findCapacityInfo(line, model);
+            if (cap && cap.max > 0) return { rate: cap.max / 60, source: 'capacity', n: 0 };
+            const few = lm || m;
+            if (few && few.rate > 0) return { rate: few.rate, source: 'few', n: few.n };
+            return { rate: (barcodeTargetSpeed || 0) / 60, source: 'default', n: 0 };
+        }
+
+        function forecastChangeoverInfo(stats, line) {
+            const own = stats.changeover.byLine[line];
+            if (own && own.n >= 2) return { min: own.min, n: own.n, source: 'line' };
+            if (stats.changeover.all) return { min: stats.changeover.all.min, n: stats.changeover.all.n, source: 'all' };
+            return { min: 0, n: 0, source: 'none' };
+        }
+
+        /**
+         * Forecast ของแผน 1 แผน (1 วัน + 1 กะ + 1 ไลน์)
+         * - ก่อนกะเริ่มหรือกะจบไปแล้ว: จำลองตั้งแต่ต้นกะ (baseline)
+         * - ระหว่างกะ: ชั่วโมงที่ผ่านไปแล้วแสดง baseline ไว้เทียบกับยอดจริง ชั่วโมงปัจจุบัน = ยอดจริงที่ได้แล้ว
+         *   + ยอดที่จะได้ในนาทีที่เหลือตามความเร็วสด ชั่วโมงถัดไปจำลองต่อจากยอดคงเหลือจริงด้วยความเร็วจากประวัติ
+         */
+        function computePlanForecast(plan, nowMs) {
+            const stats = getForecastStats(plan.date);
+            const win = forecastShiftWindow(plan.date, plan.shift, plan.ot);
+            const rateInfos = {};
+            const rateFor = model => (rateInfos[model] || (rateInfos[model] = forecastRateInfo(stats, plan.line, model))).rate;
+            const co = forecastChangeoverInfo(stats, plan.line);
+            const lineScans = stats.scansByLine[plan.line] || [];
+            const lastScanBefore = ts => {
+                let found = null;
+                for (let i = lineScans.length - 1; i >= 0; i--) {
+                    if (lineScans[i].ts < ts) { found = lineScans[i]; break; }
+                }
+                return found && ts - found.ts < 16 * 3600000 ? found : null;
+            };
+            const jobs = plan.jobs.map(j => ({ key: j.job, model: j.model, qty: j.qty }));
+            jobs.forEach(j => rateFor(j.model));
+            const prevStart = lastScanBefore(win.startMs);
+
+            const baseline = simulateForecastCore({
+                startMs: win.startMs, endMs: win.endMs, isBreakMinute: isForecastBreakMinute,
+                jobs, rateFor, changeoverMin: co.min, prevModel: prevStart ? prevStart.model : null, live: null
+            });
+
+            let rolling = null;
+            if (nowMs > win.startMs && nowMs < win.endMs) {
+                const shiftScans = lineScans.filter(s => s.ts >= win.startMs && s.ts <= nowMs);
+                const producedByJob = {};
+                const actualByHour = {};
+                let actualTotal = 0;
+                shiftScans.forEach(s => {
+                    const q = s.qty || 1;
+                    const job = String(s.jobOrder || '').trim();
+                    producedByJob[job] = (producedByJob[job] || 0) + q;
+                    const h = new Date(s.ts);
+                    h.setMinutes(0, 0, 0);
+                    actualByHour[h.getTime()] = (actualByHour[h.getTime()] || 0) + q;
+                    actualTotal += q;
+                });
+                const remainingJobs = jobs.map(j => ({ ...j, qty: Math.max(0, j.qty - (producedByJob[j.key] || 0)) }));
+                const last = lastScanBefore(nowMs + 1);
+                const curModel = last ? last.model : null;
+
+                // ความเร็วสด: ยอดใน 15 นาทีทำงานล่าสุด (ไม่นับนาทีพัก) ไลน์หยุดอยู่ = 0
+                let live = null;
+                const firstLeft = remainingJobs.find(j => j.qty > 0);
+                if (firstLeft && curModel === firstLeft.model) {
+                    let workMin = 0;
+                    let from = nowMs;
+                    while (workMin < FORECAST_LIVE_WINDOW_MIN && from > win.startMs) {
+                        from -= 60000;
+                        if (!isForecastBreakMinute(from)) workMin++;
+                    }
+                    if (workMin >= 5) {
+                        const pieces = shiftScans.filter(s => s.ts > from).reduce((sum, s) => sum + (s.qty || 1), 0);
+                        const cur = new Date(nowMs);
+                        cur.setMinutes(0, 0, 0);
+                        live = { ratePerMin: pieces / workMin, untilMs: cur.getTime() + 3600000, workMin, pieces };
+                    }
+                }
+                const sim = simulateForecastCore({
+                    startMs: nowMs, endMs: win.endMs, isBreakMinute: isForecastBreakMinute,
+                    jobs: remainingJobs, rateFor, changeoverMin: co.min, prevModel: curModel, live
+                });
+                const cur = new Date(nowMs);
+                cur.setMinutes(0, 0, 0);
+                rolling = { sim, actualByHour, actualTotal, producedByJob, currentHourStart: cur.getTime(), live };
+            }
+
+            const byHour = {};
+            for (let hs = win.startMs; hs < win.endMs; hs += 3600000) {
+                if (!rolling || hs < rolling.currentHourStart) byHour[hs] = baseline.byHour[hs] || 0;
+                else if (hs === rolling.currentHourStart) byHour[hs] = (rolling.actualByHour[hs] || 0) + (rolling.sim.byHour[hs] || 0);
+                else byHour[hs] = rolling.sim.byHour[hs] || 0;
+            }
+
+            // สถานะราย Job: ระหว่างกะใช้ผลจำลองจากยอดคงเหลือจริง
+            const simJobs = rolling ? rolling.sim.jobs : baseline.jobs;
+            const jobStatus = jobs.map(j => {
+                const done = rolling ? (rolling.producedByJob[j.key] || 0) : 0;
+                const s = simJobs.find(x => x.key === j.key);
+                const forecastQty = done + (s ? s.produced : 0);
+                return {
+                    ...j,
+                    done,
+                    forecastQty,
+                    finishMs: s ? s.finishMs : (done >= j.qty ? -1 : null),
+                    short: Math.max(0, Math.round(j.qty - forecastQty)),
+                    rate: rateInfos[j.model]
+                };
+            });
+
+            return {
+                plan, win, byHour, baseline, rolling, co, jobStatus,
+                planTotal: jobs.reduce((s, j) => s + j.qty, 0),
+                expectedTotal: rolling ? rolling.actualTotal + rolling.sim.total : baseline.total
+            };
+        }
+
+        // แผนที่ตรงกับตัวกรองบนหน้าจอ (ดูทีละวันเท่านั้น)
+        function getForecastPlansForView() {
+            const start = els.filterStartDate.value;
+            const end = els.filterEndDate.value || start;
+            if (!start || start !== end) return { plans: [], reason: 'range' };
+            const line = els.filterLine ? els.filterLine.value : 'All';
+            const shift = els.filterShift ? els.filterShift.value : 'All';
+            const plans = Object.values(forecastPlans).filter(p =>
+                p && p.date === start && p.jobs && p.jobs.length &&
+                (line === 'All' || String(p.line) === String(line)) &&
+                (shift === 'All' || p.shift === shift))
+                .sort((a, b) => String(a.line).localeCompare(String(b.line), undefined, { numeric: true }) || a.shift.localeCompare(b.shift));
+            return { plans, reason: plans.length ? '' : 'none' };
+        }
+
+        // เส้น Forecast บนกราฟรายชั่วโมง เรียงตาม hourSequence (null = ชั่วโมงที่ไม่มีแผนครอบ)
+        function buildForecastSeries(hourSequence) {
+            const view = getForecastPlansForView();
+            const nowMs = Date.now();
+            const results = view.plans.map(p => computePlanForecast(p, nowMs));
+            if (!results.length) return { data: null, results, reason: view.reason };
+            const data = hourSequence.map(() => null);
+            results.forEach(r => {
+                Object.entries(r.byHour).forEach(([hs, val]) => {
+                    const idx = hourSequence.indexOf(new Date(Number(hs)).getHours());
+                    if (idx === -1) return;
+                    data[idx] = (data[idx] || 0) + val;
+                });
+            });
+            return { data: data.map(v => v === null ? null : Math.round(v)), results, reason: '' };
+        }
+
+        function forecastJobStatusText(j) {
+            if (j.finishMs === -1) return '<span class="text-emerald-600 font-bold">ครบแล้ว</span>';
+            if (j.finishMs) return `<span class="text-slate-700 font-bold">เสร็จ ~${forecastHM(j.finishMs)}</span>`;
+            return `<span class="text-rose-600 font-bold">ไม่ทันในกะ ขาด ${j.short.toLocaleString()}</span>`;
+        }
+
+        function renderForecastSummary(series) {
+            const el = document.getElementById('forecast-summary');
+            if (!el) return;
+            if (!series || !series.results.length) {
+                el.innerHTML = series && series.reason === 'range'
+                    ? '<p class="text-slate-400">เลือกดูทีละวันเพื่อแสดง Forecast</p>'
+                    : '<p class="text-slate-400">ยังไม่มีแผนของวันที่และไลน์ที่เลือก กด "วางแผน" เพื่อเรียง Job ที่จะผลิต</p>';
+                return;
+            }
+            el.innerHTML = series.results.map(r => {
+                const p = r.plan;
+                const diff = Math.round(r.expectedTotal - r.planTotal);
+                const diffCls = diff >= 0 ? 'text-emerald-600' : 'text-rose-600';
+                const liveNote = r.rolling
+                    ? (r.rolling.live
+                        ? ` · ความเร็วตอนนี้ ${(r.rolling.live.ratePerMin * 60).toFixed(0)} ชิ้น/ชม.`
+                        : ' · ชั่วโมงนี้ใช้ความเร็วจากประวัติ')
+                    : '';
+                return `
+                    <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2 space-y-1">
+                        <div class="flex flex-wrap items-baseline justify-between gap-2">
+                            <span class="font-bold text-slate-700">Line ${escapeHtml(p.line)} · ${p.shift === 'Night' ? '🌙 ดึก' : '☀️ เช้า'}${p.ot ? ' + OT' : ''}</span>
+                            <span class="font-mono">${r.rolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'} <b class="text-slate-800">${Math.round(r.expectedTotal).toLocaleString()}</b> / แผน ${r.planTotal.toLocaleString()} <b class="${diffCls}">(${diff >= 0 ? '+' : ''}${diff.toLocaleString()})</b></span>
+                        </div>
+                        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+                            ${r.jobStatus.map(j => `<span>${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
+                        </div>
+                        <div class="text-[10px] text-slate-400">เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}</div>
+                    </div>`;
+            }).join('');
+        }
+
+        // ===== หน้าต่างวางแผน =====
+        let forecastDraft = null;
+
+        function forecastLineOptions() {
+            const lines = new Set();
+            processedScans.forEach(s => { if (s.line && s.line !== '-') lines.add(String(s.line)); });
+            Object.values(forecastPlans).forEach(p => { if (p && p.line) lines.add(String(p.line)); });
+            return [...lines].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        }
+
+        // Job ที่ยังเปิดอยู่ในชีต Plan และยังผลิตไม่ครบ
+        function forecastOpenJobs() {
+            const scanned = {};
+            processedScans.forEach(s => {
+                if (String(s.status || '').toUpperCase() !== 'OK') return;
+                const job = String(s.jobOrder || '').trim();
+                if (job) scanned[job] = (scanned[job] || 0) + (s.qty || 1);
+            });
+            const seen = new Set();
+            return (planJobs || []).filter(j => {
+                if (!j.job || seen.has(j.job)) return false;
+                seen.add(j.job);
+                return true;
+            }).map(j => {
+                const actual = Math.max(j.actual || 0, scanned[j.job] || 0);
+                return { job: j.job, model: j.model, plan: j.plan || 0, remaining: Math.max((j.plan || 0) - actual, 0), closed: !!j.closed };
+            }).filter(j => !j.closed && j.plan > 0 && j.remaining > 0 && j.model && j.model !== '-');
+        }
+
+        function openForecastModal() {
+            const lines = forecastLineOptions();
+            const filterLine = els.filterLine ? els.filterLine.value : 'All';
+            const filterShift = els.filterShift ? els.filterShift.value : 'All';
+            const hour = new Date().getHours();
+            const date = els.filterStartDate.value || toLocalDateKey(new Date());
+            const shift = filterShift !== 'All' ? filterShift : (hour >= 8 && hour < 20 ? 'Day' : 'Night');
+            const line = filterLine !== 'All' ? filterLine : (lines[0] || '');
+            loadForecastDraft(date, shift, line);
+            document.getElementById('forecast-modal').classList.remove('hidden');
+            renderForecastModal();
+        }
+
+        function closeForecastModal() {
+            document.getElementById('forecast-modal').classList.add('hidden');
+            forecastDraft = null;
+        }
+
+        function loadForecastDraft(date, shift, line) {
+            const existing = forecastPlans[forecastPlanId(date, shift, line)];
+            forecastDraft = {
+                date, shift, line,
+                ot: existing ? !!existing.ot : false,
+                jobs: existing ? existing.jobs.map(j => ({ ...j })) : [],
+                exists: !!existing
+            };
+        }
+
+        function onForecastKeyChange() {
+            const date = document.getElementById('forecast-date').value;
+            const shift = document.getElementById('forecast-shift').value;
+            const line = document.getElementById('forecast-line').value;
+            loadForecastDraft(date, shift, line);
+            renderForecastModal();
+        }
+
+        function onForecastOtChange() {
+            forecastDraft.ot = document.getElementById('forecast-ot').checked;
+            renderForecastPreview();
+        }
+
+        function addForecastJob() {
+            const sel = document.getElementById('forecast-add-job');
+            const job = forecastOpenJobs().find(j => j.job === sel.value);
+            if (!job) return;
+            // จำนวนในแผน = ยอดของกะนี้ทั้งกะ ถ้ากะเริ่มไปแล้วและไลน์นี้ผลิต Job นี้ไปบ้าง ต้องบวกยอดนั้นกลับ
+            // เพราะตอนคำนวณระหว่างกะจะหักยอดที่ผลิตแล้วในกะออกอีกที (ไม่งั้นถูกหักซ้ำสองรอบ)
+            const win = forecastShiftWindow(forecastDraft.date, forecastDraft.shift, forecastDraft.ot);
+            const nowMs = Date.now();
+            const doneInShift = processedScans.reduce((sum, s) =>
+                String(s.status || '').toUpperCase() === 'OK' && String(s.line) === String(forecastDraft.line) &&
+                String(s.jobOrder || '').trim() === job.job && s.ts >= win.startMs && s.ts <= Math.min(nowMs, win.endMs)
+                    ? sum + (s.qty || 1) : sum, 0);
+            forecastDraft.jobs.push({ job: job.job, model: job.model, qty: job.remaining + doneInShift });
+            renderForecastModal();
+        }
+
+        function moveForecastJob(idx, delta) {
+            const jobs = forecastDraft.jobs;
+            const to = idx + delta;
+            if (to < 0 || to >= jobs.length) return;
+            [jobs[idx], jobs[to]] = [jobs[to], jobs[idx]];
+            renderForecastModal();
+        }
+
+        function removeForecastJob(idx) {
+            forecastDraft.jobs.splice(idx, 1);
+            renderForecastModal();
+        }
+
+        function setForecastJobQty(idx, value) {
+            forecastDraft.jobs[idx].qty = Math.max(0, Math.round(Number(value) || 0));
+            renderForecastPreview();
+        }
+
+        function renderForecastModal() {
+            if (!forecastDraft) return;
+            const d = forecastDraft;
+            document.getElementById('forecast-date').value = d.date;
+            document.getElementById('forecast-shift').value = d.shift;
+            const lineSel = document.getElementById('forecast-line');
+            const lines = forecastLineOptions();
+            if (d.line && !lines.includes(d.line)) lines.push(d.line);
+            lineSel.innerHTML = lines.map(l => `<option value="${escapeHtml(l)}">Line ${escapeHtml(l)}</option>`).join('');
+            lineSel.value = d.line;
+            document.getElementById('forecast-ot').checked = d.ot;
+            document.getElementById('forecast-delete-btn').classList.toggle('hidden', !d.exists);
+
+            const inDraft = new Set(d.jobs.map(j => j.job));
+            const open = forecastOpenJobs().filter(j => !inDraft.has(j.job));
+            document.getElementById('forecast-add-job').innerHTML = open.length
+                ? open.map(j => `<option value="${escapeHtml(j.job)}">${escapeHtml(j.job)} · ${escapeHtml(j.model)} · คงเหลือ ${j.remaining.toLocaleString()}</option>`).join('')
+                : '<option value="">ไม่มี Job ที่เปิดค้างอยู่</option>';
+            document.getElementById('forecast-add-btn').disabled = open.length === 0;
+            renderForecastPreview();
+        }
+
+        function renderForecastPreview() {
+            const d = forecastDraft;
+            const listEl = document.getElementById('forecast-job-list');
+            const sumEl = document.getElementById('forecast-preview');
+            if (!d.jobs.length) {
+                listEl.innerHTML = '<p class="text-xs text-slate-400 italic text-center py-4">ยังไม่มี Job ในแผน เลือก Job ด้านบนแล้วกด "เพิ่ม" ตามลำดับที่จะขึ้นไลน์</p>';
+                sumEl.innerHTML = '';
+                return;
+            }
+            const plan = { id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot, jobs: d.jobs };
+            const r = computePlanForecast(plan, Date.now());
+            const btn = 'w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:hover:bg-transparent';
+            listEl.innerHTML = r.jobStatus.map((j, i) => {
+                const rate = j.rate;
+                const secPer = rate && rate.rate > 0 ? (60 / rate.rate).toFixed(1) : '-';
+                const src = rate ? FORECAST_RATE_SOURCE_TEXT[rate.source] + (rate.n ? ` ${rate.n} ชม.` : '') : '';
+                const warn = rate && (rate.source === 'default' || rate.source === 'few') ? 'text-amber-600' : 'text-slate-400';
+                return `
+                    <div class="flex items-center gap-2 p-2 rounded-xl border border-slate-100 bg-white">
+                        <span class="w-6 text-center text-xs font-bold text-indigo-600">${i + 1}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-xs font-bold text-slate-700 truncate">${escapeHtml(j.key)} <span class="font-normal text-slate-400">· ${escapeHtml(j.model)}</span></div>
+                            <div class="text-[10px] ${warn}">${secPer} วิ/ชิ้น (${src})${j.done ? ` · ผลิตแล้ว ${j.done.toLocaleString()}` : ''} · ${forecastJobStatusText(j)}</div>
+                        </div>
+                        <input type="number" min="0" value="${j.qty}" onchange="setForecastJobQty(${i}, this.value)" class="w-20 p-1.5 text-xs text-right font-mono bg-slate-50 border border-slate-200 rounded-lg" title="จำนวนที่จะผลิตในกะนี้">
+                        <button type="button" class="${btn}" onclick="moveForecastJob(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="เลื่อนขึ้น">▲</button>
+                        <button type="button" class="${btn}" onclick="moveForecastJob(${i}, 1)" ${i === r.jobStatus.length - 1 ? 'disabled' : ''} title="เลื่อนลง">▼</button>
+                        <button type="button" class="${btn} hover:!text-rose-600 hover:!bg-rose-50" onclick="removeForecastJob(${i})" title="เอาออก">✕</button>
+                    </div>`;
+            }).join('');
+
+            const diff = Math.round(r.expectedTotal - r.planTotal);
+            const breakMin = (() => {
+                let n = 0;
+                for (let t = r.win.startMs; t < r.win.endMs; t += 60000) if (isForecastBreakMinute(t)) n++;
+                return n;
+            })();
+            sumEl.innerHTML = `
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="rounded-xl bg-slate-50 p-2"><p class="text-[10px] text-slate-400">แผนรวม</p><p class="text-base font-black font-mono text-slate-700">${r.planTotal.toLocaleString()}</p></div>
+                    <div class="rounded-xl bg-emerald-50 p-2"><p class="text-[10px] text-slate-400">${r.rolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'}</p><p class="text-base font-black font-mono text-emerald-600">${Math.round(r.expectedTotal).toLocaleString()}</p></div>
+                    <div class="rounded-xl ${diff >= 0 ? 'bg-emerald-50' : 'bg-rose-50'} p-2"><p class="text-[10px] text-slate-400">ส่วนต่าง</p><p class="text-base font-black font-mono ${diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}">${diff >= 0 ? '+' : ''}${diff.toLocaleString()}</p></div>
+                </div>
+                <p class="text-[10px] text-slate-400 leading-relaxed">
+                    ช่วงกะ ${forecastHM(r.win.startMs)}-${forecastHM(r.win.endMs)} · หักพัก ${breakMin} นาที (พักหลัก + พักย่อย 10:00, 15:00, 22:00, 03:00 ครั้งละ 10 นาที)
+                    · เปลี่ยนรุ่นเฉลี่ยของไลน์ ${Math.round(r.co.min)} นาที/ครั้ง ${r.co.n ? `(${r.co.n} ครั้งใน ${FORECAST_HISTORY_DAYS} วัน${r.co.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''})` : '(ยังไม่มีประวัติ)'}
+                    · ความเร็วแต่ละรุ่นใช้ค่ากลางของยอดต่อชั่วโมงที่เดินรุ่นนั้นทั้งชั่วโมงใน ${FORECAST_HISTORY_DAYS} วันล่าสุด
+                    ${r.rolling ? '· ระหว่างกะ: คิดต่อจากยอดคงเหลือจริง ชั่วโมงปัจจุบันใช้ความเร็ว 15 นาทีล่าสุด' : ''}
+                </p>`;
+        }
+
+        function saveForecastPlan() {
+            const d = forecastDraft;
+            if (!d || !d.date || !d.line) return;
+            if (!d.jobs.length) { deleteForecastPlan(); return; }
+            const plan = {
+                id: forecastPlanId(d.date, d.shift, d.line),
+                date: d.date, shift: d.shift, line: d.line, ot: d.ot,
+                jobs: d.jobs.filter(j => j.qty > 0).map(j => ({ job: j.job, model: j.model, qty: j.qty }))
+            };
+            forecastPlans[plan.id] = plan;
+            saveForecastPlansLocal();
+            closeForecastModal();
+            renderCharts();
+            syncForecastPlanToGoogleSheets(plan).then(ok => {
+                if (ok === true) showIncidentToast('success', 'บันทึกแผน Forecast แล้ว', 'ทุกเครื่องจะเห็นแผนนี้');
+                else showIncidentToast('warning', 'เก็บแผนไว้ในเครื่องนี้แล้ว แต่ขึ้น Google Sheet ไม่สำเร็จ', String(ok));
+            });
+        }
+
+        function deleteForecastPlan() {
+            const d = forecastDraft;
+            if (!d) return;
+            const id = forecastPlanId(d.date, d.shift, d.line);
+            const old = forecastPlans[id];
+            delete forecastPlans[id];
+            saveForecastPlansLocal();
+            closeForecastModal();
+            renderCharts();
+            if (!old) return;
+            syncForecastPlanToGoogleSheets(old, 'DELETE_FORECAST_PLAN').then(ok => {
+                if (ok === true) showIncidentToast('success', 'ลบแผน Forecast แล้ว', '');
+                else {
+                    forecastPlans[id] = old;
+                    saveForecastPlansLocal();
+                    renderCharts();
+                    showIncidentToast('warning', 'ลบแผนบน Google Sheet ไม่สำเร็จ', String(ok));
+                }
+            });
+        }
+
         function renderManpowerTable() {
             const tbody = document.getElementById('manpower-tbody');
             if (!tbody) return;
@@ -5481,6 +6177,98 @@ function doPost(e) {
             })
             .catch(err => {
                 console.warn('Failed to load shift transfers from cloud:', err);
+            });
+        }
+
+        // ===== แผน Forecast (เก็บบนชีต ForecastPlans ให้ทุกเครื่องเห็นแผนเดียวกัน แคชไว้ในเครื่องด้วย) =====
+        function forecastPlanId(date, shift, line) {
+            return `${date}_${shift}_${line}`;
+        }
+
+        function loadForecastPlans() {
+            try {
+                const data = localStorage.getItem('job_tracker_forecast_plans');
+                forecastPlans = data ? JSON.parse(data) : {};
+            } catch (e) {
+                forecastPlans = {};
+            }
+        }
+
+        function saveForecastPlansLocal() {
+            try { localStorage.setItem('job_tracker_forecast_plans', JSON.stringify(forecastPlans)); } catch (e) { /* เต็มหรือถูกบล็อก */ }
+        }
+
+        function parseForecastJobs(raw) {
+            let list = raw;
+            if (typeof raw === 'string') {
+                try { list = JSON.parse(raw || '[]'); } catch (e) { list = []; }
+            }
+            return (Array.isArray(list) ? list : []).map(j => ({
+                job: String(j.job || '').trim(),
+                model: String(j.model || '').trim(),
+                qty: Math.max(0, Math.round(Number(j.qty) || 0))
+            })).filter(j => j.job && j.model);
+        }
+
+        function fetchForecastPlansFromAppsScript() {
+            if (!appsScriptUrl) return Promise.resolve();
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'GET_FORECAST_PLANS' }),
+                redirect: 'follow'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data || data.result !== 'success' || !data.plans) return;
+                const cloud = {};
+                data.plans.forEach(row => {
+                    if (!row.ID) return;
+                    const date = normalizeIncidentDate(row.Date, row.ID);
+                    const shift = String(row.Shift || '').trim() === 'Night' ? 'Night' : 'Day';
+                    const line = String(row.Line || '').trim();
+                    cloud[row.ID] = {
+                        id: row.ID, date, shift, line,
+                        ot: String(row.OT || '').trim().toUpperCase() === 'Y',
+                        jobs: parseForecastJobs(row.Jobs),
+                        updatedAt: String(row.UpdatedAt || '').trim()
+                    };
+                });
+                if (Object.keys(cloud).length === 0 && Object.keys(forecastPlans).length > 0) return;
+                forecastPlans = cloud;
+                saveForecastPlansLocal();
+                if (processedScans.length > 0) renderCharts();
+            })
+            .catch(err => console.warn('Failed to load forecast plans from cloud:', err));
+        }
+
+        // คืน true เมื่อขึ้นชีตสำเร็จ ไม่งั้นคืนข้อความสาเหตุ
+        function syncForecastPlanToGoogleSheets(plan, action) {
+            if (!appsScriptUrl) return Promise.resolve('ยังไม่ได้ตั้งค่า Apps Script URL ในหน้าตั้งค่า');
+            return fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: action || 'SAVE_FORECAST_PLAN',
+                    id: plan.id, date: plan.date, shift: plan.shift, line: plan.line,
+                    ot: !!plan.ot, jobs: plan.jobs
+                }),
+                redirect: 'follow'
+            })
+            .then(res => {
+                if (!res.ok) throw new Error(`Apps Script ตอบกลับ HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(data => {
+                if (data && data.result === 'success') return true;
+                // URL ที่ยังเสิร์ฟโค้ดเก่าจะตอบ ignored เพราะไม่รู้จัก action นี้
+                throw new Error(data && data.result === 'ignored'
+                    ? 'Apps Script ยังเป็นเวอร์ชันเก่า (ไม่รู้จัก SAVE_FORECAST_PLAN) ต้อง deploy gas_sync_incidents.js ใหม่'
+                    : ((data && data.message) || 'Apps Script ตอบกลับไม่สำเร็จ'));
+            })
+            .catch(err => {
+                console.error('Error syncing forecast plan:', err);
+                return err.message;
             });
         }
 

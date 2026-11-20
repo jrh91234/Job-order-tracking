@@ -53,6 +53,7 @@ function doGet(e) {
       "GET_CATEGORIES", "SAVE_CATEGORY", "DELETE_CATEGORY",
       "GET_MANPOWER", "SAVE_MANPOWER", "DELETE_MANPOWER",
       "GET_SHIFT_TRANSFERS", "SAVE_SHIFT_TRANSFER", "DELETE_SHIFT_TRANSFER",
+      "GET_FORECAST_PLANS", "SAVE_FORECAST_PLAN", "DELETE_FORECAST_PLAN",
       "TRANSLATE"
     ];
 
@@ -76,6 +77,7 @@ function doGet(e) {
         IncidentCategories: rowsOf("IncidentCategories"),
         Manpower: rowsOf("Manpower"),
         ShiftTransfers: rowsOf("ShiftTransfers"),
+        ForecastPlans: rowsOf("ForecastPlans"),
         IncidentDowntime: rowsOf("IncidentDowntime")
       },
       // AI สรุป Downtime: ต้องตั้ง trigger ให้ summarizeIncidentDowntimes ทุก 15 นาที และ Script property GEMINI_API_KEY
@@ -466,6 +468,71 @@ function doPost(e) {
         stSheet.getRange(stRow, 1, 1, stData.length).setValues([stData]);
       } else {
         stSheet.appendRow(stData);
+      }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Saved"}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // --- FORECAST PLAN OPERATIONS (ลำดับ Job ที่จะผลิต ใช้คาดการณ์ยอดบนหน้า barcode) ---
+    // 1 แถว = 1 วันผลิต + 1 กะ + 1 ไลน์ · คอลัมน์ Jobs เก็บรายการเป็น JSON [{job, model, qty}] ตามลำดับ
+    // เก็บบนชีตเพื่อให้ทุกเครื่องเห็นแผนเดียวกัน
+    if (action === "GET_FORECAST_PLANS" || action === "SAVE_FORECAST_PLAN" || action === "DELETE_FORECAST_PLAN") {
+      var fpName = "ForecastPlans";
+      var fpSheet = ss.getSheetByName(fpName);
+      var FP_COLS = ["ID", "Date", "Shift", "Line", "OT", "Jobs", "UpdatedAt"];
+      if (!fpSheet) {
+        fpSheet = ss.insertSheet(fpName);
+        fpSheet.appendRow(FP_COLS);
+      }
+      var fpValues = fpSheet.getDataRange().getValues();
+
+      if (action === "GET_FORECAST_PLANS") {
+        var fpList = [];
+        if (fpValues.length > 1) {
+          var fpHeaders = fpValues[0];
+          for (var fr = 1; fr < fpValues.length; fr++) {
+            var fpRec = {};
+            for (var fc = 0; fc < fpHeaders.length; fc++) fpRec[fpHeaders[fc]] = fpValues[fr][fc];
+            fpList.push(fpRec);
+          }
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success", plans: fpList}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (!data.id) {
+        return ContentService.createTextOutput(JSON.stringify({
+          result: "ignored", message: "คำขอแผน Forecast ต้องมี id"
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var fpRow = -1;
+      for (var fr2 = 1; fr2 < fpValues.length; fr2++) {
+        if (fpValues[fr2][0] == data.id) { fpRow = fr2 + 1; break; }
+      }
+
+      if (action === "DELETE_FORECAST_PLAN") {
+        if (fpRow !== -1) fpSheet.deleteRow(fpRow);
+        return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Deleted"}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var fpJobs = Array.isArray(data.jobs) ? data.jobs.map(function (j) {
+        return { job: String(j.job || ""), model: String(j.model || ""), qty: Math.max(0, Math.round(Number(j.qty) || 0)) };
+      }) : [];
+      var fpData = [
+        data.id,
+        data.date ? "'" + data.date : "",
+        data.shift === "Night" ? "Night" : "Day",
+        data.line ? "'" + data.line : "",
+        data.ot ? "Y" : "",
+        JSON.stringify(fpJobs),
+        "'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")
+      ];
+      if (fpRow !== -1) {
+        fpSheet.getRange(fpRow, 1, 1, fpData.length).setValues([fpData]);
+      } else {
+        fpSheet.appendRow(fpData);
       }
       return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Saved"}))
                            .setMimeType(ContentService.MimeType.JSON);
