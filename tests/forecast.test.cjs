@@ -19,10 +19,11 @@ const constLine = name => html.match(new RegExp(`const ${name} = [^;]+;`))[0].re
 const ctx = {};
 vm.createContext(ctx);
 vm.runInContext(
-  ['BREAK_MINUTES_BY_HOUR', 'NORMAL_SHIFT_SPAN_HOURS', 'FORECAST_EXTRA_BREAKS', 'FORECAST_EDGE_MIN'].map(constLine).join('\n') + '\n' +
+  ['BREAK_MINUTES_BY_HOUR', 'NORMAL_SHIFT_SPAN_HOURS', 'FORECAST_EXTRA_BREAKS', 'FORECAST_EDGE_MIN',
+   'FORECAST_SHIFT_START_HOURS', 'FORECAST_SHIFT_END_HOURS', 'FORECAST_MIN_SAMPLE_HOURS'].map(constLine).join('\n') + '\n' +
   'var forecastBreakMinutesCache = null;\n' +
   ['forecastBreakMinutes', 'isForecastBreakMinute', 'forecastShiftWindow', 'forecastMedian',
-   'computeForecastRatesCore', 'simulateForecastCore'].map(extract).join('\n'),
+   'computeForecastRatesCore', 'computeShiftEdgeLossCore', 'simulateForecastCore'].map(extract).join('\n'),
   ctx
 );
 
@@ -98,7 +99,8 @@ const addHour = (d, h, line, model, perMin, fromMin = 0, toMin = 60) => {
     scans.push({ line, model, qty: 1, ts: at(d, `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`) + k * 1000 });
   }
 };
-addHour('2026-11-18', 8, '4', 'A', 1);
+addHour('2026-11-18', 8, '4', 'A', 5);                    // ชั่วโมงเข้ากะ: ไม่เอามาคิดความเร็วปกติ
+addHour('2026-11-18', 18, '4', 'A', 1);
 addHour('2026-11-18', 9, '4', 'A', 2);
 addHour('2026-11-18', 11, '4', 'A', 1);
 addHour('2026-11-18', 13, '4', 'A', 1, 0, 30);            // ไลน์หยุดครึ่งหลัง: ไม่เอามาเป็นตัวอย่าง
@@ -110,5 +112,54 @@ assert.equal(rates.byLineModel['4|A'].rate, 1, 'ค่ากลางของ 1
 assert.equal(rates.byLineModel['5|A'].rate, 3);
 assert.equal(rates.byModel.A.n, 4);
 assert.equal(rates.byLineModel['4|B'], undefined);
+
+// เวลาที่เสียตอนเข้ากะ: หักก่อนเริ่มผลิต และหักก่อนเวลาเปลี่ยนรุ่น
+r = sim({ startupMin: 25, changeoverMin: 10, prevModel: 'X', jobs: [{ key: 'J1', model: 'A', qty: 25 }] });
+assert.equal(r.jobs[0].finishMs, at(D, '09:00'), 'เสีย 25 + เปลี่ยนรุ่น 10 แล้วผลิต 25 นาที');
+assert.equal(Math.round(r.byHour[at(D, '08:00')]), 25);
+
+// นาทีที่เสียในชั่วโมงแรกจากประวัติ: ความเร็วปกติ 1 ชิ้น/นาที
+const hist = [];
+const addRun = (d, shift, line, model, fromHm, toHm, perMin = 1) => {
+  for (let t = at(d, fromHm); t < at(d, toHm); t += 60000) {
+    for (let k = 0; k < perMin; k++) hist.push({ line, model, qty: 1, ts: t + k * 1000, prodDate: d, shift });
+  }
+};
+// 3 วันที่ไลน์ 4 เริ่มสแกน 08:20, 08:30, 08:40 → ชั่วโมงแรกเสีย 20, 30, 40 นาที (ค่ากลาง 30)
+addRun('2026-11-16', 'Day', '4', 'A', '08:20', '12:00');
+addRun('2026-11-17', 'Day', '4', 'A', '08:30', '12:00');
+addRun('2026-11-18', 'Day', '4', 'A', '08:40', '12:00');
+// วันที่ไลน์ไม่ได้เดินต่อในชั่วโมงที่ 2 ไม่นับ
+addRun('2026-11-19', 'Day', '4', 'A', '08:00', '08:10');
+const histRates = ctx.computeForecastRatesCore(hist, ctx.isForecastBreakMinute, at(D, '00:00'));
+assert.equal(histRates.byLineModel['4|A'].rate, 1, 'ความเร็วปกติไม่นับชั่วโมงเข้ากะ');
+let edge = ctx.computeShiftEdgeLossCore(hist, ctx.isForecastBreakMinute, histRates, at(D, '00:00'));
+assert.equal(edge.start.byLineShift['4|Day'].n, 3);
+assert.equal(edge.start.byLineShift['4|Day'].min, 30);
+assert.equal(edge.start.byShift.Day.min, 30);
+
+// ชั่วโมงสุดท้าย: เลิก 17:00 แต่หยุดสแกน 16:45 → เสีย 15 นาที
+const hist2 = [];
+const add2 = (d, fromHm, toHm) => {
+  for (let t = at(d, fromHm); t < at(d, toHm); t += 60000) {
+    if (ctx.isForecastBreakMinute(t)) continue;
+    hist2.push({ line: '5', model: 'C', qty: 1, ts: t, prodDate: d, shift: 'Day' });
+  }
+};
+add2('2026-11-16', '13:00', '16:45');
+add2('2026-11-17', '13:00', '16:45');
+add2('2026-11-18', '13:00', '16:30');
+// วันทำ OT: ชั่วโมงสุดท้ายคือ 19:00-20:00 หยุดสแกน 19:50 → เสีย 10 นาที
+add2('2026-11-19', '13:00', '19:50');
+const rates2 = ctx.computeForecastRatesCore(hist2, ctx.isForecastBreakMinute, at(D, '00:00'));
+assert.equal(rates2.byLineModel['5|C'].rate, 1, 'ความเร็วปกติไม่นับชั่วโมงก่อนเลิก');
+edge = ctx.computeShiftEdgeLossCore(hist2, ctx.isForecastBreakMinute, rates2, at(D, '00:00'));
+assert.equal(edge.end.byLineShift['5|Day'].n, 4);
+assert.equal(edge.end.byLineShift['5|Day'].min, 15, 'ค่ากลางของ 15, 15, 30, 10');
+
+// จำลองท้ายกะ: หยุดผลิตก่อนเลิกตามนาทีที่เสีย
+r = sim({ endLossMin: 15, jobs: [{ key: 'J1', model: 'A', qty: 10000 }] });
+assert.equal(Math.round(r.byHour[at(D, '16:00')]), 45);
+assert.equal(Math.round(r.total), 540 - 15);
 
 console.log('forecast tests passed');
