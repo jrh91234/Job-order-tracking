@@ -5391,7 +5391,8 @@ function doPost(e) {
         function simulateForecastCore(opts) {
             const { startMs, endMs, isBreakMinute, rateFor, prevModel, live } = opts;
             const changeoverMin = Math.max(0, Math.round(opts.changeoverMin || 0));
-            const jobs = (opts.jobs || []).filter(j => j.qty > 0).map(j => ({ ...j, remaining: j.qty, produced: 0, finishMs: null, workMinutes: 0, workStartMs: null, workEndMs: null }));
+            const jobs = (opts.jobs || []).filter(j => j.qty > 0 || (opts.extendJobKey && j.key === opts.extendJobKey))
+                .map(j => ({ ...j, remaining: j.qty, produced: 0, finishMs: j.qty > 0 ? null : -1, workMinutes: 0, workStartMs: null, workEndMs: null }));
             const byHour = {};
             const byHourModel = {}; // { hourStartMs: { รุ่น: ชิ้น } } ใช้แสดงรายละเอียดตอนชี้/กดจุดบนกราฟ
             let total = 0;
@@ -5431,11 +5432,13 @@ function doPost(e) {
                 const job = jobs[idx];
                 const rate = live && idx === 0 && t < live.untilMs ? live.ratePerMin : rateFor(job.model);
                 if (!(rate > 0)) continue;
-                const made = Math.min(rate, job.remaining);
+                const extend = job.key === opts.extendJobKey;
+                const before = job.remaining;
+                const made = extend ? rate : Math.min(rate, before);
                 if (job.workStartMs === null) job.workStartMs = t;
                 job.workEndMs = t + 60000;
                 job.workMinutes++;
-                job.remaining -= made;
+                job.remaining = Math.max(0, before - made);
                 job.produced += made;
                 total += made;
                 const h = new Date(t);
@@ -5444,9 +5447,11 @@ function doPost(e) {
                 const hm = byHourModel[h.getTime()] || (byHourModel[h.getTime()] = {});
                 hm[job.model] = (hm[job.model] || 0) + made;
                 if (job.remaining <= 1e-9) {
-                    job.finishMs = t + Math.round((made / rate) * 60000);
-                    idx++;
-                    if (idx < jobs.length && jobs[idx].model !== job.model) beginChangeover(job.model, jobs[idx].model);
+                    if (job.finishMs === null) job.finishMs = t + Math.round((before / rate) * 60000);
+                    if (!extend) {
+                        idx++;
+                        if (idx < jobs.length && jobs[idx].model !== job.model) beginChangeover(job.model, jobs[idx].model);
+                    }
                 }
             }
             return {
@@ -5455,7 +5460,7 @@ function doPost(e) {
                 total,
                 // ช่วงเปลี่ยนรุ่นที่เกิดขึ้นจริงในการจำลอง (startMs-endMs อาจคร่อมช่วงพัก) ไม่รวมครั้งที่ไม่ทันได้เริ่มก่อนจบกะ
                 changeovers: changeovers.filter(c => c.startMs !== null),
-                jobs: jobs.map(j => ({ key: j.key, model: j.model, qty: j.qty, produced: j.produced, finishMs: j.finishMs, workMinutes: j.workMinutes, workStartMs: j.workStartMs, workEndMs: j.workEndMs }))
+                jobs: jobs.map(j => ({ key: j.key, model: j.model, qty: j.qty, produced: j.produced, finishMs: j.finishMs, workMinutes: j.workMinutes, workStartMs: j.workStartMs, workEndMs: j.workEndMs, extended: j.key === opts.extendJobKey }))
             };
         }
 
@@ -5539,6 +5544,8 @@ function doPost(e) {
         }
 
         function forecastChangeoverInfo(stats, line) {
+            const fixed = { '1': 30, '4': 40, '5': 30 };
+            if (Object.prototype.hasOwnProperty.call(fixed, String(line))) return { min: fixed[String(line)], n: 0, source: 'fixed' };
             const own = stats.changeover.byLine[line];
             if (own && own.n >= 2) return { min: own.min, n: own.n, source: 'line' };
             if (stats.changeover.all) return { min: stats.changeover.all.min, n: stats.changeover.all.n, source: 'all' };
@@ -5551,7 +5558,7 @@ function doPost(e) {
          * - ระหว่างกะ: ชั่วโมงที่ผ่านไปแล้วแสดง baseline ไว้เทียบกับยอดจริง ชั่วโมงปัจจุบัน = ยอดจริงที่ได้แล้ว
          *   + ยอดที่จะได้ในนาทีที่เหลือตามความเร็วสด ชั่วโมงถัดไปจำลองต่อจากยอดคงเหลือจริงด้วยความเร็วจากประวัติ
          */
-        function computePlanForecast(plan, nowMs) {
+        function computePlanForecast(plan, nowMs, options) {
             const stats = getForecastStats(plan.date);
             const win = forecastShiftWindow(plan.date, plan.shift, plan.ot);
             const rateInfos = {};
@@ -5568,13 +5575,15 @@ function doPost(e) {
                 return found && ts - found.ts < 16 * 3600000 ? found : null;
             };
             const jobs = plan.jobs.map(j => ({ key: j.job, model: j.model, qty: j.qty }));
+            const lastPlannedJob = [...jobs].reverse().find(j => j.qty > 0);
+            const extendJobKey = (!options || options.extendLastJob !== false) && lastPlannedJob ? lastPlannedJob.key : null;
             jobs.forEach(j => rateFor(j.model));
             const prevStart = lastScanBefore(win.startMs);
 
             const baseline = simulateForecastCore({
                 startMs: win.startMs, endMs: win.endMs, isBreakMinute: isForecastBreakMinute,
                 jobs, rateFor, changeoverMin: co.min, prevModel: prevStart ? prevStart.model : null, live: null,
-                startupMin: startup.min, endLossMin: ending.min
+                startupMin: startup.min, endLossMin: ending.min, extendJobKey
             });
 
             let rolling = null;
@@ -5601,7 +5610,7 @@ function doPost(e) {
 
                 // ความเร็วสด: ยอดใน 15 นาทีทำงานล่าสุด (ไม่นับนาทีพัก) ไลน์หยุดอยู่ = 0
                 let live = null;
-                const firstLeft = remainingJobs.find(j => j.qty > 0);
+                const firstLeft = remainingJobs.find(j => j.qty > 0 || j.key === extendJobKey);
                 if (firstLeft && curModel === firstLeft.model) {
                     let workMin = 0;
                     let from = nowMs;
@@ -5619,7 +5628,7 @@ function doPost(e) {
                 const sim = simulateForecastCore({
                     startMs: nowMs, endMs: win.endMs, isBreakMinute: isForecastBreakMinute,
                     jobs: remainingJobs, rateFor, changeoverMin: co.min, prevModel: curModel, live,
-                    endLossMin: ending.min
+                    endLossMin: ending.min, extendJobKey
                 });
                 const cur = new Date(nowMs);
                 cur.setMinutes(0, 0, 0);
@@ -5660,7 +5669,7 @@ function doPost(e) {
                     ...j,
                     done,
                     forecastQty,
-                    finishMs: s ? s.finishMs : (done >= j.qty ? -1 : null),
+                    finishMs: done >= j.qty ? -1 : (s ? s.finishMs : null),
                     short: Math.max(0, Math.round(j.qty - forecastQty)),
                     rate: rateInfos[j.model]
                 };
@@ -5674,8 +5683,8 @@ function doPost(e) {
             return {
                 plan, win, byHour, byHourModel, baseline, rolling, co, startup, ending, jobStatus, changeovers,
                 planTotal: jobs.reduce((s, j) => s + j.qty, 0),
-                // เทียบกับแผนเฉพาะ Job ในแผน (ตัดส่วนที่เกินแผนของแต่ละ Job) ยอดรุ่นอื่นที่ไลน์ผลิตนอกแผนแยกไว้ต่างหาก
-                expectedTotal: jobStatus.reduce((s, j) => s + Math.min(j.forecastQty, j.qty), 0),
+                // รวมยอดเกินแผนของ Job ในแผน ยอด Job อื่นแยกเป็นนอกแผน
+                expectedTotal: jobStatus.reduce((s, j) => s + j.forecastQty, 0),
                 offPlanQty: rolling ? Math.max(0, rolling.actualTotal - jobStatus.reduce((s, j) => s + j.done, 0)) : 0
             };
         }
@@ -5803,9 +5812,9 @@ function doPost(e) {
                 const input = sim ? sim.qty : 0;
                 return `<div class="border-t border-slate-100 pt-1.5">
                     <div class="font-bold text-slate-700">${i + 1}. ${escapeHtml(j.key)} <span class="font-normal text-slate-500">(${escapeHtml(j.model)})</span></div>
-                    <div>จำนวนที่นำมาคำนวณ ${fmt(input)} ชิ้น · แผน ${fmt(planned.qty)} ชิ้น${planned.edited ? ' (กรอกเอง)' : ''}</div>
+                    <div>จำนวนที่นำมาคำนวณ ${fmt(input)} ชิ้น · แผน ${fmt(planned.qty)} ชิ้น${planned.edited ? ' (กรอกเอง)' : ''}${planned.capped ? ` · ต้องการเดิม ${fmt(planned.want)} ชิ้น` : ''}</div>
                     <div>ความเร็ว ${fmt(rate ? rate.rate * 60 : 0)} ชิ้น/ชม. (${escapeHtml(source)}) · เวลาผลิต ${fmt(mins)} นาที · ${period}</div>
-                    <div>คำนวณได้ ≈ ${fmt(result)} ชิ้น <span class="text-slate-400">(เวลาผลิต × ความเร็ว ไม่เกินจำนวนที่นำมาคำนวณ)</span></div>
+                    <div>คำนวณได้ ≈ ${fmt(result)} ชิ้น <span class="text-slate-400">(${sim && sim.extended ? 'ผลิตรุ่นสุดท้ายต่อจนจบกะ อาจเกินแผน' : 'เวลาผลิต × ความเร็ว ไม่เกินจำนวนที่นำมาคำนวณ'})</span></div>
                 </div>`;
             }).join('');
             const changes = r.baseline.changeovers.map(c => {
@@ -5820,7 +5829,7 @@ function doPost(e) {
                     ${changes}
                     ${lines}
                     <div class="border-t border-slate-100 pt-1.5 font-bold">รวมจำลองเต็มกะ ≈ ${fmt(r.baseline.total)} ชิ้น · แผนรวม ${fmt(plannedJobs.reduce((sum, j) => sum + j.qty, 0))} ชิ้น</div>
-                    <div class="text-slate-400">จำลองตามลำดับ Job และข้อมูลย้อนหลังที่มีอยู่ ไม่รวมยอดหรือความเร็วสด เวลาผลิตนับเฉพาะนาทีทำงานและอาจคร่อมเวลาพัก จำนวนแผนอัตโนมัติปัดลงเป็นจำนวนเต็ม ส่วนแผนที่บันทึกไว้คงจำนวนเดิม ผลจำลองจึงอาจต่างจากแผนหรือยอดคาดการณ์สด</div>
+                    <div class="text-slate-400">จำลองตามลำดับ Job และข้อมูลย้อนหลังที่มีอยู่ ไม่รวมยอดหรือความเร็วสด โดยสมมติว่าผลิตรุ่นของ Job สุดท้ายต่อจนจบกะ เวลาผลิตนับเฉพาะนาทีทำงานและอาจคร่อมเวลาพัก จำนวนแผนอัตโนมัติปัดลงเป็นจำนวนเต็ม ส่วนแผนที่บันทึกไว้คงจำนวนเดิม ผลจำลองจึงอาจต่างจากแผนหรือยอดคาดการณ์สด</div>
                 </div>
             </details>`;
         }
@@ -5875,7 +5884,8 @@ function doPost(e) {
                             ${r.jobStatus.map((j, i) => `<span><span class="font-bold text-indigo-600">${i + 1}.</span> ${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
                         </div>
                         ${r.changeovers.length ? `<div class="text-[11px] text-indigo-600">${r.changeovers.map(c => `🔄 ${forecastHM(c.startMs)}–${forecastHM(c.endMs)} ${escapeHtml(c.fromModel)} → ${escapeHtml(c.toModel)}`).join(' · ')}</div>` : ''}
-                        <div class="text-[10px] text-slate-400">ชั่วโมงแรกเสีย ~${Math.round(r.startup.min)} นาที${r.startup.n ? ` (${r.startup.n} กะ${r.startup.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · ชั่วโมงสุดท้ายเสีย ~${Math.round(r.ending.min)} นาที${r.ending.n ? ` (${r.ending.n} กะ${r.ending.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · เปลี่ยนรุ่นเฉลี่ย ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
+                        <div class="text-[10px] text-slate-400">ชั่วโมงแรกเสีย ~${Math.round(r.startup.min)} นาที${r.startup.n ? ` (${r.startup.n} กะ${r.startup.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · ชั่วโมงสุดท้ายเสีย ~${Math.round(r.ending.min)} นาที${r.ending.n ? ` (${r.ending.n} กะ${r.ending.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · เปลี่ยนรุ่น${r.co.source === 'fixed' ? 'กำหนด' : 'เฉลี่ย'} ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
+                        <div class="text-[10px] text-slate-400">คาดการณ์โดยสมมติว่าผลิตรุ่นของ Job สุดท้ายต่อจนจบกะ</div>
                         ${forecastCalculationDetails(r, p.jobs, openCalculations.has(p.id))}
                     </div>`;
             }).join('');
@@ -5990,7 +6000,7 @@ function doPost(e) {
                 id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot,
                 jobs: d.jobs.map(j => ({ job: j.job, model: j.model, qty: j.edited ? j.qty : j.want }))
             };
-            const status = computePlanForecast(plan, forecastShiftWindow(d.date, d.shift, d.ot).startMs).jobStatus;
+            const status = computePlanForecast(plan, forecastShiftWindow(d.date, d.shift, d.ot).startMs, { extendLastJob: false }).jobStatus;
             d.jobs.forEach((j, i) => {
                 if (j.edited) { j.capped = false; return; }
                 const st = status[i];
@@ -6074,11 +6084,9 @@ function doPost(e) {
                 return;
             }
             const calculationOpen = !!sumEl.querySelector('details[data-forecast-calculation][open]');
-            const calculationJobs = d.jobs.map(j => ({ job: j.job, model: j.model, qty: d.preserveQty || j.edited ? j.qty : j.want }));
             capForecastDraftToCapacity(d);
             const plan = { id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot, jobs: d.jobs };
             const r = computePlanForecast(plan, forecastShiftWindow(d.date, d.shift, d.ot).startMs);
-            const calculation = d.preserveQty ? r : computePlanForecast({ ...plan, jobs: calculationJobs }, r.win.startMs);
             const btn = 'w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:hover:bg-transparent';
             listEl.innerHTML = r.jobStatus.map((j, i) => {
                 const dj = d.jobs[i];
@@ -6115,13 +6123,13 @@ function doPost(e) {
                     <div class="rounded-xl bg-emerald-50 p-2"><p class="text-[10px] text-slate-400">${r.rolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'}</p><p class="text-base font-black font-mono text-emerald-600">${Math.round(r.expectedTotal).toLocaleString()}</p></div>
                     <div class="rounded-xl ${diff >= 0 ? 'bg-emerald-50' : 'bg-rose-50'} p-2"><p class="text-[10px] text-slate-400">ส่วนต่าง</p><p class="text-base font-black font-mono ${diff >= 0 ? 'text-emerald-600' : 'text-rose-600'}">${diff >= 0 ? '+' : ''}${diff.toLocaleString()}</p></div>
                 </div>
-                ${forecastCalculationDetails(calculation, d.jobs, calculationOpen)}
+                ${forecastCalculationDetails(r, d.jobs, calculationOpen)}
                 <p class="text-[10px] text-slate-400 leading-relaxed">
                     ช่วงกะ ${forecastHM(r.win.startMs)}-${forecastHM(r.win.endMs)} · หักพัก ${breakMin} นาที (พักหลัก + พักย่อย 10:00, 15:00, 22:00, 03:00 ครั้งละ 10 นาที)
                     ${r.offPlanQty > 0 ? `· <span class="text-amber-600">กะนี้ไลน์ผลิตนอกแผนไปแล้ว ${Math.round(r.offPlanQty).toLocaleString()} ชิ้น (ไม่นับรวมในยอดคาดการณ์ข้างบน)</span>` : ''}
                     · ชั่วโมงแรกของกะเสียค่ากลาง ${Math.round(r.startup.min)} นาที ${r.startup.n ? `(${r.startup.n} กะใน ${FORECAST_HISTORY_DAYS} วัน${r.startup.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''} รวมช่วงก่อนเริ่มสแกนและช่วงที่ยังเดินไม่เต็มสปีด)` : '(ยังไม่มีประวัติ)'}
                     · ชั่วโมงสุดท้ายก่อนเลิกเสียค่ากลาง ${Math.round(r.ending.min)} นาที ${r.ending.n ? `(${r.ending.n} กะ${r.ending.source === 'all' ? ' ใช้ค่าทุกไลน์' : ''} เช่น เก็บไลน์ / 5S ก่อนเลิก)` : '(ยังไม่มีประวัติ)'}
-                    · เปลี่ยนรุ่นเฉลี่ยของไลน์ ${Math.round(r.co.min)} นาที/ครั้ง ${r.co.n ? `(${r.co.n} ครั้งใน ${FORECAST_HISTORY_DAYS} วัน${r.co.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''})` : '(ยังไม่มีประวัติ)'}
+                    · เปลี่ยนรุ่น${r.co.source === 'fixed' ? 'กำหนด' : 'เฉลี่ย'}ของไลน์ ${Math.round(r.co.min)} นาที/ครั้ง ${r.co.source === 'fixed' ? '' : (r.co.n ? `(${r.co.n} ครั้งใน ${FORECAST_HISTORY_DAYS} วัน${r.co.source === 'all' ? ' ใช้ค่าทุกไลน์เพราะไลน์นี้มีข้อมูลน้อย' : ''})` : '(ยังไม่มีประวัติ)')}
                     · ความเร็วแต่ละรุ่นใช้ค่ากลางของยอดต่อชั่วโมงที่เดินรุ่นนั้นทั้งชั่วโมงใน ${FORECAST_HISTORY_DAYS} วันล่าสุด
                     ${r.rolling ? '· ระหว่างกะ: คิดต่อจากยอดคงเหลือจริง ชั่วโมงปัจจุบันใช้ความเร็ว 15 นาทีล่าสุด' : ''}
                 </p>`;
