@@ -253,6 +253,7 @@ const plan = { date: D, shift: 'Day', line: '4', jobs: [
 ] };
 let forecast = planCtx.computePlanForecast(plan, at(D, '08:00'));
 assert.equal(forecast.planTotal, 40);
+assert.equal(forecast.shiftActual, 0, 'ก่อนเริ่มกะยังไม่มียอดจริง');
 assert.equal(forecast.expectedTotal, 80, 'คาดการณ์เต็มกะเกินยอดแผนได้');
 assert.equal(forecast.jobStatus[1].finishMs, at(D, '09:20'));
 assert.equal(forecast.byHour[at(D, '09:00')], 50, 'กราฟรวมยอดเกินแผน');
@@ -264,8 +265,50 @@ planCtx.scans = [
 ];
 forecast = planCtx.computePlanForecast(plan, at(D, '09:45'));
 assert.equal(forecast.expectedTotal, 65, 'ยอดจริงเกินแผนรวมกับยอดคาดการณ์เวลาที่เหลือ');
+assert.equal(forecast.shiftActual, 50, 'ยอดจริงระหว่างกะรวมทุกการสแกนในไลน์');
 assert.equal(forecast.jobStatus[1].finishMs, -1, 'แสดงว่าครบแผนแล้ว');
 assert.equal(forecast.offPlanQty, 0, 'ยอดเกินของ Job ในแผนไม่ใช่นอกแผน');
+
+// Actual ใช้ขอบเขตกะ รวม Job นอกแผน และยังแสดงหลังจบกะ
+planCtx.scans = [
+  { ts: at(D, '07:59'), qty: 100, jobOrder: 'OLD', model: 'A' },
+  { ts: at(D, '08:00'), qty: 2, jobOrder: 'J1', model: 'A' },
+  { ts: at(D, '09:00'), qty: 35, jobOrder: 'J1', model: 'A' },
+  { ts: at(D, '09:42'), qty: 5, jobOrder: 'OTHER', model: 'B' },
+  { ts: at(D, '09:44'), qty: 15, jobOrder: 'J2', model: 'B' },
+  { ts: at(D, '09:59'), qty: 7, jobOrder: 'J2', model: 'B' },
+  { ts: at(D, '10:00'), qty: 100, jobOrder: 'NEXT', model: 'B' }
+];
+assert.equal(planCtx.computePlanForecast(plan, at(D, '09:45')).shiftActual, 57, 'ไม่นับข้อมูลหลังเวลาปัจจุบัน');
+assert.equal(planCtx.computePlanForecast(plan, at(D, '10:00')).shiftActual, 64, 'กะจบแล้วยังแสดงยอด และไม่นับยอดเริ่มกะถัดไป');
+planCtx.forecastShiftWindow = () => ({ startMs: at(D, '20:00'), endMs: at('2026-11-21', '05:00') });
+planCtx.scans = [
+  { ts: at(D, '20:30'), qty: 10, jobOrder: 'J1', model: 'A' },
+  { ts: at('2026-11-21', '00:30'), qty: 20, jobOrder: 'J2', model: 'B' },
+  { ts: at('2026-11-21', '05:00'), qty: 100, jobOrder: 'NEXT', model: 'B' }
+];
+assert.equal(planCtx.computePlanForecast({ ...plan, shift: 'Night' }, at('2026-11-21', '06:00')).shiftActual, 30, 'กะดึกนับข้ามวัน');
+planCtx.forecastShiftWindow = () => ({ startMs: at(D, '08:00'), endMs: at(D, '10:00') });
+
+// ยอดจริงแสดงทั้งบรรทัดรวมและในการ์ดแต่ละแผน
+const summaryEl = { innerHTML: '', querySelectorAll: () => [] };
+const summaryCtx = { document: { getElementById: () => summaryEl } };
+vm.createContext(summaryCtx);
+vm.runInContext(`
+  function escapeHtml(s) { return String(s); }
+  function forecastCalculationDetails() { return ''; }
+  function forecastJobStatusText() { return ''; }
+  ${extract('renderForecastSummary')}
+`, summaryCtx);
+const summaryResult = (line, actual) => ({
+  plan: { id: line, line, shift: 'Day', jobs: [] }, shiftActual: actual, planTotal: 100, expectedTotal: 110,
+  offPlanQty: 0, rolling: null, jobStatus: [], changeovers: [],
+  startup: { min: 0 }, ending: { min: 0 }, co: { min: 0 }
+});
+summaryCtx.renderForecastSummary({ results: [summaryResult('4', 12), summaryResult('5', 34)] });
+assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">46<\/b>/);
+assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">12<\/b>/);
+assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">34<\/b>/);
 
 // ประเมินกำลังผลิตของ Job ที่เลือกก่อนเพิ่ม โดยคิดเวลาเปลี่ยนรุ่นและแผนก่อนหน้า
 planCtx.scans = [];
