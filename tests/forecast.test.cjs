@@ -87,6 +87,24 @@ r = sim({ endMs: at(D, '09:00'), jobs: [{ key: 'J1', model: 'A', qty: 100 }] });
 assert.equal(r.jobs[0].finishMs, null);
 assert.equal(Math.round(r.jobs[0].produced), 60);
 
+// Forecast ผลิตรุ่นสุดท้ายต่อจนจบกะ แต่ยังเก็บเวลาที่ครบแผนไว้
+r = sim({ endMs: at(D, '10:00'), changeoverMin: 40, extendJobKey: 'J2',
+  jobs: [{ key: 'J1', model: 'A', qty: 30 }, { key: 'J2', model: 'B', qty: 10 }] });
+assert.equal(r.jobs[0].produced, 30);
+assert.equal(r.jobs[1].produced, 50);
+assert.equal(r.jobs[1].finishMs, at(D, '09:20'));
+assert.equal(r.total, 80);
+assert.equal(r.byHour[at(D, '09:00')], 50);
+// Job สุดท้ายครบแผนไปแล้วก่อนเริ่มจำลอง ก็ยังคาดการณ์ต่อได้
+r = sim({ startMs: at(D, '09:30'), endMs: at(D, '10:00'), extendJobKey: 'J2',
+  jobs: [{ key: 'J1', model: 'A', qty: 0 }, { key: 'J2', model: 'B', qty: 0 }] });
+assert.equal(r.total, 30);
+assert.equal(r.jobs[0].finishMs, -1);
+// เกินแผนในนาทีที่ทำครบ โดยไม่เสียเศษนาทีผลิต
+r = sim({ endMs: at(D, '08:02'), rateFor: () => 2, extendJobKey: 'J1', jobs: [{ key: 'J1', model: 'A', qty: 1 }] });
+assert.equal(r.total, 4);
+assert.equal(r.jobs[0].finishMs, at(D, '08:00') + 30000);
+
 // ความเร็วสดใช้กับ Job แรกถึงเวลาที่กำหนด แล้วกลับไปใช้ความเร็วจากประวัติ
 r = sim({ live: { ratePerMin: 2, untilMs: at(D, '09:00') }, jobs: [{ key: 'J1', model: 'A', qty: 1000 }], endMs: at(D, '10:00') });
 assert.equal(Math.round(r.byHour[at(D, '08:00')]), 120);
@@ -211,6 +229,44 @@ assert.match(details, /เวลาผลิต 100 นาที · 08:50–10:3
 assert.match(details, /รวมจำลองเต็มกะ ≈ 130 ชิ้น · แผนรวม 130 ชิ้น/);
 assert.match(details, /<details[^>]* open /);
 
+// ทดสอบผลรวมก่อนเริ่มกะและระหว่างกะ รวมยอดเกินแผนที่ผลิตจริง
+const planCtx = { scans: [] };
+vm.createContext(planCtx);
+vm.runInContext(`
+  var FORECAST_LIVE_WINDOW_MIN = 15;
+  function forecastShiftWindow() { return { startMs: ${at(D, '08:00')}, endMs: ${at(D, '10:00')} }; }
+  function isForecastBreakMinute() { return false; }
+  function getForecastStats() { return { scansByLine: { '4': scans }, changeover: { byLine: {}, all: null } }; }
+  function forecastRateInfo() { return { rate: 1, source: 'line', n: 3 }; }
+  function forecastEdgeInfo() { return { min: 0, n: 0, source: 'none' }; }
+  ${extract('forecastChangeoverInfo')}
+  ${extract('simulateForecastCore')}
+  ${extract('computePlanForecast')}
+`, planCtx);
+const changeStats = { changeover: { byLine: { '4': { min: 99, n: 5 }, '7': { min: 25, n: 3 } }, all: { min: 20, n: 9 } } };
+assert.equal(planCtx.forecastChangeoverInfo(changeStats, '4').min, 40);
+assert.equal(planCtx.forecastChangeoverInfo(changeStats, '5').min, 30);
+assert.equal(planCtx.forecastChangeoverInfo(changeStats, '1').min, 30);
+assert.equal(planCtx.forecastChangeoverInfo(changeStats, '7').min, 25, 'ไลน์อื่นยังใช้ประวัติ');
+const plan = { date: D, shift: 'Day', line: '4', jobs: [
+  { job: 'J1', model: 'A', qty: 30 }, { job: 'J2', model: 'B', qty: 10 }
+] };
+let forecast = planCtx.computePlanForecast(plan, at(D, '08:00'));
+assert.equal(forecast.planTotal, 40);
+assert.equal(forecast.expectedTotal, 80, 'คาดการณ์เต็มกะเกินยอดแผนได้');
+assert.equal(forecast.jobStatus[1].finishMs, at(D, '09:20'));
+assert.equal(forecast.byHour[at(D, '09:00')], 50, 'กราฟรวมยอดเกินแผน');
+forecast = planCtx.computePlanForecast(plan, at(D, '08:00'), { extendLastJob: false });
+assert.equal(forecast.expectedTotal, 40, 'การคำนวณจำนวนแผนยังไม่ต่อยอดเกิน');
+planCtx.scans = [
+  { ts: at(D, '09:00'), qty: 35, jobOrder: 'J1', model: 'A' },
+  { ts: at(D, '09:44'), qty: 15, jobOrder: 'J2', model: 'B' }
+];
+forecast = planCtx.computePlanForecast(plan, at(D, '09:45'));
+assert.equal(forecast.expectedTotal, 65, 'ยอดจริงเกินแผนรวมกับยอดคาดการณ์เวลาที่เหลือ');
+assert.equal(forecast.jobStatus[1].finishMs, -1, 'แสดงว่าครบแผนแล้ว');
+assert.equal(forecast.offPlanQty, 0, 'ยอดเกินของ Job ในแผนไม่ใช่นอกแผน');
+
 // แผนที่เปิดแก้ไขต้องคงจำนวนเดิม แม้ยอดคงเหลือของ Job เปลี่ยนไปแล้ว
 vm.runInContext(`
   var forecastPlans = {}, forecastDraft;
@@ -227,13 +283,16 @@ assert.equal(ctx.forecastDraft.jobs[0].qty, 300, 'เปิดแผนเดิ
 
 // เมื่อต้องตัดตามกำลังผลิต ให้ใช้ผลจำลองตั้งแต่ต้นกะเสมอ แม้ขณะนี้อยู่ระหว่างกะ
 let simulationTime;
-ctx.computePlanForecast = (plan, now) => {
+let simulationOptions;
+ctx.computePlanForecast = (plan, now, options) => {
   simulationTime = now;
+  simulationOptions = options;
   return { jobStatus: plan.jobs.map(() => ({ forecastQty: 250.8 })) };
 };
 ctx.forecastDraft.preserveQty = false;
 ctx.capForecastDraftToCapacity(ctx.forecastDraft);
 assert.equal(simulationTime, at(D, '08:00'));
+assert.equal(simulationOptions.extendLastJob, false);
 assert.equal(ctx.forecastDraft.jobs[0].qty, 250);
 
 // สถิติอ้างอิงต้องไม่รวมข้อมูลการผลิตของวันในแผนที่กำลังเปลี่ยนระหว่างกะ
