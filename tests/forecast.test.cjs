@@ -267,6 +267,36 @@ assert.equal(forecast.expectedTotal, 65, 'ยอดจริงเกินแ�
 assert.equal(forecast.jobStatus[1].finishMs, -1, 'แสดงว่าครบแผนแล้ว');
 assert.equal(forecast.offPlanQty, 0, 'ยอดเกินของ Job ในแผนไม่ใช่นอกแผน');
 
+// ประเมินกำลังผลิตของ Job ที่เลือกก่อนเพิ่ม โดยคิดเวลาเปลี่ยนรุ่นและแผนก่อนหน้า
+planCtx.scans = [];
+vm.runInContext(`
+  function forecastPlanId(date, shift, line) { return [date, shift, line].join('_'); }
+  ${extract('forecastAvailableCapacity')}
+`, planCtx);
+const draft = { date: D, shift: 'Day', line: '4', ot: false, preserveQty: false,
+  jobs: [{ job: 'J1', model: 'A', qty: 30, want: 30, edited: false }] };
+let capacity = planCtx.forecastAvailableCapacity(draft, { model: 'B' });
+assert.equal(capacity.qty, 50, '120 นาที หัก Job เดิม 30 และเปลี่ยนรุ่น 40');
+assert.equal(capacity.minutes, 50);
+assert.equal(capacity.unknown, false);
+assert.equal(planCtx.forecastAvailableCapacity(draft, { model: 'A' }).qty, 90, 'รุ่นเดิมไม่เสียเวลาเปลี่ยนรุ่น');
+draft.jobs[0].qty = draft.jobs[0].want = 90;
+capacity = planCtx.forecastAvailableCapacity(draft, { model: 'B' });
+assert.equal(capacity.qty, 0, 'เวลาที่เหลือไม่พอเปลี่ยนรุ่น');
+assert.equal(planCtx.forecastAvailableCapacity(draft, { model: 'A' }).qty, 30, 'ยังขึ้นรุ่นเดิมได้');
+planCtx.forecastShiftWindow = (date, shift, ot) => ({ startMs: at(D, '08:00'), endMs: at(D, ot ? '11:00' : '10:00') });
+draft.ot = true;
+assert.equal(planCtx.forecastAvailableCapacity(draft, { model: 'B' }).qty, 50, 'เพิ่ม OT แล้วคำนวณเวลาที่เหลือใหม่');
+draft.ot = false;
+draft.jobs[0].qty = 20;
+draft.jobs[0].want = 150;
+assert.equal(planCtx.forecastAvailableCapacity(draft, { model: 'A' }).qty, 0, 'ใช้ยอดที่ต้องการเช่นเดียวกับการตัดแผน');
+draft.preserveQty = true;
+assert.equal(planCtx.forecastAvailableCapacity(draft, { model: 'A' }).qty, 100, 'แผนที่บันทึกใช้จำนวนเดิม');
+planCtx.forecastRateInfo = (stats, line, model) => ({ rate: model === 'B' ? 0 : 1 });
+assert.equal(planCtx.forecastAvailableCapacity(draft, { model: 'B' }).unknown, true, 'ไม่มีความเร็วต้องไม่แสดงว่าเต็ม');
+assert.equal(draft.jobs.length, 1, 'การตรวจสอบไม่แก้ไขแผน');
+
 // แผนที่เปิดแก้ไขต้องคงจำนวนเดิม แม้ยอดคงเหลือของ Job เปลี่ยนไปแล้ว
 vm.runInContext(`
   var forecastPlans = {}, forecastDraft;

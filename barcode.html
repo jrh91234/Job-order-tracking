@@ -1163,9 +1163,10 @@ function doPost(e) {
                         <input type="checkbox" id="forecast-ot" onchange="onForecastOtChange()" class="w-4 h-4 accent-emerald-600"> ทำ OT</label>
                 </div>
                 <div class="flex gap-2">
-                    <select id="forecast-add-job" class="flex-1 min-w-0 p-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700"></select>
+                    <select id="forecast-add-job" onchange="renderForecastCapacity()" class="flex-1 min-w-0 p-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700"></select>
                     <button id="forecast-add-btn" type="button" onclick="addForecastJob()" class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40">เพิ่ม</button>
                 </div>
+                <div id="forecast-capacity" aria-live="polite"></div>
                 <div id="forecast-job-list" class="space-y-1.5"></div>
                 <div id="forecast-preview" class="space-y-2"></div>
                 <div class="flex justify-between gap-2 pt-2 border-t border-slate-100">
@@ -6009,6 +6010,46 @@ function doPost(e) {
             });
         }
 
+        // ทดลองต่อ Job ที่เลือกท้ายแผนด้วยจำนวนมาก เพื่อหากำลังผลิตที่เหลือหลังหักเวลาเปลี่ยนรุ่น
+        function forecastAvailableCapacity(d, selected) {
+            const usedKeys = new Set(d.jobs.map(j => j.job));
+            let probeKey = '__forecast_capacity_probe__';
+            while (usedKeys.has(probeKey)) probeKey += '_';
+            const jobs = d.jobs.map(j => ({ job: j.job, model: j.model, qty: j.edited || d.preserveQty ? j.qty : j.want }));
+            jobs.push({ job: probeKey, model: selected.model, qty: Number.MAX_SAFE_INTEGER });
+            const plan = { id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot, jobs };
+            const result = computePlanForecast(plan, forecastShiftWindow(d.date, d.shift, d.ot).startMs, { extendLastJob: false });
+            const probe = result.baseline.jobs.find(j => j.key === probeKey);
+            const unknown = result.jobStatus.some(j => j.qty > 0 && j.forecastQty + 1e-6 < j.qty && !(j.rate && j.rate.rate > 0));
+            return { unknown, qty: Math.floor((probe ? probe.produced : 0) + 1e-6), minutes: probe ? probe.workMinutes : 0 };
+        }
+
+        function renderForecastCapacity() {
+            const el = document.getElementById('forecast-capacity');
+            const sel = document.getElementById('forecast-add-job');
+            const d = forecastDraft;
+            if (!el || !sel || !d) return;
+            const selected = forecastOpenJobs().find(j => j.job === sel.value);
+            if (!d.date || !d.line || !selected) {
+                el.innerHTML = !d.date || !d.line
+                    ? '<p class="text-[11px] text-slate-400">เลือกวัน กะ และไลน์เพื่อดูกำลังผลิตที่เหลือ</p>'
+                    : '<p class="text-[11px] text-slate-400">ไม่มี Job ให้เลือกเพิ่มเพื่อประเมินกำลังผลิต</p>';
+                return;
+            }
+            const capacity = forecastAvailableCapacity(d, selected);
+            const cls = capacity.unknown ? 'border-amber-200 bg-amber-50 text-amber-800'
+                : capacity.qty > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800';
+            const message = capacity.unknown
+                ? 'ยังประเมินกำลังผลิตไม่ได้ เพราะไม่มีความเร็วของ Job ที่ต้องใช้ในการคำนวณ'
+                : capacity.qty > 0
+                    ? `รุ่นที่เลือกเพิ่มได้ประมาณสูงสุด <b>${capacity.qty.toLocaleString()} ชิ้น</b> (${capacity.minutes.toLocaleString()} นาทีผลิต)`
+                    : '<b>รุ่นที่เลือกเพิ่มไม่ทันในกะนี้</b> เวลาที่เหลือไม่พอหลังหักเวลาเปลี่ยนรุ่นหรือผลิต 1 ชิ้น';
+            el.innerHTML = `<div class="rounded-xl border px-3 py-2 text-xs ${cls}">
+                <div>${message}</div>
+                <div class="mt-1 text-[10px] opacity-80">คำนวณจากแผนเต็มกะตามลำดับ Job หักเวลาพักและเปลี่ยนรุ่นแล้ว · จำนวนที่เพิ่มจริงไม่เกินยอดคงเหลือของ Job · เปลี่ยน Job เพื่อดูรุ่นอื่น</div>
+            </div>`;
+        }
+
         function addForecastJob() {
             const sel = document.getElementById('forecast-add-job');
             const job = forecastOpenJobs().find(j => j.job === sel.value);
@@ -6078,13 +6119,14 @@ function doPost(e) {
             const d = forecastDraft;
             const listEl = document.getElementById('forecast-job-list');
             const sumEl = document.getElementById('forecast-preview');
+            capForecastDraftToCapacity(d);
+            renderForecastCapacity();
             if (!d.jobs.length) {
                 listEl.innerHTML = '<p class="text-xs text-slate-400 italic text-center py-4">ยังไม่มี Job ในแผน เลือก Job ด้านบนแล้วกด "เพิ่ม" ตามลำดับที่จะขึ้นไลน์</p>';
                 sumEl.innerHTML = '';
                 return;
             }
             const calculationOpen = !!sumEl.querySelector('details[data-forecast-calculation][open]');
-            capForecastDraftToCapacity(d);
             const plan = { id: forecastPlanId(d.date, d.shift, d.line), date: d.date, shift: d.shift, line: d.line, ot: d.ot, jobs: d.jobs };
             const r = computePlanForecast(plan, forecastShiftWindow(d.date, d.shift, d.ot).startMs);
             const btn = 'w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 disabled:hover:bg-transparent';
@@ -6099,10 +6141,11 @@ function doPost(e) {
                         <span class="w-6 text-center text-xs font-bold text-indigo-600">${i + 1}</span>
                         <div class="flex-1 min-w-0">
                             <div class="text-xs font-bold text-slate-700 truncate">${escapeHtml(j.key)} <span class="font-normal text-slate-400">· ${escapeHtml(j.model)}</span></div>
-                            <div class="text-[10px] ${warn}">${secPer} วิ/ชิ้น (${src})${j.done ? ` · ผลิตแล้ว ${j.done.toLocaleString()}` : ''} · ${dj.qty === 0 && !dj.edited ? '<span class="text-slate-500 font-bold">เวลาไม่พอ ไม่ได้ขึ้นกะนี้</span>' : forecastJobStatusText(j)}</div>
+                            <div class="text-[10px] ${warn}">${secPer} วิ/ชิ้น (${src})${j.done ? ` · ผลิตแล้ว ${j.done.toLocaleString()}` : ''} · ${dj.qty === 0 && !dj.edited ? `<span class="text-slate-500 font-bold">${rate && rate.rate > 0 ? 'เวลาไม่พอ ไม่ได้ขึ้นกะนี้' : 'ไม่มีความเร็วสำหรับคำนวณ'}</span>` : forecastJobStatusText(j)}</div>
                             ${dj.edited
                                 ? `<div class="text-[10px] text-indigo-600">✍️ กรอกเอง (ไม่ตัดตาม Capacity) <button type="button" onclick="resetForecastJobQty(${i})" class="underline hover:text-indigo-800">คำนวณตาม Capacity</button></div>`
                                 : (dj.capped ? `<div class="text-[10px] text-amber-600">ตัดตาม Capacity ของกะ จากที่ต้องการ ${dj.want.toLocaleString()}</div>` : '')}
+                            ${dj.qty === 0 ? '<div class="text-[10px] font-semibold text-rose-600">Job จำนวน 0 จะไม่ถูกบันทึก · ลองลดจำนวน Job ก่อนหน้า เลื่อนลำดับ หรือเปิด OT</div>' : ''}
                         </div>
                         <input type="number" min="0" value="${j.qty}" onchange="setForecastJobQty(${i}, this.value)" class="w-20 p-1.5 text-xs text-right font-mono ${dj.edited ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-50 border-slate-200'} border rounded-lg" title="จำนวนที่จะผลิตในกะนี้ (แก้เองได้ ถ้าแก้จะไม่ตัดตาม Capacity)">
                         <button type="button" class="${btn}" onclick="moveForecastJob(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="เลื่อนขึ้น">▲</button>
@@ -6139,6 +6182,10 @@ function doPost(e) {
             const d = forecastDraft;
             if (!d || !d.date || !d.line) return;
             if (!d.jobs.length) { deleteForecastPlan(); return; }
+            if (!d.jobs.some(j => j.qty > 0)) {
+                showIncidentToast('warning', 'ยังบันทึกแผนไม่ได้', 'ทุก Job มีจำนวน 0 ชิ้น กรุณาปรับจำนวนหรือลำดับก่อนบันทึก');
+                return;
+            }
             const plan = {
                 id: forecastPlanId(d.date, d.shift, d.line),
                 date: d.date, shift: d.shift, line: d.line, ot: d.ot,
