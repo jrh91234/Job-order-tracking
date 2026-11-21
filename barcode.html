@@ -285,9 +285,10 @@
             <!-- Card 2: Average Speed -->
             <div class="glass-card rounded-2xl p-5 shadow-sm relative overflow-hidden flex items-center justify-between">
                 <div>
-                    <span class="text-xs font-bold text-slate-400 block mb-1">ความเร็วเฉลี่ยวันนี้</span>
+                    <span class="text-xs font-bold text-slate-400 block mb-1">ความเร็วเฉลี่ยในช่วงที่เลือก</span>
                     <span id="kpi-avg-speed" class="text-2xl font-black text-emerald-600 font-mono">0</span>
                     <span class="text-[10px] text-slate-400 block mt-1">ชิ้น / ชั่วโมง (PCS/Hr)</span>
+                    <span class="text-[10px] text-slate-400 block">ยอดสแกน ÷ ชั่วโมงที่มีการสแกน</span>
                 </div>
                 <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
                     <i data-lucide="zap" class="w-6 h-6"></i>
@@ -2068,17 +2069,20 @@ function doPost(e) {
         // ==========================================
         // KPIs CALCULATIONS
         // ==========================================
+        // นับชั่วโมงที่มีสแกนแยกตามวันผลิต แต่รวมไลน์ที่สแกนในชั่วโมงเดียวกัน
+        function computeAverageSpeed(okScans) {
+            const total = okScans.reduce((sum, s) => sum + (s.qty || 1), 0);
+            const activeHours = new Set(okScans.map(s => JSON.stringify([s.prodDate, s.hour]))).size;
+            return { total, activeHours, speed: activeHours ? Math.round(total / activeHours) : 0 };
+        }
+
         function calculateKPIs() {
             const okScans = filteredScans.filter(s => s.status.toUpperCase() === 'OK');
-            const total = okScans.reduce((sum, s) => sum + (s.qty || 1), 0);
+            const { total, speed } = computeAverageSpeed(okScans);
             els.kpiTotalScans.textContent = total.toLocaleString();
 
             // Average Speed (PCS/Hour)
-            // Calculate distinct active hours in the filtered data
-            const activeHoursSet = new Set(okScans.map(s => s.hour));
-            const activeHoursCount = activeHoursSet.size || 1;
-            const avgSpeed = Math.round(total / activeHoursCount);
-            els.kpiAvgSpeed.textContent = avgSpeed.toLocaleString();
+            els.kpiAvgSpeed.textContent = speed.toLocaleString();
 
             // Active Models
             const modelsSet = new Set(okScans.map(s => s.model));
