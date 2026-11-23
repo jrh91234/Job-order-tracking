@@ -535,6 +535,7 @@
                 </div>
             </div>
             <div id="job-progress-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+            <div id="job-coverage" class="rounded-xl border border-indigo-100 bg-indigo-50/40 px-4 py-3"></div>
             <div data-row-limit class="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100">
                 <table class="w-full text-xs">
                     <thead class="bg-slate-50 sticky top-0 z-10">
@@ -7043,6 +7044,155 @@ function doPost(e) {
             auto:       { text: 'สร้างโดยระบบ', cls: 'bg-purple-50 text-purple-600 border-purple-200' }
         };
 
+        // ==========================================
+        // ออร์เดอร์พอขึ้นได้อีกกี่วัน (ใช้ความเร็ว / เวลาเปลี่ยนรุ่น / เวลาเสียต้น-ท้ายกะ ชุดเดียวกับ Forecast)
+        // ==========================================
+        const JOB_COVERAGE_KEY = 'job_tracker_coverage_opts';
+        let jobCoverageOpts = (() => {
+            try { return Object.assign({ includePending: false, ot: false, lines: 0, shifts: 'auto', overrides: {} }, JSON.parse(localStorage.getItem(JOB_COVERAGE_KEY) || '{}')); }
+            catch (e) { return { includePending: false, ot: false, lines: 0, shifts: 'auto', overrides: {} }; }
+        })();
+        let lastJobCoverageRows = [];
+
+        function setJobCoverageOpt(key, value) {
+            jobCoverageOpts[key] = value;
+            // ติ๊ก "รวมงานค้าง" ทั้งหมด ล้างค่าที่เลือกราย Job
+            if (key === 'includePending') jobCoverageOpts.overrides = {};
+            try { localStorage.setItem(JOB_COVERAGE_KEY, JSON.stringify(jobCoverageOpts)); } catch (e) { /* ไม่มีที่เก็บ */ }
+            renderJobCoverage(lastJobCoverageRows);
+        }
+
+        function setJobCoverageJob(job, included) {
+            jobCoverageOpts.overrides = { ...jobCoverageOpts.overrides, [job]: included };
+            setJobCoverageOpt('overrides', jobCoverageOpts.overrides);
+        }
+
+        /**
+         * คำนวณว่าออร์เดอร์ที่เปิดอยู่พอให้ผลิตได้อีกกี่นาทีทำงาน และคิดเป็นกี่วัน (ฟังก์ชันล้วน ทดสอบแยกได้)
+         * jobs: [{ job, model, remaining, line, rate (ชิ้น/นาที), coMin }] ที่จะรวมคำนวณ
+         * runningModels: รุ่นที่ไลน์กำลังเดินอยู่ (ไม่ต้องเปลี่ยนรุ่นเข้า)
+         * perDayMin: นาทีทำงานสุทธิต่อวัน รวมทุกไลน์ทุกกะ · lines: จำนวนไลน์
+         * เปลี่ยนรุ่น: ถือว่าจัด Job รุ่นเดียวกันต่อกัน 1 รุ่น = เปลี่ยนรุ่น 1 ครั้ง ยกเว้นรุ่นที่ไลน์เดินอยู่แล้ว
+         */
+        function computeJobCoverageCore(jobs, runningModels, perDayMin, lines) {
+            const productionMin = jobs.reduce((s, j) => s + (j.rate > 0 ? j.remaining / j.rate : 0), 0);
+            const byModel = {};
+            jobs.forEach(j => { if (!byModel[j.model]) byModel[j.model] = j; });
+            const running = new Set(runningModels || []);
+            const coJobs = Object.values(byModel).filter(j => !running.has(j.model));
+            const changeoverMin = coJobs.reduce((s, j) => s + (j.coMin || 0), 0);
+            const totalMin = productionMin + changeoverMin;
+            const days = perDayMin > 0 ? totalMin / perDayMin : 0;
+            const fullDays = Math.floor(days + 1e-9);
+            // ชั่วโมงที่เหลือของวันสุดท้าย นับเป็นชั่วโมงทำงานของแต่ละไลน์ (ไลน์เดินพร้อมกัน)
+            const leftHours = lines > 0 ? (totalMin - fullDays * perDayMin) / lines / 60 : 0;
+            return {
+                productionMin, changeoverMin, changeovers: coJobs.length, totalMin, days, fullDays,
+                leftHours: Math.max(0, leftHours), qty: jobs.reduce((s, j) => s + j.remaining, 0)
+            };
+        }
+
+        function renderJobCoverage(allRows) {
+            lastJobCoverageRows = allRows || [];
+            const el = document.getElementById('job-coverage');
+            if (!el) return;
+            const today = toLocalDateKey(new Date());
+            const stats = getForecastStats(today);
+            const opts = jobCoverageOpts;
+
+            // ไลน์ที่ใช้คิด: เลือกไลน์บนตัวกรอง = 1 ไลน์ ไม่งั้นใช้ไลน์ที่มีสแกนใน 7 วันล่าสุด (แก้เองได้)
+            const weekAgo = forecastAddDays(today, -7);
+            const activeLines = new Set();
+            let nightScans = 0;
+            processedScans.forEach(s => {
+                if (s.prodDate < weekAgo || String(s.status || '').toUpperCase() !== 'OK' || !s.line || s.line === '-') return;
+                activeLines.add(String(s.line));
+                if (s.shift === 'Night') nightScans++;
+            });
+            const filterLine = els.filterLine ? els.filterLine.value : 'All';
+            const lineList = filterLine !== 'All' ? [String(filterLine)] : [...activeLines].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+            const lines = opts.lines > 0 ? opts.lines : Math.max(1, lineList.length);
+            const shifts = opts.shifts === 'auto' ? (nightScans > 0 ? ['Day', 'Night'] : ['Day']) : (opts.shifts === 'both' ? ['Day', 'Night'] : ['Day']);
+
+            // นาทีทำงานสุทธิต่อกะต่อไลน์ = ช่วงกะ − พัก − เวลาเสียชั่วโมงแรก − เวลาเสียชั่วโมงสุดท้าย (ค่าเฉลี่ยของไลน์ที่ใช้คิด)
+            const refLines = lineList.length ? lineList : [''];
+            const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+            const shiftNet = shifts.map(sh => {
+                const w = forecastShiftWindow(today, sh, opts.ot);
+                let work = 0;
+                for (let t = w.startMs; t < w.endMs; t += 60000) if (!isForecastBreakMinute(t)) work++;
+                const start = avg(refLines.map(l => forecastEdgeInfo(stats, 'start', l, sh).min));
+                const end = avg(refLines.map(l => forecastEdgeInfo(stats, 'end', l, sh).min));
+                return { shift: sh, work, start, end, net: Math.max(0, work - start - end) };
+            });
+            const perDayMin = lines * shiftNet.reduce((s, x) => s + x.net, 0);
+            const avgCo = avg(refLines.map(l => forecastChangeoverInfo(stats, l).min));
+
+            // Job ที่ยังเปิดอยู่ตามแผน งานค้าง (status pending) ไม่รวมเป็นค่าเริ่มต้น เลือกรวมทั้งหมดหรือราย Job ได้
+            const candidates = lastJobCoverageRows.filter(r => r.inPlan && !r.done && r.remaining > 0 && r.model && r.model !== '-');
+            const isIncluded = r => {
+                if (r.status !== 'pending') return true;
+                const o = opts.overrides[r.job];
+                return o === undefined ? !!opts.includePending : !!o;
+            };
+            const rows = candidates.map(r => {
+                const line = r.lines.find(l => lineList.includes(String(l))) || '';
+                const info = forecastRateInfo(stats, line, r.model);
+                const coMin = line ? forecastChangeoverInfo(stats, line).min : avgCo;
+                return { job: r.job, model: r.model, remaining: r.remaining, line, rate: info.rate, rateSource: info.source, coMin, status: r.status, included: isIncluded(r) };
+            });
+            const included = rows.filter(r => r.included);
+            const runningModels = lastJobCoverageRows.filter(r => r.live && r.live.state !== 'changing').map(r => r.model);
+            const res = computeJobCoverageCore(included, runningModels, perDayMin, lines);
+            const pendingCount = rows.filter(r => r.status === 'pending').length;
+            const hm = min => `${(min / 60).toFixed(1)} ชม.`;
+            const statusLabel = r => (JOB_STATUS_BADGE[r.status] || { text: r.status }).text;
+
+            el.innerHTML = `
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <p class="text-[11px] text-slate-400 font-semibold">ออร์เดอร์ที่มีพอขึ้นได้อีก</p>
+                        <p class="text-lg font-bold text-indigo-700">${included.length ? `~${res.fullDays.toLocaleString()} วัน ${res.leftHours.toFixed(1)} ชม.` : '-'}
+                            <span class="text-xs font-normal text-slate-500">(${included.length.toLocaleString()} Job · ${res.qty.toLocaleString()} ชิ้น)</span></p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                        <label class="flex items-center gap-1.5 font-semibold"><input type="checkbox" ${opts.includePending ? 'checked' : ''} onchange="setJobCoverageOpt('includePending', this.checked)" class="w-4 h-4 accent-indigo-600"> รวมงานค้าง${pendingCount ? ` (${pendingCount})` : ''}</label>
+                        <label class="flex items-center gap-1.5"><input type="checkbox" ${opts.ot ? 'checked' : ''} onchange="setJobCoverageOpt('ot', this.checked)" class="w-4 h-4 accent-indigo-600"> ทำ OT</label>
+                        <label class="flex items-center gap-1.5">ไลน์ <input type="number" min="1" value="${lines}" onchange="setJobCoverageOpt('lines', Math.max(0, parseInt(this.value, 10) || 0))" class="w-14 p-1 text-right font-mono bg-slate-50 border border-slate-200 rounded-lg"></label>
+                        <label class="flex items-center gap-1.5">กะ <select onchange="setJobCoverageOpt('shifts', this.value)" class="p-1 bg-slate-50 border border-slate-200 rounded-lg">
+                            <option value="auto" ${opts.shifts === 'auto' ? 'selected' : ''}>อัตโนมัติ (${shifts.length === 2 ? 'เช้า+ดึก' : 'เช้า'})</option>
+                            <option value="day" ${opts.shifts === 'day' ? 'selected' : ''}>เช้า</option>
+                            <option value="both" ${opts.shifts === 'both' ? 'selected' : ''}>เช้า+ดึก</option>
+                        </select></label>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-1">ผลิต ${hm(res.productionMin)} + เปลี่ยนรุ่น ${res.changeovers} ครั้ง ${hm(res.changeoverMin)} = ${hm(res.totalMin)} (ชั่วโมงไลน์) ÷ วันละ ${hm(perDayMin)}
+                    (${lines} ไลน์ × ${shiftNet.map(x => `${x.shift === 'Night' ? 'ดึก' : 'เช้า'} ${hm(x.net)}`).join(' + ')} หลังหักพักและเวลาเสียต้น/ท้ายกะ)
+                    · เปลี่ยนรุ่นนับ 1 ครั้งต่อรุ่น (จัดรุ่นเดียวกันต่อกัน) ไม่นับรุ่นที่ไลน์เดินอยู่</p>
+                <details class="mt-1">
+                    <summary class="cursor-pointer text-[11px] font-semibold text-indigo-600">ดูรายการคำนวณ</summary>
+                    <div class="mt-2 max-h-72 overflow-y-auto">
+                        <table class="w-full text-[11px]">
+                            <thead class="text-slate-400"><tr><th class="p-1 text-center">รวม</th><th class="p-1 text-left">Job</th><th class="p-1 text-left">รุ่น</th><th class="p-1 text-left">สถานะ</th><th class="p-1 text-right">คงเหลือ</th><th class="p-1 text-right">วิ/ชิ้น</th><th class="p-1 text-right">ชม. ผลิต</th></tr></thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${rows.map(r => `
+                                    <tr class="${r.included ? '' : 'text-slate-300'}">
+                                        <td class="p-1 text-center">${r.status === 'pending'
+                                            ? `<input type="checkbox" ${r.included ? 'checked' : ''} onchange="setJobCoverageJob('${escapeHtml(r.job)}', this.checked)" class="w-3.5 h-3.5 accent-indigo-600" title="งานค้าง: เลือกว่าจะรวมหรือไม่">`
+                                            : '<span class="text-emerald-500">✓</span>'}</td>
+                                        <td class="p-1 font-mono">${escapeHtml(r.job)}</td>
+                                        <td class="p-1">${escapeHtml(r.model)}</td>
+                                        <td class="p-1">${escapeHtml(statusLabel(r))}${r.line ? ` · L${escapeHtml(r.line)}` : ''}</td>
+                                        <td class="p-1 text-right font-mono">${r.remaining.toLocaleString()}</td>
+                                        <td class="p-1 text-right font-mono" title="${escapeHtml(FORECAST_RATE_SOURCE_TEXT[r.rateSource] || '')}">${r.rate > 0 ? (60 / r.rate).toFixed(1) : '-'}</td>
+                                        <td class="p-1 text-right font-mono">${r.rate > 0 ? (r.remaining / r.rate / 60).toFixed(1) : '-'}</td>
+                                    </tr>`).join('') || '<tr><td colspan="7" class="p-2 text-center text-slate-400">ไม่มี Job ที่เปิดค้างอยู่</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>`;
+        }
+
         function renderJobProgressTable() {
             const tbody = document.getElementById('job-progress-tbody');
             if (!tbody) return;
@@ -7083,6 +7233,7 @@ function doPost(e) {
                     tile('Job ที่ปิดแล้ว', closedCount.toLocaleString(), 'text-indigo-600',
                         'สะสมทั้งหมดในชีต Plan' + (awaitingClose > 0 ? ` · ครบแผนรอปิดอีก ${awaitingClose.toLocaleString()}` : ''));
             }
+            renderJobCoverage(allRows);
 
             const q = (document.getElementById('job-progress-search')?.value || '').trim().toLowerCase();
             let rows = allRows.filter(r => {
