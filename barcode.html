@@ -5089,10 +5089,15 @@ function doPost(e) {
             catch (e) { return 0; }
         }
 
-        // นาทีที่เกินมาตรฐาน (0 = ไม่เกิน)
+        // เกินมาตรฐานไม่เกินกี่นาทียังถือว่าปกติ เกินกว่านี้จึงนับเป็น "เปลี่ยนรุ่นล่าช้า" (ขึ้น ❗ ให้ระบุสาเหตุ)
+        const CHANGEOVER_LATE_GRACE_MIN = 15;
+
+        // นาทีที่เกินมาตรฐาน คืน 0 ถ้ายังไม่ถึงเกณฑ์ล่าช้า (เกินมาตรฐานไม่เกิน 15 นาที)
         function changeoverOverdueMin(r) {
             const std = changeoverStandardMin(r.line);
-            return std > 0 ? Math.max(0, Math.round(r.lostMin - std)) : 0;
+            if (!(std > 0)) return 0;
+            const over = Math.round(r.lostMin - std);
+            return over > CHANGEOVER_LATE_GRACE_MIN ? over : 0;
         }
 
         function changeoverReasonFor(r) {
@@ -5124,7 +5129,7 @@ function doPost(e) {
                     <div class="text-left text-xs space-y-3">
                         <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-0.5">
                             <div class="font-bold text-indigo-600">Line ${escapeHtml(r.line)} · ${escapeHtml(r.changeover.fromModel)} → ${escapeHtml(r.changeover.toModel)}</div>
-                            <div class="text-slate-500">${fmt(r.startTs)}–${fmt(r.endTs)} · เสีย ${Math.round(r.lostMin)} นาที${std ? ` (มาตรฐาน ${std} นาที)` : ''}</div>
+                            <div class="text-slate-500">${fmt(r.startTs)}–${fmt(r.endTs)} · เสีย ${Math.round(r.lostMin)} นาที${std ? ` (มาตรฐาน ${std} นาที · เกิน ${CHANGEOVER_LATE_GRACE_MIN} นาทีขึ้นไปถือว่าล่าช้า)` : ''}</div>
                             <div class="text-[10px] text-slate-400">เวลายังนับเป็น "เปลี่ยนรุ่น" ทั้งหมด สาเหตุเป็นหมายเหตุประกอบ</div>
                         </div>
                         <label class="block space-y-1"><span class="font-semibold text-slate-600">สาเหตุ</span>
