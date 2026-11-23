@@ -32,6 +32,12 @@ assert.equal(r.totalMin, 1030);
 assert.equal(r.fullDays, 1);
 assert.equal(Math.round(r.leftHours * 60), 55, 'เหลือ 110 นาทีไลน์ ÷ 2 ไลน์ = 55 นาที');
 assert.equal(r.qty, 1020);
+// แปลงเป็นชั่วโมงทำงานของแต่ละไลน์: วันละ 520 นาที (ก่อนหักเวลาเสียต้น/ท้ายกะ) × 1.12 วัน
+r = ctx.computeJobCoverageCore(jobs, [], 920, 2, 520);
+assert.equal(Math.round(r.hours * 60), Math.round(1030 / 920 * 520));
+// ไม่ส่งชั่วโมงทำงานต่อวันมา ใช้นาทีสุทธิต่อไลน์แทน = รวมทุกไลน์ ÷ จำนวนไลน์
+r = ctx.computeJobCoverageCore(jobs, [], 920, 2);
+assert.equal(Math.round(r.hours * 60), 515);
 
 // รุ่นที่ไลน์เดินอยู่แล้วไม่ต้องเปลี่ยนรุ่นเข้า
 r = ctx.computeJobCoverageCore(jobs, ['A'], 920, 2);

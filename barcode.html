@@ -7072,9 +7072,10 @@ function doPost(e) {
          * jobs: [{ job, model, remaining, line, rate (ชิ้น/นาที), coMin }] ที่จะรวมคำนวณ
          * runningModels: รุ่นที่ไลน์กำลังเดินอยู่ (ไม่ต้องเปลี่ยนรุ่นเข้า)
          * perDayMin: นาทีทำงานสุทธิต่อวัน รวมทุกไลน์ทุกกะ · lines: จำนวนไลน์
+         * workPerDayPerLine: นาทีทำงานต่อวันต่อไลน์ (หักพักแล้ว แต่ยังไม่หักเวลาเสียต้น/ท้ายกะ) ใช้แปลงเป็นชั่วโมง
          * เปลี่ยนรุ่น: ถือว่าจัด Job รุ่นเดียวกันต่อกัน 1 รุ่น = เปลี่ยนรุ่น 1 ครั้ง ยกเว้นรุ่นที่ไลน์เดินอยู่แล้ว
          */
-        function computeJobCoverageCore(jobs, runningModels, perDayMin, lines) {
+        function computeJobCoverageCore(jobs, runningModels, perDayMin, lines, workPerDayPerLine) {
             const productionMin = jobs.reduce((s, j) => s + (j.rate > 0 ? j.remaining / j.rate : 0), 0);
             const byModel = {};
             jobs.forEach(j => { if (!byModel[j.model]) byModel[j.model] = j; });
@@ -7086,8 +7087,10 @@ function doPost(e) {
             const fullDays = Math.floor(days + 1e-9);
             // ชั่วโมงที่เหลือของวันสุดท้าย นับเป็นชั่วโมงทำงานของแต่ละไลน์ (ไลน์เดินพร้อมกัน)
             const leftHours = lines > 0 ? (totalMin - fullDays * perDayMin) / lines / 60 : 0;
+            // ชั่วโมงทำงานของแต่ละไลน์ (ไม่นับพัก) ที่ต้องใช้ รวมเวลาเสียต้น/ท้ายกะแล้ว = จำนวนวัน × ชั่วโมงทำงานต่อวันต่อไลน์
+            const hours = days * (workPerDayPerLine > 0 ? workPerDayPerLine : (lines > 0 ? perDayMin / lines : 0)) / 60;
             return {
-                productionMin, changeoverMin, changeovers: coJobs.length, totalMin, days, fullDays,
+                productionMin, changeoverMin, changeovers: coJobs.length, totalMin, days, fullDays, hours,
                 leftHours: Math.max(0, leftHours), qty: jobs.reduce((s, j) => s + j.remaining, 0)
             };
         }
@@ -7143,7 +7146,8 @@ function doPost(e) {
             });
             const included = rows.filter(r => r.included);
             const runningModels = lastJobCoverageRows.filter(r => r.live && r.live.state !== 'changing').map(r => r.model);
-            const res = computeJobCoverageCore(included, runningModels, perDayMin, lines);
+            const workPerDayPerLine = shiftNet.reduce((s, x) => s + x.work, 0);
+            const res = computeJobCoverageCore(included, runningModels, perDayMin, lines, workPerDayPerLine);
             const pendingCount = rows.filter(r => r.status === 'pending').length;
             const hm = min => `${(min / 60).toFixed(1)} ชม.`;
             const statusLabel = r => (JOB_STATUS_BADGE[r.status] || { text: r.status }).text;
@@ -7152,7 +7156,7 @@ function doPost(e) {
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
                         <p class="text-[11px] text-slate-400 font-semibold">ออร์เดอร์ที่มีพอขึ้นได้อีก</p>
-                        <p class="text-lg font-bold text-indigo-700">${included.length ? `~${res.fullDays.toLocaleString()} วัน ${res.leftHours.toFixed(1)} ชม.` : '-'}
+                        <p class="text-lg font-bold text-indigo-700">${included.length ? `~${res.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} ชม.` : '-'}
                             <span class="text-xs font-normal text-slate-500">(${included.length.toLocaleString()} Job · ${res.qty.toLocaleString()} ชิ้น)</span></p>
                     </div>
                     <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600">
@@ -7166,8 +7170,9 @@ function doPost(e) {
                         </select></label>
                     </div>
                 </div>
-                <p class="text-[10px] text-slate-400 mt-1">ผลิต ${hm(res.productionMin)} + เปลี่ยนรุ่น ${res.changeovers} ครั้ง ${hm(res.changeoverMin)} = ${hm(res.totalMin)} (ชั่วโมงไลน์) ÷ วันละ ${hm(perDayMin)}
-                    (${lines} ไลน์ × ${shiftNet.map(x => `${x.shift === 'Night' ? 'ดึก' : 'เช้า'} ${hm(x.net)}`).join(' + ')} หลังหักพักและเวลาเสียต้น/ท้ายกะ)
+                <p class="text-[10px] text-slate-400 mt-1">ชั่วโมงทำงานของแต่ละไลน์ (${lines} ไลน์เดินพร้อมกัน ไม่นับเวลาพัก รวมเวลาเสียต้น/ท้ายกะแล้ว)
+                    · ผลิต ${hm(res.productionMin)} + เปลี่ยนรุ่น ${res.changeovers} ครั้ง ${hm(res.changeoverMin)} = ${hm(res.totalMin)} (รวมทุกไลน์)
+                    · ต่อกะต่อไลน์: ${shiftNet.map(x => `${x.shift === 'Night' ? 'ดึก' : 'เช้า'} ทำงาน ${hm(x.work)} ผลิตได้จริง ${hm(x.net)}`).join(' / ')}
                     · เปลี่ยนรุ่นนับ 1 ครั้งต่อรุ่น (จัดรุ่นเดียวกันต่อกัน) ไม่นับรุ่นที่ไลน์เดินอยู่</p>
                 <details class="mt-1">
                     <summary class="cursor-pointer text-[11px] font-semibold text-indigo-600">ดูรายการคำนวณ</summary>
