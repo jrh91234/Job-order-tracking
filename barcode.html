@@ -4999,7 +4999,9 @@ function doPost(e) {
             activeLine = activeLine || (els.filterLine ? els.filterLine.value : 'All');
             activeShift = activeShift || (els.filterShift ? els.filterShift.value : 'All');
 
+            // สาเหตุที่ผูกกับการเปลี่ยนรุ่น (changeoverKey) เป็นแค่หมายเหตุ เวลายังนับเป็นเปลี่ยนรุ่นทั้งหมด ไม่คิดเวลาซ้ำ
             const incidents = getIncidentsInRange(startDate, endDate, activeLine, activeShift)
+                .filter(inc => !inc.changeoverKey)
                 .map(inc => ({ ...inc, time: normalizeIncidentTime(inc.time, inc.hour) }));
             const scans = processedScans
                 .filter(s => s.status.toUpperCase() === 'OK')
@@ -5073,6 +5075,108 @@ function doPost(e) {
             }).join('');
         }
 
+        // ===== สาเหตุประกอบของการเปลี่ยนรุ่นที่นานเกินมาตรฐาน =====
+        // เวลายังนับเป็น "เปลี่ยนรุ่น" ทั้งหมดเหมือนเดิม สาเหตุเป็นแค่หมายเหตุ เก็บเป็นบันทึกปัญหาที่ผูกด้วย changeoverKey
+        let changeoverReasonTargets = [];
+
+        function changeoverKeyOf(r) {
+            return `${r.line}|${r.startTs}`;
+        }
+
+        // มาตรฐานเวลาเปลี่ยนรุ่นของไลน์ (ค่าเดียวกับที่ Forecast ใช้)
+        function changeoverStandardMin(line) {
+            try { return forecastChangeoverInfo(getForecastStats(toLocalDateKey(new Date())), line).min || 0; }
+            catch (e) { return 0; }
+        }
+
+        // นาทีที่เกินมาตรฐาน (0 = ไม่เกิน)
+        function changeoverOverdueMin(r) {
+            const std = changeoverStandardMin(r.line);
+            return std > 0 ? Math.max(0, Math.round(r.lostMin - std)) : 0;
+        }
+
+        function changeoverReasonFor(r) {
+            const key = changeoverKeyOf(r);
+            return Object.values(incidentLogs).find(inc => inc && inc.changeoverKey === key) || null;
+        }
+
+        function changeoverReasonCell(r) {
+            const reason = changeoverReasonFor(r);
+            const over = changeoverOverdueMin(r);
+            if (!reason && !over) return '';
+            const idx = changeoverReasonTargets.push(r) - 1;
+            if (reason) {
+                return `<div class="mt-1"><button type="button" onclick="openChangeoverReason(${idx})" class="text-left text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5 hover:bg-amber-100" title="กดเพื่อแก้ไขสาเหตุ">สาเหตุ: ${escapeHtml(reason.categoryText || reason.category)}${reason.notes ? ` · <span class="font-normal">${escapeHtml(reason.notes)}</span>` : ''}</button></div>`;
+            }
+            return `<div class="mt-1"><button type="button" onclick="openChangeoverReason(${idx})" class="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-md px-2 py-0.5 hover:bg-rose-100">❗ นานเกินมาตรฐาน ${over} นาที · ระบุสาเหตุ</button></div>`;
+        }
+
+        function openChangeoverReason(idx) {
+            const r = changeoverReasonTargets[idx];
+            if (!r) return;
+            const existing = changeoverReasonFor(r);
+            const std = changeoverStandardMin(r.line);
+            const cats = (incidentCategories || []).filter(c => c.code !== 'Changeover');
+            const fmt = ms => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+            Swal.fire({
+                title: 'สาเหตุที่เปลี่ยนรุ่นนาน',
+                html: `
+                    <div class="text-left text-xs space-y-3">
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-0.5">
+                            <div class="font-bold text-indigo-600">Line ${escapeHtml(r.line)} · ${escapeHtml(r.changeover.fromModel)} → ${escapeHtml(r.changeover.toModel)}</div>
+                            <div class="text-slate-500">${fmt(r.startTs)}–${fmt(r.endTs)} · เสีย ${Math.round(r.lostMin)} นาที${std ? ` (มาตรฐาน ${std} นาที)` : ''}</div>
+                            <div class="text-[10px] text-slate-400">เวลายังนับเป็น "เปลี่ยนรุ่น" ทั้งหมด สาเหตุเป็นหมายเหตุประกอบ</div>
+                        </div>
+                        <label class="block space-y-1"><span class="font-semibold text-slate-600">สาเหตุ</span>
+                            <select id="co-reason-cat" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                                ${cats.map(c => `<option value="${escapeHtml(c.code)}" ${existing && existing.category === c.code ? 'selected' : ''}>${escapeHtml(c.text)}</option>`).join('')}
+                            </select></label>
+                        <label class="block space-y-1"><span class="font-semibold text-slate-600">รายละเอียด (ถ้ามี)</span>
+                            <textarea id="co-reason-notes" rows="3" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl" placeholder="เช่น รอ Box จาก W/H 30 นาที">${existing ? escapeHtml(existing.notes || '') : ''}</textarea></label>
+                    </div>`,
+                showCancelButton: true,
+                showDenyButton: !!existing,
+                confirmButtonText: 'บันทึก',
+                denyButtonText: 'ลบสาเหตุ',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#4f46e5',
+                preConfirm: () => {
+                    const sel = document.getElementById('co-reason-cat');
+                    return { category: sel.value, categoryText: sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : sel.value, notes: document.getElementById('co-reason-notes').value.trim() };
+                }
+            }).then(res => {
+                if (res.isDenied && existing) {
+                    delete incidentLogs[existing.id];
+                    saveIncidentsLocal();
+                    syncIncidentToGoogleSheets({ ...existing, action: 'DELETE' });
+                    renderIncidentTable(); renderIncidentDowntime();
+                    return;
+                }
+                if (!res.isConfirmed || !res.value) return;
+                const start = new Date(r.startTs);
+                const id = existing ? existing.id : `${r.prodDate}_${start.getHours()}_${r.line}_CO${r.startTs}`;
+                const incident = {
+                    id,
+                    date: r.prodDate,
+                    hour: start.getHours(),
+                    time: fmt(r.startTs),
+                    shift: r.incident.shift || shiftFromHour(start.getHours()),
+                    line: String(r.line),
+                    model: r.changeover.toModel,
+                    jobOrder: '',
+                    category: res.value.category,
+                    categoryText: res.value.categoryText,
+                    notes: res.value.notes,
+                    changeoverKey: changeoverKeyOf(r)
+                };
+                incidentLogs[id] = incident;
+                saveIncidentsLocal();
+                syncIncidentToGoogleSheets(incident);
+                if (hourlyChartObj) hourlyChartObj.update();
+                renderIncidentTable(); renderIncidentDowntime();
+            });
+        }
+
         function renderIncidentDowntime() {
             const thead = document.getElementById('incident-downtime-thead');
             const tbody = document.getElementById('incident-downtime-tbody');
@@ -5090,12 +5194,15 @@ function doPost(e) {
                 btn.classList.toggle('text-slate-500', !active);
             });
 
+            changeoverReasonTargets = [];
             const data = computeIncidentDowntime(startDate, endDate);
             const summaryEl = document.getElementById('incident-downtime-summary');
+            const overdueNoReason = data.records.filter(r => r.fromChangeover && changeoverOverdueMin(r) > 0 && !changeoverReasonFor(r)).length;
             if (summaryEl) {
                 summaryEl.innerHTML = data.records.length === 0 ? '' :
                     `เสียรวม <span class="font-mono text-rose-600">${formatLostMinutes(data.totalLostMin)}</span>` +
-                    `<span class="block text-[10px] font-normal text-slate-400">${data.records.length.toLocaleString()} รายการ (นับแยกต่อไลน์)</span>`;
+                    `<span class="block text-[10px] font-normal text-slate-400">${data.records.length.toLocaleString()} รายการ (นับแยกต่อไลน์)</span>` +
+                    (overdueNoReason ? `<button type="button" onclick="setIncidentDowntimeTab('event')" class="mt-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100" title="กดเพื่อดูรายครั้งและระบุสาเหตุ">❗ เปลี่ยนรุ่นนานเกิน ยังไม่ระบุสาเหตุ ${overdueNoReason} รายการ</button>` : '');
             }
 
             // สรุปรายสาเหตุแบบแท่ง แสดงตลอดไม่ว่าเลือกแท็บไหน
@@ -5157,7 +5264,7 @@ function doPost(e) {
                         <tr class="hover:bg-slate-50/50 transition-colors">
                             <td class="p-3 text-slate-600 whitespace-nowrap">${formatThaiDate(r.prodDate)} <span class="text-slate-400">${shift === 'Day' ? '☀️ เช้า' : '🌙 ดึก'}</span></td>
                             <td class="p-3 font-bold text-indigo-600 whitespace-nowrap">${lineLabel(r.line)}${inc.line === 'All' ? '<div class="text-[10px] text-slate-400 font-normal">แจ้งว่าทุกไลน์</div>' : ''}</td>
-                            <td class="p-3 font-semibold text-slate-700">${escapeHtml(inc.categoryText || inc.category || '-')}${notes}${aiNote}</td>
+                            <td class="p-3 font-semibold text-slate-700">${escapeHtml(inc.categoryText || inc.category || '-')}${notes}${aiNote}${r.fromChangeover ? changeoverReasonCell(r) : ''}</td>
                             <td class="p-3 text-center font-mono text-slate-700 whitespace-nowrap">${reportCell}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${startCell}</td>
                             <td class="p-3 text-center font-mono text-slate-500 whitespace-nowrap">${endCell}</td>
@@ -6561,7 +6668,8 @@ function doPost(e) {
                                 jobOrder: row.JobOrder || row['Job Order'] || '',
                                 category: row.Category,
                                 categoryText: row.CategoryText,
-                                notes: row.Notes
+                                notes: row.Notes,
+                                changeoverKey: String(row.ChangeoverKey || '').replace(/^'/, '').trim()
                             };
                         }
                     });
@@ -8282,7 +8390,8 @@ function doPost(e) {
                 shift: incident.shift || shiftFromHour(incident.hour),
                 category: incident.category,
                 categoryText: incident.categoryText,
-                notes: incident.notes
+                notes: incident.notes,
+                changeoverKey: incident.changeoverKey || ''
             };
             // ใช้รูปแบบเดียวกับการโพสต์ที่ใช้งานได้จริงในหน้าลงยอด (index.html) และการซิงก์ประเภทปัญหา
             // เดิมตรงนี้ใช้ mode:'no-cors' คู่กับ Content-Type: application/json ซึ่งมีปัญหา 2 อย่าง

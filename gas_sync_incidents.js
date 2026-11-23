@@ -584,7 +584,8 @@ function doPost(e) {
     // เขียนค่าโดยอิงชื่อคอลัมน์ในหัวตารางจริง ไม่ใช่ตำแหน่งตายตัว
     // ชีตเดิมมีแค่ 8 คอลัมน์ (ไม่มี JobOrder กับ Time) โค้ดนี้จะเติมหัวคอลัมน์ที่ขาดให้เอง
     // แถวเก่าที่มีอยู่แล้วจะเว้นว่างในคอลัมน์ใหม่ ไม่ถูกแตะต้อง
-    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time", "Shift"];
+    // ChangeoverKey = "ไลน์|เวลาเริ่มหยุด(ms)" เมื่อเป็นสาเหตุประกอบของการเปลี่ยนรุ่นที่นานเกิน (เวลานับเป็นเปลี่ยนรุ่น ไม่คิดซ้ำ)
+    var REQUIRED_COLS = ["ID", "Date", "Hour", "Line", "Model", "JobOrder", "Category", "CategoryText", "Notes", "Time", "Shift", "ChangeoverKey"];
     var headers = values.length > 0 ? values[0].slice() : [];
     var added = false;
     for (var c = 0; c < REQUIRED_COLS.length; c++) {
@@ -614,7 +615,8 @@ function doPost(e) {
       "Time": data.time ? "'" + data.time : "",
       // กะที่หน้าจอคำนวณไว้แล้ว เก็บไว้เพื่อให้ดูจากในชีตตรง ๆ ได้ว่าแถวไหนอยู่กะไหน
       // แถวเก่าที่ยังว่างอยู่ ฝั่งหน้าจอจะอนุมานจากคอลัมน์ Hour ให้เอง
-      "Shift": data.shift === "Night" ? "Night" : data.shift === "Day" ? "Day" : ""
+      "Shift": data.shift === "Night" ? "Night" : data.shift === "Day" ? "Day" : "",
+      "ChangeoverKey": data.changeoverKey ? "'" + data.changeoverKey : ""
     };
 
     var rowData = [];
@@ -779,7 +781,8 @@ function dtNormalizeIncident_(row) {
     id: String(row.ID), date: date, time: time, hour: hour,
     line: String(row.Line == null ? '' : row.Line).trim() || 'All',
     category: String(row.Category || ''), categoryText: String(row.CategoryText || row.Category || ''),
-    notes: String(row.Notes || ''), source: String(row.Source || 'manual')
+    notes: String(row.Notes || ''), source: String(row.Source || 'manual'),
+    changeoverKey: String(row.ChangeoverKey || '').replace(/^'/, '').trim()
   };
 }
 
@@ -1216,6 +1219,8 @@ function dtSummarizeRun_() {
     var stat = {recent: 0, waiting: 0, done: 0};
     var pending = incidents.map(dtNormalizeIncident_).filter(function (inc) {
       if (!inc) return false;
+      // สาเหตุประกอบของการเปลี่ยนรุ่น: เวลาคิดจากสแกนเป็นเปลี่ยนรุ่นอยู่แล้ว ไม่ต้องให้ AI สรุปเวลาซ้ำ
+      if (inc.changeoverKey) return false;
       var ts = dtIncidentTs_(inc.date, inc.time);
       if (isNaN(ts) || ts < lookbackTs) return false;
       stat.recent++;
