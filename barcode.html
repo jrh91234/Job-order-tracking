@@ -5841,6 +5841,35 @@ function doPost(e) {
             </details>`;
         }
 
+        // ลำดับการผลิตของแผนเรียงลงทีละบรรทัด: Job → 🔄 เปลี่ยนรุ่น → Job ถัดไป
+        // การเปลี่ยนรุ่นแทรกไว้หน้า Job ที่เป็นรุ่นปลายทาง (ตามลำดับที่เกิด) ที่จับคู่ไม่ได้ต่อท้ายไว้
+        function forecastSequenceHtml(r) {
+            const cos = [...r.changeovers].sort((a, b) => a.startMs - b.startMs);
+            const used = new Set();
+            const coRow = c => `
+                <div class="flex items-center gap-1.5 pl-5 text-[11px] text-indigo-600">
+                    <span>🔄</span><span class="font-mono">${forecastHM(c.startMs)}–${forecastHM(c.endMs)}</span>
+                    <span class="text-indigo-500 truncate">เปลี่ยนรุ่น ${escapeHtml(c.fromModel)} → ${escapeHtml(c.toModel)}</span>
+                </div>`;
+            const rows = [];
+            r.jobStatus.forEach((j, i) => {
+                const prevModel = i > 0 ? r.jobStatus[i - 1].model : null;
+                if (j.model !== prevModel) {
+                    const ci = cos.findIndex((c, k) => !used.has(k) && c.toModel === j.model);
+                    if (ci !== -1) { used.add(ci); rows.push(coRow(cos[ci])); }
+                }
+                rows.push(`
+                    <div class="flex items-baseline gap-1.5 text-[11px]">
+                        <span class="w-4 text-right font-bold text-indigo-600">${i + 1}.</span>
+                        <span class="text-slate-700">${escapeHtml(j.key)}</span>
+                        <span class="text-slate-400">(${escapeHtml(j.model)})</span>
+                        <span class="ml-auto whitespace-nowrap">${forecastJobStatusText(j)}</span>
+                    </div>`);
+            });
+            cos.forEach((c, k) => { if (!used.has(k)) rows.push(coRow(c)); });
+            return `<div class="space-y-0.5 rounded-lg bg-white/60 px-2 py-1.5">${rows.join('')}</div>`;
+        }
+
         function renderForecastSummary(series) {
             const el = document.getElementById('forecast-summary');
             if (!el) return;
@@ -5888,10 +5917,7 @@ function doPost(e) {
                             </span>
                             <span class="font-mono"><span title="ยอดสแกน OK ทุก Job ของไลน์ในช่วงกะนี้ รวมยอดนอกแผน">Actual <b class="text-blue-700">${Math.round(r.shiftActual).toLocaleString()}</b></span> / ${r.rolling ? 'คาดว่าจบกะ' : 'คาดว่าได้'} <b class="text-slate-800">${Math.round(r.expectedTotal).toLocaleString()}</b> / แผน ${r.planTotal.toLocaleString()} <b class="${diffCls}">(${diff >= 0 ? '+' : ''}${diff.toLocaleString()})</b></span>
                         </div>
-                        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                            ${r.jobStatus.map((j, i) => `<span><span class="font-bold text-indigo-600">${i + 1}.</span> ${escapeHtml(j.key)} <span class="text-slate-400">(${escapeHtml(j.model)})</span> ${forecastJobStatusText(j)}</span>`).join('')}
-                        </div>
-                        ${r.changeovers.length ? `<div class="text-[11px] text-indigo-600">${r.changeovers.map(c => `🔄 ${forecastHM(c.startMs)}–${forecastHM(c.endMs)} ${escapeHtml(c.fromModel)} → ${escapeHtml(c.toModel)}`).join(' · ')}</div>` : ''}
+                        ${forecastSequenceHtml(r)}
                         <div class="text-[10px] text-slate-400">ชั่วโมงแรกเสีย ~${Math.round(r.startup.min)} นาที${r.startup.n ? ` (${r.startup.n} กะ${r.startup.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · ชั่วโมงสุดท้ายเสีย ~${Math.round(r.ending.min)} นาที${r.ending.n ? ` (${r.ending.n} กะ${r.ending.source === 'all' ? ' ทุกไลน์' : ''})` : ' (ยังไม่มีประวัติ)'} · เปลี่ยนรุ่น${r.co.source === 'fixed' ? 'กำหนด' : 'เฉลี่ย'} ${Math.round(r.co.min)} นาที/ครั้ง${r.co.n ? ` (${r.co.n} ครั้ง${r.co.source === 'all' ? ' ทุกไลน์' : ''})` : ''}${liveNote}${offPlan}</div>
                         <div class="text-[10px] text-slate-400">คาดการณ์โดยสมมติว่าผลิตรุ่นของ Job สุดท้ายต่อจนจบกะ</div>
                         ${forecastCalculationDetails(r, p.jobs, openCalculations.has(p.id))}
