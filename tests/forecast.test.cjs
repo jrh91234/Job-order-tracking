@@ -298,6 +298,8 @@ vm.runInContext(`
   function escapeHtml(s) { return String(s); }
   function forecastCalculationDetails() { return ''; }
   function forecastJobStatusText() { return ''; }
+  function forecastHM(ms) { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  ${extract('forecastSequenceHtml')}
   ${extract('renderForecastSummary')}
 `, summaryCtx);
 const summaryResult = (line, actual) => ({
@@ -309,6 +311,14 @@ summaryCtx.renderForecastSummary({ results: [summaryResult('4', 12), summaryResu
 assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">46<\/b>/);
 assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">12<\/b>/);
 assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">34<\/b>/);
+
+// ลำดับการผลิตเรียงลงทีละบรรทัด: Job → 🔄 เปลี่ยนรุ่น → Job ถัดไป
+const seqHtml = summaryCtx.forecastSequenceHtml({
+  jobStatus: [{ key: 'J1', model: 'A' }, { key: 'J2', model: 'A' }, { key: 'J3', model: 'B' }],
+  changeovers: [{ fromModel: 'A', toModel: 'B', startMs: at(D, '10:00'), endMs: at(D, '10:30') }]
+});
+const order = [...seqHtml.matchAll(/(J[123])|(🔄)/g)].map(m => m[0]);
+assert.deepEqual(order, ['J1', 'J2', '🔄', 'J3'], 'เปลี่ยนรุ่นแทรกก่อน Job ที่เป็นรุ่นปลายทาง');
 
 // ประเมินกำลังผลิตของ Job ที่เลือกก่อนเพิ่ม โดยคิดเวลาเปลี่ยนรุ่นและแผนก่อนหน้า
 planCtx.scans = [];
