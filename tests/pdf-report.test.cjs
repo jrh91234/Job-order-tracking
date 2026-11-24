@@ -51,6 +51,22 @@ assert.notEqual(doc.content[0].text, doc.content[1].text);
 assert.equal(doc.content[0].text.replace(/\s/g, ''), doc.content[1].text);
 assert.equal('reportWrap' in doc.content[0], false);
 
+// The report period counts calendar days inclusively, including month and year boundaries.
+vm.runInContext(`
+  var REPORT_LOGO_DATA_URI = '', REPORT_EFF_TARGET = 85, REPORT_EFF_WARN = 80;
+  ${['reportDateCount', 'buildReportMetaContent'].map(extract).join('\n')}
+`, ctx);
+assert.equal(ctx.reportDateCount('2026-11-01', '2026-11-23'), 23);
+assert.equal(ctx.reportDateCount('2024-02-28', '2024-03-01'), 3);
+assert.equal(ctx.reportDateCount('2026-12-31', '2027-01-01'), 2);
+assert.equal(ctx.reportDateCount('2026-11-01', ''), 1);
+assert.equal(ctx.reportDateCount('2026-11-23', '2026-11-01'), 0);
+const metaScope = { startDate: '2026-11-01', endDate: '2026-11-23', dateLabel: '1 - 23 Nov 2026', shift: '-', line: '-', job: '-', model: '-', search: '' };
+ctx.reportLang = 'en';
+assert.equal(ctx.buildReportMetaContent(metaScope)[1].table.body[0][0].text, 'Production dates: 1 - 23 Nov 2026 (23 days)');
+ctx.reportLang = 'th';
+assert.equal(ctx.buildReportMetaContent(metaScope)[1].table.body[0][0].text, 'ช่วงวันผลิต: 1 - 23 Nov 2026 (23 วัน)');
+
 // Fixed chart labels must be English even when no translation service is available.
 vm.runInContext(`
   var reportLang = 'en', PDF_CONTENT_WIDTH = 535;
