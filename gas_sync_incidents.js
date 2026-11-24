@@ -54,6 +54,7 @@ function doGet(e) {
       "GET_MANPOWER", "SAVE_MANPOWER", "DELETE_MANPOWER",
       "GET_SHIFT_TRANSFERS", "SAVE_SHIFT_TRANSFER", "DELETE_SHIFT_TRANSFER",
       "GET_FORECAST_PLANS", "SAVE_FORECAST_PLAN", "DELETE_FORECAST_PLAN",
+      "GET_JOB_NOTES", "SAVE_JOB_NOTE", "DELETE_JOB_NOTE",
       "TRANSLATE"
     ];
 
@@ -78,6 +79,7 @@ function doGet(e) {
         Manpower: rowsOf("Manpower"),
         ShiftTransfers: rowsOf("ShiftTransfers"),
         ForecastPlans: rowsOf("ForecastPlans"),
+        JobNotes: rowsOf("JobNotes"),
         IncidentDowntime: rowsOf("IncidentDowntime")
       },
       // AI สรุป Downtime: ต้องตั้ง trigger ให้ summarizeIncidentDowntimes ทุก 15 นาที และ Script property GEMINI_API_KEY
@@ -535,6 +537,45 @@ function doPost(e) {
       } else {
         fpSheet.appendRow(fpData);
       }
+      return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Saved"}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // --- JOB NOTES (เหตุผลที่ Job ค้าง พิมพ์จากป้ายสถานะ "ค้าง" บนหน้า barcode) ---
+    // 1 แถว = 1 Job · แยกจากแท็บ Incidents เพราะไม่ใช่เหตุการณ์ที่มีเวลา/ไลน์ จึงไม่ถูกนำไปคิด Downtime
+    if (action === "GET_JOB_NOTES" || action === "SAVE_JOB_NOTE" || action === "DELETE_JOB_NOTE") {
+      var jnSheet = ss.getSheetByName("JobNotes");
+      if (!jnSheet) {
+        jnSheet = ss.insertSheet("JobNotes");
+        jnSheet.appendRow(["Job", "Note", "UpdatedAt"]);
+      }
+      var jnValues = jnSheet.getDataRange().getValues();
+      if (action === "GET_JOB_NOTES") {
+        var jnList = [];
+        for (var jr = 1; jr < jnValues.length; jr++) {
+          if (!jnValues[jr][0]) continue;
+          jnList.push({ Job: String(jnValues[jr][0]), Note: String(jnValues[jr][1] || ""), UpdatedAt: String(jnValues[jr][2] || "") });
+        }
+        return ContentService.createTextOutput(JSON.stringify({result: "success", notes: jnList}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      var jnJob = String(data.job || "").trim();
+      if (!jnJob) {
+        return ContentService.createTextOutput(JSON.stringify({ result: "ignored", message: "ต้องมี job" }))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      var jnRow = -1;
+      for (var jr2 = 1; jr2 < jnValues.length; jr2++) {
+        if (String(jnValues[jr2][0]) === jnJob) { jnRow = jr2 + 1; break; }
+      }
+      if (action === "DELETE_JOB_NOTE") {
+        if (jnRow !== -1) jnSheet.deleteRow(jnRow);
+        return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Deleted"}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      var jnData = ["'" + jnJob, String(data.note || ""), "'" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")];
+      if (jnRow !== -1) jnSheet.getRange(jnRow, 1, 1, 3).setValues([jnData]);
+      else jnSheet.appendRow(jnData);
       return ContentService.createTextOutput(JSON.stringify({result: "success", message: "Saved"}))
                            .setMimeType(ContentService.MimeType.JSON);
     }
