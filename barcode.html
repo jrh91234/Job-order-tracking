@@ -1562,6 +1562,8 @@ function doPost(e) {
 
         // Data Pools
         let rawBarcodeLogs = [];      // Raw rows parsed from sheet
+        let lastBarcodeLoadSig = '';  // ลายเซ็นข้อมูลรอบก่อน ใช้ข้ามการแปลงข้อมูลเมื่อไม่มีอะไรเปลี่ยน
+        let lastBarcodeRenderMs = 0;
         let processedScans = [];      // Scan logs with mapped Production Dates & Shifts
         // แถว Status = CHANGEOVER ที่เครื่องสแกน H9 บันทึกตอนยืนยันเปลี่ยนรุ่น (ไม่ใช่ชิ้นงาน ไม่นับยอด)
         // แยกเก็บไว้ใช้ในตาราง Changeover เท่านั้น ไม่ปนกับ processedScans
@@ -1596,7 +1598,12 @@ function doPost(e) {
         // Auto Refresh
         let refreshIntervalId = null;
         let refreshSecondsLeft = 15;
-        const REFRESH_RATE = 15;
+        // โหมดทีวี (?tv=1): เบราว์เซอร์ทีวีหน่วยความจำ/CPU น้อย รีเฟรชห่างขึ้นและเก็บเฉพาะข้อมูลช่วงล่าสุด
+        const TV_MODE = (() => { try { return new URLSearchParams(location.search).get('tv') === '1'; } catch (e) { return false; } })();
+        const TV_HISTORY_DAYS = 45; // พอสำหรับ Forecast ที่ใช้ประวัติ 30 วัน
+        const REFRESH_RATE = TV_MODE ? 60 : 15;
+        refreshSecondsLeft = REFRESH_RATE;
+        const UNCHANGED_RENDER_MS = 60000; // ข้อมูลไม่เปลี่ยน: ยังวาดใหม่อย่างน้อยนาทีละครั้ง ให้สถานะไลน์หยุด/เวลาที่ผ่านไปอัปเดต
 
         // Element Lookups
         const els = {
@@ -7120,8 +7127,19 @@ function doPost(e) {
         // ==========================================
         let jobProgressTab = 'open';
 
+        // ตาราง Job Progress วาดทีละ JOB_PROGRESS_PAGE แถว (วาดทุกแถวทุกรอบรีเฟรชกิน DOM/หน่วยความจำมาก โดยเฉพาะบนทีวี)
+        const JOB_PROGRESS_PAGE = 50;
+        let jobProgressLimit = JOB_PROGRESS_PAGE;
+        let jobProgressLastQuery = '';
+
         function setJobProgressTab(tab) {
             jobProgressTab = tab;
+            jobProgressLimit = JOB_PROGRESS_PAGE;
+            renderJobProgressTable();
+        }
+
+        function showMoreJobProgress() {
+            jobProgressLimit += JOB_PROGRESS_PAGE;
             renderJobProgressTable();
         }
 
@@ -7491,6 +7509,7 @@ function doPost(e) {
             renderJobCoverage(allRows);
 
             const q = (document.getElementById('job-progress-search')?.value || '').trim().toLowerCase();
+            if (q !== jobProgressLastQuery) { jobProgressLastQuery = q; jobProgressLimit = JOB_PROGRESS_PAGE; }
             let rows = allRows.filter(r => {
                 // Job ที่กำลังผลิตอยู่แสดงทุกแท็บ ยกเว้นแท็บครบ/ปิดแล้วที่ยังดูตามสถานะเดิม
                 if (r.live && jobProgressTab !== 'done') return !q || r.job.toLowerCase().includes(q) || String(r.model).toLowerCase().includes(q);
@@ -7535,6 +7554,8 @@ function doPost(e) {
                     : '';
             }
 
+            const totalRows = rows.length;
+            rows = rows.slice(0, jobProgressLimit);
             tbody.innerHTML = rows.map(r => {
                 // Job ที่ครบ/ปิดแล้วไม่ต้องอธิบายว่าค้าง ยกเว้นยังมี Remark ที่คนเขียนไว้
                 const reason = r.done && !r.live
@@ -7587,7 +7608,12 @@ function doPost(e) {
                             ? `<button type="button" onclick="openJobNote('${escapeHtml(r.job)}')" title="กดเพื่อพิมพ์เหตุผลที่ค้าง" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold whitespace-nowrap hover:ring-2 hover:ring-indigo-200 transition ${badge.cls}">${badgeText}${jobNotes[r.job] ? ' 📝' : ' ✏️'}</button>`
                             : `<span class="inline-block px-2 py-0.5 rounded-full border text-[11px] font-bold whitespace-nowrap ${badge.cls}">${badgeText}</span>`}</td>
                     </tr>`;
-            }).join('');
+            }).join('') + (totalRows > rows.length ? `
+                    <tr><td colspan="11" class="p-3 text-center">
+                        <button type="button" onclick="showMoreJobProgress()" class="px-4 py-1.5 rounded-lg text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100">
+                            แสดงเพิ่มอีก ${Math.min(JOB_PROGRESS_PAGE, totalRows - rows.length)} แถว (แสดง ${rows.length.toLocaleString()} จาก ${totalRows.toLocaleString()})
+                        </button>
+                    </td></tr>` : '');
         }
 
         function renderShiftTransferTable() {
@@ -8975,6 +9001,20 @@ function doPost(e) {
                     });
                 }
 
+                // ข้อมูลเหมือนรอบก่อน (รอบ Auto Refresh): ไม่ต้องแปลงข้อมูลใหม่ ซึ่งกินหน่วยความจำ/CPU มากที่สุด
+                // แต่ยังวาดใหม่นาทีละครั้ง เพราะสถานะ "ไลน์หยุด" และเวลาที่ผ่านไปขึ้นกับเวลาปัจจุบัน
+                const loadSig = [barcodeText.length, barcodeText.slice(-300), capacityText.length, planText.length, groupText.length, (incidentText || '').length].join('|');
+                if (isSilent && loadSig === lastBarcodeLoadSig && processedScans.length > 0) {
+                    els.lastUpdated.textContent = `สด: ${new Date().toLocaleTimeString()}${TV_MODE ? ' · โหมดทีวี' : ''}`;
+                    try {
+                        if (Date.now() - lastBarcodeRenderMs >= UNCHANGED_RENDER_MS) { lastBarcodeRenderMs = Date.now(); applyFilters(); }
+                    } finally {
+                        finishLoad();
+                    }
+                    return;
+                }
+                lastBarcodeLoadSig = loadSig;
+
                 // Parse capacity data
                 Papa.parse(capacityText, {
                     header: false,
@@ -8983,19 +9023,31 @@ function doPost(e) {
                         parseCapacitySheet(capResults.data);
 
                         // Parse barcode data
+                        // โหมดทีวี: คัดแถวเก่ากว่า TV_HISTORY_DAYS ทิ้งระหว่างแปลงทีละแถว (step) ไม่เก็บทั้งชีตไว้ในหน่วยความจำ
+                        const tvRows = [];
+                        const tvCutoffTs = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - TV_HISTORY_DAYS - 1); return d.getTime(); })();
+                        const keepTvRow = row => {
+                            const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(row['Date/Time'] || '').trim());
+                            if (!m) return true; // แถวหัวหรือรูปแบบแปลก ให้ parseRawLogs ตัดสินเอง
+                            return new Date(Number(m[3]) - 543, Number(m[2]) - 1, Number(m[1])).getTime() >= tvCutoffTs;
+                        };
                         Papa.parse(barcodeText, {
                             header: true,
                             skipEmptyLines: true,
+                            step: TV_MODE ? (r => { if (keepTvRow(r.data)) tvRows.push(r.data); }) : undefined,
                             complete: function(results) {
-                                rawBarcodeLogs = results.data;
+                                rawBarcodeLogs = TV_MODE ? tvRows : results.data;
                                 isDemoMode = false;
                                 
                                 // Set Last Updated time
                                 const now = new Date();
-                                els.lastUpdated.textContent = `สด: ${now.toLocaleTimeString()}`;
+                                lastBarcodeRenderMs = Date.now();
+                                els.lastUpdated.textContent = `สด: ${now.toLocaleTimeString()}${TV_MODE ? ` · โหมดทีวี (${TV_HISTORY_DAYS} วันล่าสุด)` : ''}`;
                                 els.lastUpdated.classList.remove('hidden');
 
                                 parseRawLogs();
+                                // โหมดทีวี: แปลงเสร็จแล้วไม่ต้องเก็บแถวดิบไว้ (รอบหน้าโหลดใหม่ทั้งหมดอยู่แล้ว)
+                                if (TV_MODE) rawBarcodeLogs = [];
                                 
                                 // Restore saved filter states
                                 // คงวันที่เดิมที่ผู้ใช้เลือกไว้เสมอ (แม้วันนั้นจะยังไม่มียอดแสกน)
