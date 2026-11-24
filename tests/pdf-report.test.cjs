@@ -76,6 +76,28 @@ charts = ctx.buildReportChartsContent();
 assert.equal(charts[5].table.body[1][0].text, 'ไม่ระบุกรุ๊ป');
 assert.match(charts[3].table.body[0][0].text, /รายสัปดาห์/);
 
+// Job status describes work in progress, rather than production capacity.
+vm.runInContext(`
+  var PDF_TABLE_LAYOUT = {};
+  var planJobs = [{ job: 'J1', model: 'A', plan: 100, actual: 20, remaining: 80, progress: 20, closed: false }];
+  filteredScans = [{ status: 'OK', jobOrder: 'J1', qty: 20 }];
+  function pdfHeaderCell(text) { return { text }; }
+  function pdfTotalCell(text) { return { text }; }
+  function getIncidentsInRange() { return []; }
+  function getIncidentsForLine() { return []; }
+  function describeJobPendingReason() { return { text: '-', tone: 'text' }; }
+  function summarizeIncidentCategories() { return ''; }
+  ${extract('buildReportJobStatusContent')}
+`, ctx);
+const reportScope = { startDate: '2026-12-28', endDate: '2026-12-28', lineValue: 'All', shiftValue: 'All' };
+ctx.reportLang = 'en';
+let jobReport = ctx.buildReportJobStatusContent(reportScope);
+assert.equal(jobReport[1].table.body[1][7].text, 'Ongoing');
+assert.match(jobReport[2].text, /Ongoing = scans during the report period/);
+ctx.reportLang = 'th';
+jobReport = ctx.buildReportJobStatusContent(reportScope);
+assert.equal(jobReport[1].table.body[1][7].text, 'กำลังผลิต');
+
 // Reject stale or returned Thai translations and try the fallback before reporting failure.
 vm.runInContext(`
   var THAI_CHAR_RE = /[\\u0E00-\\u0E7F]/, appsScriptUrl = 'configured';
