@@ -9699,12 +9699,11 @@ function doPost(e) {
                 ...pdfHeading('สรุปตัวชี้วัดหลัก (KPI Summary)'),
                 {
                     table: {
-                        widths: ['*', '*', '*', '*', '*'],
+                        widths: ['*', '*', '*', '*'],
                         body: [[
                             card('ยอดสแกนสะสม', els.kpiTotalScans.textContent, '#4338ca', 'ชิ้น (PCS)'),
                             card('ความเร็วเฉลี่ย', els.kpiAvgSpeed.textContent, PDF_COLOR.good, 'ชิ้น / ชั่วโมง'),
                             card('รุ่นสินค้าที่สแกน', els.kpiActiveModels.textContent, PDF_COLOR.warn, 'โมเดล'),
-                            card('เวลาสแกนล่าสุด', kpiLastScanOverallText, '#334155', kpiLastScanOverallElapsed),
                             card('ประสิทธิภาพผลิต', eff === null ? '-' : eff + '%', rptEffColor(eff), `เป้าหมาย ${REPORT_EFF_TARGET}%`)
                         ]]
                     },
