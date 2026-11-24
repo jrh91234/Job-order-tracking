@@ -98,6 +98,41 @@ ctx.reportLang = 'th';
 jobReport = ctx.buildReportJobStatusContent(reportScope);
 assert.equal(jobReport[1].table.body[1][7].text, 'กำลังผลิต');
 
+// Average total staffing is weighted by hours with recorded manpower, while output uses all production hours.
+vm.runInContext(`
+  var manpowerTestRows = [];
+  function eachDateInRange() { return ['2026-12-28']; }
+  function computeManpowerRows() { return manpowerTestRows; }
+  function formatThaiDate(d) { return d; }
+  ${extract('summarizeManpowerByLine')}
+  ${extract('buildReportManpowerContent')}
+`, ctx);
+ctx.manpowerTestRows = [
+  { date: '2026-12-28', shift: 'Day', line: '4', qty: 300, activeHours: 10, normalHours: 8, otHours: 2,
+    totalPeople: 12, otTotalPeople: 7, assembler: 10, feeder: 1, leader: 1, otAssembler: 5, otFeeder: 1, otLeader: 1, hasManpower: true, perHead: 1 },
+  { date: '2026-12-28', shift: 'Night', line: '4', qty: 100, activeHours: 5, normalHours: 5, otHours: 0,
+    totalPeople: 0, otTotalPeople: 0, assembler: 0, hasManpower: false, perHead: 0 },
+  { date: '2026-12-28', shift: 'Day', line: '5', qty: 90, activeHours: 9, normalHours: 8, otHours: 1,
+    totalPeople: 10, otTotalPeople: 0, assembler: 8, hasManpower: true, perHead: 1 }
+];
+let summary = ctx.summarizeManpowerByLine(ctx.manpowerTestRows);
+assert.equal(summary[0].personHours, 110);
+assert.equal(summary[0].staffedHours, 10);
+assert.equal(summary[0].hours, 15);
+assert.equal(summary[0].qty / summary[0].hours, 400 / 15);
+assert.equal(summary[1].personHours, 90, 'missing OT headcount falls back to normal staffing');
+ctx.reportLang = 'en';
+let manpowerReport = ctx.buildReportManpowerContent(reportScope);
+assert.equal(manpowerReport[2].table.body[1][1].text, '11.0');
+assert.equal(manpowerReport[2].table.body[1][2].text, '26.7');
+assert.equal(manpowerReport[2].table.body[1][3].text, '10.0 / 15.0');
+assert.equal(manpowerReport[5].table.body[1][1].text, 'Day');
+assert.equal(manpowerReport[5].table.body[2][1].text, 'Night');
+ctx.reportLang = 'th';
+manpowerReport = ctx.buildReportManpowerContent(reportScope);
+assert.equal(manpowerReport[5].table.body[1][1].text, 'เช้า');
+assert.equal(manpowerReport[5].table.body[2][1].text, 'ดึก');
+
 // Reject stale or returned Thai translations and try the fallback before reporting failure.
 vm.runInContext(`
   var THAI_CHAR_RE = /[\\u0E00-\\u0E7F]/, appsScriptUrl = 'configured';
