@@ -9492,12 +9492,13 @@ function doPost(e) {
         }
 
         function pdfNote(text) {
-            return { text: pdfText(text), fontSize: 7, color: PDF_COLOR.sub, margin: [0, 3, 0, 0] };
+            return { text: pdfText(text), reportWrap: true, fontSize: 7, color: PDF_COLOR.sub, margin: [0, 3, 0, 0] };
         }
 
         function pdfHeaderCell(label, alignment) {
             return {
                 text: pdfText(label),
+                reportWrap: true,
                 bold: true,
                 fontSize: 7.5,
                 color: PDF_COLOR.headText,
@@ -9509,6 +9510,7 @@ function doPost(e) {
         function pdfCell(value, alignment, color, bold) {
             return {
                 text: pdfText(value),
+                reportWrap: true,
                 fontSize: 7.5,
                 alignment: alignment || 'left',
                 color: color || PDF_COLOR.text,
@@ -9519,6 +9521,7 @@ function doPost(e) {
         function pdfTotalCell(value, alignment, color) {
             return {
                 text: pdfText(value),
+                reportWrap: true,
                 fontSize: 7.5,
                 bold: true,
                 alignment: alignment || 'left',
@@ -9671,22 +9674,69 @@ function doPost(e) {
             ];
         }
 
+        // สัปดาห์เริ่มวันจันทร์ ใช้วันผลิตและ UTC เพื่อไม่ให้ข้ามสัปดาห์ตาม timezone ของเครื่อง
+        function reportWeekStart(date) {
+            const [year, month, day] = String(date).split('-').map(Number);
+            const d = new Date(Date.UTC(year, month - 1, day));
+            if (!Number.isFinite(d.getTime())) return '';
+            d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function reportChartData(scans) {
+            const weeks = new Map(), models = new Map(), groups = new Map();
+            const add = (map, key, qty) => map.set(key, (map.get(key) || 0) + qty);
+            scans.forEach(s => {
+                if (String(s.status || '').toUpperCase() !== 'OK') return;
+                const qty = s.qty || 1;
+                const week = reportWeekStart(s.prodDate);
+                if (week) add(weeks, week, qty);
+                add(models, s.model || '-', qty);
+                add(groups, getScanGroup(s), qty);
+            });
+            const byQty = map => [...map].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+            return { weeks: [...weeks].sort((a, b) => a[0].localeCompare(b[0])), models: byQty(models), groups: byQty(groups) };
+        }
+
+        // แต่ละแท่งเป็นแถวในตาราง จึงแบ่งข้ามหน้าได้และไม่ตัดกราฟเมื่อมีรุ่นจำนวนมาก
+        function reportBarChart(title, rows, colorFor, showShare) {
+            if (!rows.length) return null;
+            const max = Math.max(...rows.map(row => row[1]), 1);
+            const total = rows.reduce((sum, row) => sum + row[1], 0);
+            const body = [[{ text: title, colSpan: 3, bold: true, fontSize: 8, color: PDF_COLOR.sub }, {}, {}]];
+            rows.forEach(([label, qty]) => body.push([
+                pdfCell(label),
+                { canvas: [{ type: 'rect', x: 0, y: 1, w: Math.max(1, qty / max * 275), h: 8, color: colorFor(label) }] },
+                pdfCell(`${qty.toLocaleString()} PCS${showShare && total ? ` (${(qty / total * 100).toFixed(1)}%)` : ''}`, 'right')
+            ]));
+            return {
+                table: { headerRows: 1, keepWithHeaderRows: 1, widths: [125, 275, 100], body },
+                layout: { hLineWidth: () => 0, vLineWidth: () => 0, paddingLeft: () => 5, paddingRight: () => 5, paddingTop: () => 2, paddingBottom: () => 2 },
+                margin: [0, 0, 0, 8]
+            };
+        }
+
         function buildReportChartsContent() {
             const blocks = [];
 
             if (hourlyChartObj) {
                 blocks.push(
                     { text: 'แนวโน้มการสแกนรายชั่วโมง (PCS/Hour) เทียบเส้นเป้าหมาย', fontSize: 8, bold: true, color: PDF_COLOR.sub, margin: [0, 0, 0, 3] },
-                    { image: hourlyChartObj.toBase64Image('image/png', 1), width: PDF_CONTENT_WIDTH, margin: [0, 0, 0, 10] }
+                    { image: hourlyChartObj.toBase64Image('image/png', 1), fit: [PDF_CONTENT_WIDTH, 290], margin: [0, 0, 0, 10] }
                 );
             }
 
-            if (modelChartObj) {
-                blocks.push(
-                    { text: 'สัดส่วนและยอดผลิตแยกรายรุ่น (PCS)', fontSize: 8, bold: true, color: PDF_COLOR.sub, margin: [0, 0, 0, 3] },
-                    { image: modelChartObj.toBase64Image('image/png', 1), width: PDF_CONTENT_WIDTH }
-                );
-            }
+            const data = reportChartData(filteredScans);
+            const weekly = data.weeks.map(([start, qty]) => {
+                const end = new Date(start + 'T00:00:00Z');
+                end.setUTCDate(end.getUTCDate() + 6);
+                return [`${formatThaiDate(start)} – ${formatThaiDate(end.toISOString().slice(0, 10))}`, qty];
+            });
+            const weekChart = reportBarChart('ยอดผลิตรายสัปดาห์ (PCS) · จันทร์–อาทิตย์', weekly, () => '#4f46e5', false);
+            if (weekChart) blocks.push(weekChart, pdfNote('ยอดรวมเฉพาะวันที่และตัวกรองที่เลือก สัปดาห์แรกหรือสุดท้ายอาจมีข้อมูลไม่ครบสัปดาห์ แสดงเฉพาะสัปดาห์ที่มียอดผลิต'));
+            const groupChart = reportBarChart('สัดส่วนและยอดผลิตแยกตามกลุ่มรุ่น (PCS)', data.groups, getGroupColor, true);
+            const modelChart = reportBarChart('สัดส่วนและยอดผลิตแยกรายรุ่น (PCS)', data.models, () => '#6366f1', true);
+            blocks.push(...[groupChart, modelChart].filter(Boolean));
 
             if (blocks.length === 0) return [];
             return [...pdfHeading('กราฟภาพรวมการผลิต'), ...blocks];
@@ -10133,7 +10183,7 @@ function doPost(e) {
             return [
                 ...heading,
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [88, 78, 40, 44, 40, 40, '*', 50], body: body },
+                    table: { headerRows: 1, widths: [78, 65, 35, 35, 35, 34, '*', 42], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน · ' +
@@ -10237,7 +10287,7 @@ function doPost(e) {
             return [
                 ...pdfHeading('กำลังคนรายไลน์ (Manpower)'),
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [56, 32, 44, 44, 44, 44, 44, 58, 44, '*'], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: [48, 27, 32, 37, 37, 37, 37, 50, 45, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('PCS/คน/ชม. = ยอดสแกน ÷ (พนักงานประกอบช่วงปกติ × ชม.ปกติ + พนักงานประกอบช่วง OT × ชม. OT) · ' +
@@ -10311,7 +10361,7 @@ function doPost(e) {
                 ...heading,
                 ...buildReportIncidentDowntimeSummary(scope),
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: [46, 42, 32, 58, 72, 70, 38, 44, '*'], body: body },
+                    table: { headerRows: 1, widths: [43, 36, 30, 48, 60, 56, 35, 40, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote(`รวมทั้งหมด ${incidents.length.toLocaleString()} เหตุการณ์`)
@@ -10719,6 +10769,29 @@ function doPost(e) {
             return node;
         }
 
+        // ฟอนต์ subset ไม่มีอักขระ zero-width space จึงใช้ช่องว่างคั่นคำเพื่อให้ pdfmake ตัดบรรทัดได้
+        function wrapReportText(text) {
+            const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter
+                ? new Intl.Segmenter('th', { granularity: 'word' }) : null;
+            return String(text)
+                .replace(/[\u0E00-\u0E7F]+/g, run => segmenter
+                    ? Array.from(segmenter.segment(run), part => part.segment).join(' ')
+                    : Array.from(run).join(' '))
+                .replace(/([^\s]{18})(?=[^\s])/gu, '$1 ');
+        }
+
+        function wrapReportCells(node) {
+            if (Array.isArray(node)) return node.forEach(wrapReportCells);
+            if (!node || typeof node !== 'object') return;
+            if (node.reportWrap) {
+                if (typeof node.text === 'string') node.text = wrapReportText(node.text);
+                delete node.reportWrap;
+            }
+            Object.keys(node).forEach(key => {
+                if (key !== 'image' && key !== 'canvas' && key !== 'svg') wrapReportCells(node[key]);
+            });
+        }
+
         // คืนจำนวนข้อความที่แปลไม่สำเร็จ (ยังเป็นภาษาไทยในเอกสาร)
         async function translateReportDocToEnglish(doc) {
             const pending = new Set();
@@ -10813,6 +10886,7 @@ function doPost(e) {
                     Swal.update({ title: 'Translating to English...', text: 'กำลังแปลหัวข้อและบันทึกเหตุการณ์เป็นภาษาอังกฤษ' });
                     untranslated = await translateReportDocToEnglish(doc);
                 }
+                wrapReportCells(doc.content);
                 await ensurePdfEngine();
                 await new Promise((resolve, reject) => {
                     try {
