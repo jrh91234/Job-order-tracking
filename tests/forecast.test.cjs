@@ -254,6 +254,7 @@ const plan = { date: D, shift: 'Day', line: '4', jobs: [
 let forecast = planCtx.computePlanForecast(plan, at(D, '08:00'));
 assert.equal(forecast.planTotal, 40);
 assert.equal(forecast.shiftActual, 0, 'ก่อนเริ่มกะยังไม่มียอดจริง');
+assert.equal(forecast.jobStatus[0].actual, 0);
 assert.equal(forecast.expectedTotal, 80, 'คาดการณ์เต็มกะเกินยอดแผนได้');
 assert.equal(forecast.jobStatus[1].finishMs, at(D, '09:20'));
 assert.equal(forecast.byHour[at(D, '09:00')], 50, 'กราฟรวมยอดเกินแผน');
@@ -279,15 +280,23 @@ planCtx.scans = [
   { ts: at(D, '09:59'), qty: 7, jobOrder: 'J2', model: 'B' },
   { ts: at(D, '10:00'), qty: 100, jobOrder: 'NEXT', model: 'B' }
 ];
-assert.equal(planCtx.computePlanForecast(plan, at(D, '09:45')).shiftActual, 57, 'ไม่นับข้อมูลหลังเวลาปัจจุบัน');
-assert.equal(planCtx.computePlanForecast(plan, at(D, '10:00')).shiftActual, 64, 'กะจบแล้วยังแสดงยอด และไม่นับยอดเริ่มกะถัดไป');
+forecast = planCtx.computePlanForecast(plan, at(D, '09:45'));
+assert.equal(forecast.shiftActual, 57, 'ไม่นับข้อมูลหลังเวลาปัจจุบัน');
+assert.equal(forecast.jobStatus[0].actual, 37);
+assert.equal(forecast.jobStatus[1].actual, 15);
+forecast = planCtx.computePlanForecast(plan, at(D, '10:00'));
+assert.equal(forecast.shiftActual, 64, 'กะจบแล้วยังแสดงยอด และไม่นับยอดเริ่มกะถัดไป');
+assert.equal(forecast.jobStatus[0].actual, 37);
+assert.equal(forecast.jobStatus[1].actual, 22);
 planCtx.forecastShiftWindow = () => ({ startMs: at(D, '20:00'), endMs: at('2026-11-21', '05:00') });
 planCtx.scans = [
   { ts: at(D, '20:30'), qty: 10, jobOrder: 'J1', model: 'A' },
   { ts: at('2026-11-21', '00:30'), qty: 20, jobOrder: 'J2', model: 'B' },
   { ts: at('2026-11-21', '05:00'), qty: 100, jobOrder: 'NEXT', model: 'B' }
 ];
-assert.equal(planCtx.computePlanForecast({ ...plan, shift: 'Night' }, at('2026-11-21', '06:00')).shiftActual, 30, 'กะดึกนับข้ามวัน');
+forecast = planCtx.computePlanForecast({ ...plan, shift: 'Night' }, at('2026-11-21', '06:00'));
+assert.equal(forecast.shiftActual, 30, 'กะดึกนับข้ามวัน');
+assert.equal(forecast.jobStatus[1].actual, 20);
 planCtx.forecastShiftWindow = () => ({ startMs: at(D, '08:00'), endMs: at(D, '10:00') });
 
 // ยอดจริงแสดงทั้งบรรทัดรวมและในการ์ดแต่ละแผน
@@ -314,14 +323,14 @@ assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">34<\/b>/);
 
 // ลำดับการผลิตเรียงลงทีละบรรทัด: Job → 🔄 เปลี่ยนรุ่น → Job ถัดไป
 const seqHtml = summaryCtx.forecastSequenceHtml({
-  jobStatus: [{ key: 'J1', model: 'A', qty: 1200 }, { key: 'J2', model: 'A', qty: 0 }, { key: 'J3', model: 'B', qty: 42 }],
+  jobStatus: [{ key: 'J1', model: 'A', actual: 1050, qty: 1200 }, { key: 'J2', model: 'A', actual: 0, qty: 0 }, { key: 'J3', model: 'B', actual: 50, qty: 42 }],
   changeovers: [{ fromModel: 'A', toModel: 'B', startMs: at(D, '10:00'), endMs: at(D, '10:30') }]
 });
 const order = [...seqHtml.matchAll(/(J[123])|(🔄)/g)].map(m => m[0]);
 assert.deepEqual(order, ['J1', 'J2', '🔄', 'J3'], 'เปลี่ยนรุ่นแทรกก่อน Job ที่เป็นรุ่นปลายทาง');
-assert.match(seqHtml, /แผน <b class="font-mono text-slate-700">1,200<\/b> ชิ้น/);
-assert.match(seqHtml, /แผน <b class="font-mono text-slate-700">0<\/b> ชิ้น/);
-assert.match(seqHtml, /แผน <b class="font-mono text-slate-700">42<\/b> ชิ้น/);
+assert.match(seqHtml, /Actual \/ Plan <b class="font-mono text-slate-700">1,050 \/ 1,200<\/b> ชิ้น/);
+assert.match(seqHtml, /Actual \/ Plan <b class="font-mono text-slate-700">0 \/ 0<\/b> ชิ้น/);
+assert.match(seqHtml, /Actual \/ Plan <b class="font-mono text-slate-700">50 \/ 42<\/b> ชิ้น/);
 
 // ประเมินกำลังผลิตของ Job ที่เลือกก่อนเพิ่ม โดยคิดเวลาเปลี่ยนรุ่นและแผนก่อนหน้า
 planCtx.scans = [];
