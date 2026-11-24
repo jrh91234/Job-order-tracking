@@ -9324,7 +9324,9 @@ function doPost(e) {
                 line: getSelectedLabel(els.filterLine, 'ทุก Line'),
                 lineValue: els.filterLine ? els.filterLine.value : 'All',
                 job: getSelectedLabel(els.filterJob, 'ทุก Job Order'),
+                jobValue: els.filterJob ? els.filterJob.value : 'All',
                 model: getSelectedLabel(els.filterModel, 'ทุกรุ่นสินค้า'),
+                modelValue: els.filterModel ? els.filterModel.value : 'All',
                 search: els.tableSearch ? els.tableSearch.value.trim() : '',
                 okScanCount: filteredScans
                     .filter(s => s.status.toUpperCase() === 'OK')
@@ -10496,9 +10498,62 @@ function doPost(e) {
             ];
         }
 
-        // สรุปตามไลน์และสาเหตุจาก records ชุดเดียวกับยอดรวม รวมการเปลี่ยนรุ่นที่วัดจากสแกน
-        function buildReportLineDowntimeContent(data) {
+        function reportDowntimeComparisonAllowed(scope) {
+            return (!scope.jobValue || scope.jobValue === 'All') && (!scope.modelValue || scope.modelValue === 'All');
+        }
+
+        function reportDowntimePercent(minutes, productionHours, allowed) {
+            return allowed && productionHours > 0 ? minutes / (productionHours * 60) * 100 : null;
+        }
+
+        function reportDowntimePercentText(value) {
+            return value === null ? '-' : `${value.toFixed(1)}%`;
+        }
+
+        // กราฟแท่งใช้สเกลเดียวกันทั้งยอดรวมและแต่ละสาเหตุ โดยไม่จำกัดค่าที่ 100%
+        function buildReportDowntimeComparison(scope, data, production) {
             const en = reportLang === 'en';
+            const allowed = reportDowntimeComparisonAllowed(scope);
+            const totalPct = reportDowntimePercent(data.totalLostMin, production.total, allowed);
+            const rows = [[pdfHeaderCell(en ? 'Production (line-hours)' : 'ชั่วโมงผลิตรวม'),
+                pdfHeaderCell(en ? 'Downtime (hours)' : 'Downtime (ชั่วโมง)', 'right'),
+                pdfHeaderCell(en ? 'Downtime / production' : 'Downtime / ชั่วโมงผลิต', 'right')],
+                [pdfCell(production.total.toFixed(1)), pdfCell((data.totalLostMin / 60).toFixed(1), 'right'),
+                    pdfCell(reportDowntimePercentText(totalPct), 'right')]];
+            const blocks = [
+                { text: en ? 'Downtime compared with production hours' : 'เปรียบเทียบ Downtime กับชั่วโมงผลิต', fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] },
+                { table: { headerRows: 1, keepWithHeaderRows: 1, widths: ['*', 130, 150], body: rows }, layout: PDF_TABLE_LAYOUT }
+            ];
+            if (totalPct !== null && data.byCategory.length) {
+                const values = [[en ? 'Total downtime' : 'Downtime รวม', totalPct], ...data.byCategory.map(g =>
+                    [g.categoryText, reportDowntimePercent(g.lostMin, production.total, true)])];
+                const max = Math.max(100, ...values.map(v => v[1]));
+                const body = [[{ text: en ? 'Downtime as % of production hours' : 'Downtime เทียบชั่วโมงผลิต (%)', colSpan: 3, bold: true, fontSize: 8, color: PDF_COLOR.sub }, {}, {}]];
+                values.forEach(([label, pct], i) => body.push([
+                    pdfCell(label),
+                    pct > 0 ? { canvas: [{ type: 'rect', x: 0, y: 1, w: pct / max * 245, h: 8, color: i ? '#6366f1' : '#be123c' }] } : { text: '' },
+                    pdfCell(reportDowntimePercentText(pct), 'right')
+                ]));
+                blocks.push({ table: { headerRows: 1, keepWithHeaderRows: 1, widths: [160, 245, 90], body },
+                    layout: { hLineWidth: () => 0, vLineWidth: () => 0, paddingLeft: () => 5, paddingRight: () => 5, paddingTop: () => 2, paddingBottom: () => 2 }, margin: [0, 6, 0, 0] });
+            }
+            blocks.push(pdfNote(!allowed
+                ? (en ? 'Percentages are unavailable when a Job or model filter is selected: production hours are filtered, but downtime covers the entire line and shift. Select all Jobs and models to compare.'
+                    : 'ไม่แสดงร้อยละเมื่อกรอง Job หรือรุ่น เพราะชั่วโมงผลิตถูกกรอง แต่ Downtime ครอบคลุมทั้งไลน์และกะ เลือกทุก Job และทุกรุ่นเพื่อเปรียบเทียบ')
+                : production.total <= 0
+                    ? (en ? 'No production hours are available for this selection, so percentages cannot be calculated.' : 'ไม่มีชั่วโมงผลิตในช่วงที่เลือก จึงไม่สามารถคำนวณร้อยละได้')
+                    : (en ? 'Percentage = downtime ÷ production hours × 100. Production hours count line-hours containing OK scans, less breaks; downtime is estimated from stops. The periods can overlap, so this is a comparison, not a share of a fixed time budget, and may exceed 100%.'
+                        : 'ร้อยละ = Downtime ÷ ชั่วโมงผลิต × 100 โดยชั่วโมงผลิตนับชั่วโมงไลน์ที่มีสแกน OK หลังหักพัก ส่วน Downtime ประเมินจากช่วงหยุด เวลาอาจซ้อนกัน จึงเป็นการเปรียบเทียบและอาจเกิน 100%')));
+            return blocks;
+        }
+
+        // สรุปตามไลน์และสาเหตุจาก records ชุดเดียวกับยอดรวม รวมการเปลี่ยนรุ่นที่วัดจากสแกน
+        function buildReportLineDowntimeContent(data, scope, production) {
+            const en = reportLang === 'en';
+            scope = scope || {};
+            production = production || summarizeReportProductionHours(filteredScans);
+            const allowed = reportDowntimeComparisonAllowed(scope);
+            const lineHours = new Map(production.byLine.map(h => [String(h.line), h.total]));
             const groups = [...data.byLineCategory].sort((a, b) =>
                 String(a.line).localeCompare(String(b.line), undefined, { numeric: true }) || b.lostMin - a.lostMin);
             const lineSet = new Set(groups.map(g => String(g.line)));
@@ -10510,23 +10565,30 @@ function doPost(e) {
             if (groups.length) {
                 const body = [[pdfHeaderCell(en ? 'Line' : 'ไลน์'), pdfHeaderCell(en ? 'Cause' : 'สาเหตุ'),
                     pdfHeaderCell(en ? 'Count' : 'จำนวนครั้ง', 'right'), pdfHeaderCell(en ? 'Downtime (min)' : 'Downtime (นาที)', 'right'),
-                    pdfHeaderCell(en ? 'Hours' : 'ชั่วโมง', 'right')]];
+                    pdfHeaderCell(en ? 'Hours' : 'ชั่วโมง', 'right'),
+                    pdfHeaderCell(en ? 'Production hours' : 'ชั่วโมงผลิต', 'right'),
+                    pdfHeaderCell(en ? '% of production' : '% เทียบผลิต', 'right')]];
                 lines.forEach(line => {
                     const entries = groups.filter(g => String(g.line) === line);
+                    const baseHours = lineHours.get(line) || 0;
                     entries.forEach(g => body.push([
                         pdfCell(line), pdfCell(g.categoryText), pdfCell(g.count.toLocaleString(), 'right'),
-                        pdfCell(Math.round(g.lostMin).toLocaleString(), 'right'), pdfCell((g.lostMin / 60).toFixed(1), 'right')
+                        pdfCell(Math.round(g.lostMin).toLocaleString(), 'right'), pdfCell((g.lostMin / 60).toFixed(1), 'right'),
+                        pdfCell(baseHours > 0 ? baseHours.toFixed(1) : '-', 'right'),
+                        pdfCell(reportDowntimePercentText(reportDowntimePercent(g.lostMin, baseHours, allowed)), 'right')
                     ]));
                     if (entries.length) {
                         const minutes = entries.reduce((sum, g) => sum + g.lostMin, 0);
                         body.push([pdfTotalCell(en ? `Line ${line} total` : `รวมไลน์ ${line}`), pdfTotalCell(''),
                             pdfTotalCell(entries.reduce((sum, g) => sum + g.count, 0).toLocaleString(), 'right'),
-                            pdfTotalCell(Math.round(minutes).toLocaleString(), 'right'), pdfTotalCell((minutes / 60).toFixed(1), 'right')]);
+                            pdfTotalCell(Math.round(minutes).toLocaleString(), 'right'), pdfTotalCell((minutes / 60).toFixed(1), 'right'),
+                            pdfTotalCell(baseHours > 0 ? baseHours.toFixed(1) : '-', 'right'),
+                            pdfTotalCell(reportDowntimePercentText(reportDowntimePercent(minutes, baseHours, allowed)), 'right')]);
                     }
                 });
                 blocks.push(
                     { text: en ? 'Downtime by line and cause' : 'Downtime แยกตามไลน์และสาเหตุ', fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] },
-                    { table: { headerRows: 1, keepWithHeaderRows: 1, widths: [70, '*', 65, 105, 70], body }, layout: PDF_TABLE_LAYOUT }
+                    { table: { headerRows: 1, keepWithHeaderRows: 1, widths: [46, '*', 36, 70, 45, 60, 70], body }, layout: PDF_TABLE_LAYOUT }
                 );
             }
             if (lines.length) {
@@ -10552,15 +10614,21 @@ function doPost(e) {
         // ตารางสรุป Downtime รายสาเหตุ วางไว้หัวหัวข้อบันทึกเหตุการณ์ ใช้ตัวเลขชุดเดียวกับการ์ดบนหน้าจอ
         function buildReportIncidentDowntimeSummary(scope, suppliedData) {
             const data = suppliedData || computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
-            if (data.byCategory.length === 0) return buildReportLineDowntimeContent(data);
+            const production = summarizeReportProductionHours(filteredScans);
+            const allowed = reportDowntimeComparisonAllowed(scope);
+            if (data.byCategory.length === 0) return [
+                ...buildReportDowntimeComparison(scope, data, production),
+                ...buildReportLineDowntimeContent(data, scope, production)
+            ];
 
             const body = [[
                 pdfHeaderCell('สาเหตุ'),
                 pdfHeaderCell('จำนวนครั้ง', 'right'),
                 pdfHeaderCell('Downtime (นาที)', 'right'),
                 pdfHeaderCell('ชั่วโมง', 'right'),
-                pdfHeaderCell('สัดส่วน', 'right'),
-                pdfHeaderCell('เฉลี่ย/ครั้ง (นาที)', 'right')
+                pdfHeaderCell(reportLang === 'en' ? 'Share of downtime' : 'สัดส่วน Downtime', 'right'),
+                pdfHeaderCell('เฉลี่ย/ครั้ง (นาที)', 'right'),
+                pdfHeaderCell(reportLang === 'en' ? '% of production' : '% เทียบผลิต', 'right')
             ]];
             data.byCategory.forEach(g => {
                 const share = data.totalLostMin > 0 ? (g.lostMin / data.totalLostMin) * 100 : 0;
@@ -10570,7 +10638,8 @@ function doPost(e) {
                     pdfCell(Math.round(g.lostMin).toLocaleString(), 'right', g.lostMin > 0 ? PDF_COLOR.bad : PDF_COLOR.text, true),
                     pdfCell((g.lostMin / 60).toFixed(1), 'right'),
                     pdfCell(share.toFixed(1) + '%', 'right'),
-                    pdfCell(Math.round(g.lostMin / g.count).toLocaleString(), 'right')
+                    pdfCell(Math.round(g.lostMin / g.count).toLocaleString(), 'right'),
+                    pdfCell(reportDowntimePercentText(reportDowntimePercent(g.lostMin, production.total, allowed)), 'right')
                 ]);
             });
             const totalCount = data.byCategory.reduce((s, g) => s + g.count, 0);
@@ -10579,14 +10648,15 @@ function doPost(e) {
                 pdfTotalCell(totalCount.toLocaleString(), 'right'),
                 pdfTotalCell(Math.round(data.totalLostMin).toLocaleString(), 'right', PDF_COLOR.bad),
                 pdfTotalCell((data.totalLostMin / 60).toFixed(1), 'right'),
-                pdfTotalCell('100%', 'right'),
-                pdfTotalCell('', 'right')
+                pdfTotalCell(data.totalLostMin > 0 ? '100%' : '-', 'right'),
+                pdfTotalCell('', 'right'),
+                pdfTotalCell(reportDowntimePercentText(reportDowntimePercent(data.totalLostMin, production.total, allowed)), 'right')
             ]);
 
             return [
                 { text: pdfText('สรุป Downtime ตามสาเหตุที่แจ้ง'), fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 0, 0, 4] },
                 {
-                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 50, 70, 46, 46, 70], body: body },
+                    table: { headerRows: 1, dontBreakRows: true, widths: ['*', 40, 60, 43, 44, 58, 70], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
                 pdfNote('รายการที่มี (AI) ในคอลัมน์แยกตามไลน์ = AI สรุปจากข้อความที่แจ้งประกอบกับช่วงหยุดสแกน · รายการอื่นคิดจากช่วงที่ไลน์หยุดสแกนรอบเวลาที่แจ้ง: สแกนสุดท้ายก่อนแจ้ง (หรือเวลาที่แจ้ง ถ้ากะนั้นยังไม่มีสแกน) ถึงสแกนแรกที่กลับมาเดิน ' +
@@ -10594,7 +10664,8 @@ function doPost(e) {
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
                     'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
-                ...buildReportLineDowntimeContent(data),
+                ...buildReportDowntimeComparison(scope, data, production),
+                ...buildReportLineDowntimeContent(data, scope, production),
                 { text: '', margin: [0, 0, 0, 8] }
             ];
         }
