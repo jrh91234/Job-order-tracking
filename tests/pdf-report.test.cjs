@@ -50,4 +50,47 @@ ctx.wrapReportCells(doc.content);
 assert.notEqual(doc.content[0].text, doc.content[1].text);
 assert.equal(doc.content[0].text.replace(/\s/g, ''), doc.content[1].text);
 assert.equal('reportWrap' in doc.content[0], false);
-console.log('pdf report tests passed');
+
+// Fixed chart labels must be English even when no translation service is available.
+vm.runInContext(`
+  var reportLang = 'en', PDF_CONTENT_WIDTH = 535;
+  var hourlyChartObj = { toBase64Image: () => 'image' };
+  var filteredScans = [{ prodDate: '2026-12-28', status: 'OK', model: 'unknown', qty: 4 }];
+  function formatThaiDate(d) { return d; }
+  function getGroupColor(g) { return g === UNGROUPED_LABEL ? '#999999' : '#123456'; }
+  function pdfNote(text) { return { text }; }
+  function pdfHeading(text) { return [{ text }]; }
+  ${extract('buildReportChartsContent')}
+`, ctx);
+let charts = ctx.buildReportChartsContent();
+assert.equal(charts[0].text, 'Production overview charts');
+assert.match(charts[1].text, /Hourly production/);
+assert.match(charts[3].table.body[0][0].text, /Weekly production/);
+assert.match(charts[4].text, /selected dates and filters/);
+assert.match(charts[5].table.body[0][0].text, /model group/);
+assert.equal(charts[5].table.body[1][0].text, 'Unspecified group');
+assert.equal(charts[5].table.body[1][1].canvas[0].color, '#999999');
+assert.match(charts[6].table.body[0][0].text, /by model/);
+ctx.reportLang = 'th';
+charts = ctx.buildReportChartsContent();
+assert.equal(charts[5].table.body[1][0].text, 'ไม่ระบุกรุ๊ป');
+assert.match(charts[3].table.body[0][0].text, /รายสัปดาห์/);
+
+// Reject stale or returned Thai translations and try the fallback before reporting failure.
+vm.runInContext(`
+  var THAI_CHAR_RE = /[\\u0E00-\\u0E7F]/, appsScriptUrl = 'configured';
+  var translationCache = { 'หัวข้อ': 'หัวข้อ', 'หมายเหตุ': 'หมายเหตุ' };
+  function loadReportTranslateCache() { return translationCache; }
+  function saveReportTranslateCache(cache) { translationCache = cache; }
+  async function translateViaGemini(texts) { return texts.map(() => 'ยังเป็นภาษาไทย'); }
+  async function translateThaiToEnglish(text) { return text === 'หัวข้อ' ? 'Heading' : 'ยังแปลไม่ได้'; }
+  ${['preCleanForEnglish', 'isReportEnglishTranslation', 'mapDocTexts'].map(extract).join('\n')}
+  async ${extract('translateReportDocToEnglish')}
+`, ctx);
+(async () => {
+  const translated = { info: { title: 'Report' }, content: [{ text: 'หัวข้อ' }, { text: 'หมายเหตุ' }] };
+  assert.equal(await ctx.translateReportDocToEnglish(translated), 1);
+  assert.equal(translated.content[0].text, 'Heading');
+  assert.equal(translated.content[1].text, 'หมายเหตุ');
+  console.log('pdf report tests passed');
+})().catch(err => { console.error(err); process.exitCode = 1; });

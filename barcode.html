@@ -9699,13 +9699,13 @@ function doPost(e) {
         }
 
         // แต่ละแท่งเป็นแถวในตาราง จึงแบ่งข้ามหน้าได้และไม่ตัดกราฟเมื่อมีรุ่นจำนวนมาก
-        function reportBarChart(title, rows, colorFor, showShare) {
+        function reportBarChart(title, rows, colorFor, showShare, labelFor) {
             if (!rows.length) return null;
             const max = Math.max(...rows.map(row => row[1]), 1);
             const total = rows.reduce((sum, row) => sum + row[1], 0);
             const body = [[{ text: title, colSpan: 3, bold: true, fontSize: 8, color: PDF_COLOR.sub }, {}, {}]];
             rows.forEach(([label, qty]) => body.push([
-                pdfCell(label),
+                pdfCell(labelFor ? labelFor(label) : label),
                 { canvas: [{ type: 'rect', x: 0, y: 1, w: Math.max(1, qty / max * 275), h: 8, color: colorFor(label) }] },
                 pdfCell(`${qty.toLocaleString()} PCS${showShare && total ? ` (${(qty / total * 100).toFixed(1)}%)` : ''}`, 'right')
             ]));
@@ -9718,10 +9718,11 @@ function doPost(e) {
 
         function buildReportChartsContent() {
             const blocks = [];
+            const en = reportLang === 'en';
 
             if (hourlyChartObj) {
                 blocks.push(
-                    { text: 'แนวโน้มการสแกนรายชั่วโมง (PCS/Hour) เทียบเส้นเป้าหมาย', fontSize: 8, bold: true, color: PDF_COLOR.sub, margin: [0, 0, 0, 3] },
+                    { text: en ? 'Hourly production (PCS/hour) compared with target' : 'แนวโน้มการสแกนรายชั่วโมง (PCS/Hour) เทียบเส้นเป้าหมาย', fontSize: 8, bold: true, color: PDF_COLOR.sub, margin: [0, 0, 0, 3] },
                     { image: hourlyChartObj.toBase64Image('image/png', 1), fit: [PDF_CONTENT_WIDTH, 290], margin: [0, 0, 0, 10] }
                 );
             }
@@ -9732,14 +9733,17 @@ function doPost(e) {
                 end.setUTCDate(end.getUTCDate() + 6);
                 return [`${formatThaiDate(start)} – ${formatThaiDate(end.toISOString().slice(0, 10))}`, qty];
             });
-            const weekChart = reportBarChart('ยอดผลิตรายสัปดาห์ (PCS) · จันทร์–อาทิตย์', weekly, () => '#4f46e5', false);
-            if (weekChart) blocks.push(weekChart, pdfNote('ยอดรวมเฉพาะวันที่และตัวกรองที่เลือก สัปดาห์แรกหรือสุดท้ายอาจมีข้อมูลไม่ครบสัปดาห์ แสดงเฉพาะสัปดาห์ที่มียอดผลิต'));
-            const groupChart = reportBarChart('สัดส่วนและยอดผลิตแยกตามกลุ่มรุ่น (PCS)', data.groups, getGroupColor, true);
-            const modelChart = reportBarChart('สัดส่วนและยอดผลิตแยกรายรุ่น (PCS)', data.models, () => '#6366f1', true);
+            const weekChart = reportBarChart(en ? 'Weekly production (PCS) · Monday–Sunday' : 'ยอดผลิตรายสัปดาห์ (PCS) · จันทร์–อาทิตย์', weekly, () => '#4f46e5', false);
+            if (weekChart) blocks.push(weekChart, pdfNote(en
+                ? 'Totals include only the selected dates and filters. The first or last week may be partial. Only weeks with production are shown.'
+                : 'ยอดรวมเฉพาะวันที่และตัวกรองที่เลือก สัปดาห์แรกหรือสุดท้ายอาจมีข้อมูลไม่ครบสัปดาห์ แสดงเฉพาะสัปดาห์ที่มียอดผลิต'));
+            const groupChart = reportBarChart(en ? 'Production and share by model group (PCS)' : 'สัดส่วนและยอดผลิตแยกตามกลุ่มรุ่น (PCS)', data.groups,
+                getGroupColor, true, group => en && group === UNGROUPED_LABEL ? 'Unspecified group' : group);
+            const modelChart = reportBarChart(en ? 'Production and share by model (PCS)' : 'สัดส่วนและยอดผลิตแยกรายรุ่น (PCS)', data.models, () => '#6366f1', true);
             blocks.push(...[groupChart, modelChart].filter(Boolean));
 
             if (blocks.length === 0) return [];
-            return [...pdfHeading('กราฟภาพรวมการผลิต'), ...blocks];
+            return [...pdfHeading(en ? 'Production overview charts' : 'กราฟภาพรวมการผลิต'), ...blocks];
         }
 
         function buildReportHourlyContent() {
@@ -10734,6 +10738,10 @@ function doPost(e) {
             return text.replace(/(\d{1,2}:\d{2}(?::\d{2})?)\s*น\./g, '$1');
         }
 
+        function isReportEnglishTranslation(text) {
+            return typeof text === 'string' && !!text.trim() && !THAI_CHAR_RE.test(text);
+        }
+
         async function translateViaGemini(texts) {
             const res = await fetch(appsScriptUrl, {
                 method: 'POST',
@@ -10802,7 +10810,7 @@ function doPost(e) {
             }, false);
 
             const cache = loadReportTranslateCache();
-            let todo = Array.from(pending).filter(t => !cache[t]);
+            let todo = Array.from(pending).filter(t => !isReportEnglishTranslation(cache[t]));
 
             // ลองส่งให้ Gemini ผ่าน Apps Script ก่อน (ต้องตั้ง GEMINI_API_KEY ใน Script properties)
             // ชุดไหนล้มเหลวจะตกไปใช้ตัวแปลสำรองด้านล่างต่อ
@@ -10812,7 +10820,7 @@ function doPost(e) {
                     const chunk = todo.slice(i, i + 40);
                     try {
                         const out = await translateViaGemini(chunk);
-                        chunk.forEach((t, idx) => { if (out[idx] && out[idx].trim()) cache[t] = out[idx].trim(); else remaining.push(t); });
+                        chunk.forEach((t, idx) => { if (isReportEnglishTranslation(out[idx])) cache[t] = out[idx].trim(); else remaining.push(t); });
                     } catch (err) {
                         console.warn('Gemini translate failed, falling back:', err);
                         remaining.push(...chunk);
@@ -10828,7 +10836,7 @@ function doPost(e) {
                     const text = todo[cursor++];
                     try {
                         const out = (await translateThaiToEnglish(text)).trim();
-                        if (out) cache[text] = out; else failed++;
+                        if (isReportEnglishTranslation(out)) cache[text] = out; else failed++;
                     } catch (err) {
                         failed++;
                     }
@@ -10839,7 +10847,7 @@ function doPost(e) {
 
             mapDocTexts(doc.content, s => {
                 const clean = preCleanForEnglish(s);
-                return THAI_CHAR_RE.test(clean) ? (cache[clean] || clean) : clean;
+                return THAI_CHAR_RE.test(clean) && isReportEnglishTranslation(cache[clean]) ? cache[clean] : clean;
             }, false);
             doc.info.title = preCleanForEnglish(doc.info.title);
             return failed;
