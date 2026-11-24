@@ -9650,12 +9650,23 @@ function doPost(e) {
                 groups.get(key).push(s.hour);
             });
             let normal = 0, ot = 0;
-            groups.forEach(hours => {
+            const lines = new Map();
+            groups.forEach((hours, key) => {
                 const total = countNetWorkHours(hours);
-                normal += Math.min(total, OT_THRESHOLD_NET_HOURS);
-                ot += Math.max(0, total - OT_THRESHOLD_NET_HOURS);
+                const regular = Math.min(total, OT_THRESHOLD_NET_HOURS);
+                const overtime = Math.max(0, total - OT_THRESHOLD_NET_HOURS);
+                normal += regular;
+                ot += overtime;
+                const line = JSON.parse(key)[2];
+                if (!lines.has(line)) lines.set(line, { line, total: 0, normal: 0, ot: 0 });
+                const detail = lines.get(line);
+                detail.total += total;
+                detail.normal += regular;
+                detail.ot += overtime;
             });
-            return { total: normal + ot, normal, ot };
+            const byLine = [...lines.values()].sort((a, b) =>
+                (a.line === '-' ? 1 : 0) - (b.line === '-' ? 1 : 0) || a.line.localeCompare(b.line, undefined, { numeric: true }));
+            return { total: normal + ot, normal, ot, byLine };
         }
 
         function buildReportKpiContent() {
@@ -9670,6 +9681,19 @@ function doPost(e) {
                     { text: pdfText(sublabel), fontSize: 6.5, color: PDF_COLOR.sub, alignment: 'center' }
                 ]
             });
+
+            const lineHours = [[
+                pdfHeaderCell(en ? 'Line' : 'ไลน์'),
+                pdfHeaderCell(en ? 'Total hours' : 'ชั่วโมงรวม', 'right'),
+                pdfHeaderCell(en ? 'Regular hours' : 'ชั่วโมงปกติ', 'right'),
+                pdfHeaderCell(en ? 'OT hours' : 'ชั่วโมง OT', 'right')
+            ]];
+            hours.byLine.forEach(h => lineHours.push([
+                pdfCell(h.line === '-' ? (en ? 'Unspecified line' : 'ไม่ระบุไลน์') : `Line ${h.line}`),
+                pdfCell(h.total.toFixed(1), 'right'),
+                pdfCell(h.normal.toFixed(1), 'right'),
+                pdfCell(h.ot.toFixed(1), 'right')
+            ]));
 
             return [
                 ...pdfHeading('สรุปตัวชี้วัดหลัก (KPI Summary)'),
@@ -9702,6 +9726,11 @@ function doPost(e) {
                     layout: PDF_TABLE_LAYOUT,
                     margin: [0, 6, 0, 0]
                 },
+                ...(hours.byLine.length ? [{
+                    table: { headerRows: 1, keepWithHeaderRows: 1, widths: ['*', 110, 110, 110], body: lineHours },
+                    layout: PDF_TABLE_LAYOUT,
+                    margin: [0, 6, 0, 0]
+                }] : []),
                 pdfNote(en
                     ? 'Production hours sum each line, production date and shift separately. Only hours with OK scans are counted, less breaks; net hours over 8 per line and shift count as OT.'
                     : 'ชั่วโมงผลิตรวมเป็นผลรวมรายไลน์ วันผลิต และกะ นับเฉพาะชั่วโมงที่มีสแกน OK หลังหักพัก โดยชั่วโมงสุทธิเกิน 8 ชั่วโมงต่อไลน์และกะนับเป็น OT')

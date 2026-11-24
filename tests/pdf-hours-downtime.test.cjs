@@ -44,11 +44,26 @@ const hours = ctx.summarizeReportProductionHours(scans);
 assert.equal(hours.normal, 13);
 assert.equal(hours.ot, 2.5);
 assert.equal(hours.total, 15.5);
+assert.deepEqual(Array.from(hours.byLine, h => [h.line, h.total, h.normal, h.ot]), [
+  ['4', 13.5, 11, 2.5], ['5', 2, 2, 0]
+]);
+const extended = ctx.summarizeReportProductionHours([...scans, scan('4', 'Day', 8, '2026-11-21'), scan('', 'Day', 9)]);
+assert.deepEqual(Array.from(extended.byLine, h => [h.line, h.total, h.normal, h.ot]), [
+  ['4', 14.5, 12, 2.5], ['5', 2, 2, 0], ['-', 1, 1, 0]
+]);
+assert.equal(extended.byLine.reduce((sum, h) => sum + h.total, 0), extended.total);
 ctx.filteredScans = scans;
 const kpi = ctx.buildReportKpiContent();
 assert.equal(kpi[2].table.body[0][0].stack[1].text, '15.5');
 assert.equal(kpi[2].table.body[0][1].stack[1].text, '13.0');
 assert.equal(kpi[2].table.body[0][2].stack[1].text, '2.5');
+assert.deepEqual(Array.from(kpi[3].table.body[1], cell => cell.text), ['Line 4', '13.5', '11.0', '2.5']);
+assert.deepEqual(Array.from(kpi[3].table.body[2], cell => cell.text), ['Line 5', '2.0', '2.0', '0.0']);
+ctx.reportLang = 'th';
+ctx.filteredScans = [...scans, scan('', 'Day', 9)];
+const thaiKpi = ctx.buildReportKpiContent();
+assert.equal(thaiKpi[3].table.body[3][0].text, 'ไม่ระบุไลน์');
+ctx.reportLang = 'en';
 ctx.filteredScans = [scan('4', 'Day', 8), scan('5', 'Day', 8), scan('1', 'Day', 8)];
 const data = {
   records: [
