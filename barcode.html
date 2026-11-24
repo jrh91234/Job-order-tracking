@@ -6040,10 +6040,11 @@ function doPost(e) {
                     if (ci !== -1) { used.add(ci); rows.push(coRow(cos[ci])); }
                 }
                 rows.push(`
-                    <div class="flex items-baseline gap-1.5 text-[11px]">
+                    <div class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[11px]">
                         <span class="w-4 text-right font-bold text-indigo-600">${i + 1}.</span>
                         <span class="text-slate-700">${escapeHtml(j.key)}</span>
                         <span class="text-slate-400">(${escapeHtml(j.model)})</span>
+                        <span class="whitespace-nowrap text-slate-500">แผน <b class="font-mono text-slate-700">${j.qty.toLocaleString()}</b> ชิ้น</span>
                         <span class="ml-auto whitespace-nowrap">${forecastJobStatusText(j)}</span>
                     </div>`);
             });

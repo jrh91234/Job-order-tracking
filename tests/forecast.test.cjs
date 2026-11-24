@@ -314,11 +314,14 @@ assert.match(summaryEl.innerHTML, /Actual <b class="text-blue-700">34<\/b>/);
 
 // ลำดับการผลิตเรียงลงทีละบรรทัด: Job → 🔄 เปลี่ยนรุ่น → Job ถัดไป
 const seqHtml = summaryCtx.forecastSequenceHtml({
-  jobStatus: [{ key: 'J1', model: 'A' }, { key: 'J2', model: 'A' }, { key: 'J3', model: 'B' }],
+  jobStatus: [{ key: 'J1', model: 'A', qty: 1200 }, { key: 'J2', model: 'A', qty: 0 }, { key: 'J3', model: 'B', qty: 42 }],
   changeovers: [{ fromModel: 'A', toModel: 'B', startMs: at(D, '10:00'), endMs: at(D, '10:30') }]
 });
 const order = [...seqHtml.matchAll(/(J[123])|(🔄)/g)].map(m => m[0]);
 assert.deepEqual(order, ['J1', 'J2', '🔄', 'J3'], 'เปลี่ยนรุ่นแทรกก่อน Job ที่เป็นรุ่นปลายทาง');
+assert.match(seqHtml, /แผน <b class="font-mono text-slate-700">1,200<\/b> ชิ้น/);
+assert.match(seqHtml, /แผน <b class="font-mono text-slate-700">0<\/b> ชิ้น/);
+assert.match(seqHtml, /แผน <b class="font-mono text-slate-700">42<\/b> ชิ้น/);
 
 // ประเมินกำลังผลิตของ Job ที่เลือกก่อนเพิ่ม โดยคิดเวลาเปลี่ยนรุ่นและแผนก่อนหน้า
 planCtx.scans = [];
