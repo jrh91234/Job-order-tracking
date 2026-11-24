@@ -9318,7 +9318,8 @@ function doPost(e) {
                 dateLabel: startDate === endDate
                     ? formatThaiDate(startDate)
                     : `${formatThaiDate(startDate)} - ${formatThaiDate(endDate)}`,
-                shift: getSelectedLabel(els.filterShift, 'ทุกกะทำงาน'),
+                shift: reportLang === 'en' && els.filterShift && ['Day', 'Night'].includes(els.filterShift.value)
+                    ? els.filterShift.value : getSelectedLabel(els.filterShift, 'ทุกกะทำงาน'),
                 shiftValue: els.filterShift ? els.filterShift.value : 'All',
                 line: getSelectedLabel(els.filterLine, 'ทุก Line'),
                 lineValue: els.filterLine ? els.filterLine.value : 'All',
@@ -10241,6 +10242,32 @@ function doPost(e) {
             ];
         }
 
+        // เฉลี่ยกำลังคนรวมทุกบทบาทตามชั่วโมงที่ผลิต และไม่นับชั่วโมงที่ไม่มีข้อมูลคน
+        function summarizeManpowerByLine(rows) {
+            const byLine = new Map();
+            rows.forEach(r => {
+                const line = String(r.line);
+                if (!byLine.has(line)) byLine.set(line, { line, qty: 0, hours: 0, staffedHours: 0, personHours: 0 });
+                const s = byLine.get(line);
+                if (!(r.activeHours > 0)) return;
+                s.qty += r.qty;
+                s.hours += r.activeHours;
+                if (!r.hasManpower) return;
+                if (r.totalPeople > 0 && r.normalHours > 0) {
+                    s.personHours += r.totalPeople * r.normalHours;
+                    s.staffedHours += r.normalHours;
+                }
+                const otPeople = r.otTotalPeople > 0
+                    ? r.otTotalPeople + (r.otAssemblerAssumed ? r.assembler : 0)
+                    : r.totalPeople;
+                if (otPeople > 0 && r.otHours > 0) {
+                    s.personHours += otPeople * r.otHours;
+                    s.staffedHours += r.otHours;
+                }
+            });
+            return [...byLine.values()].sort((a, b) => a.line.localeCompare(b.line, undefined, { numeric: true }));
+        }
+
         function buildReportManpowerContent(scope) {
             // ไล่ทีละวันในช่วงที่เลือก เพราะกำลังคนบันทึกเป็นรายวัน+รายกะ ไม่ใช่ค่าคงที่
             const rows = [];
@@ -10275,7 +10302,7 @@ function doPost(e) {
             rows.forEach(r => {
                 body.push([
                     pdfCell(formatThaiDate(r.date), 'center'),
-                    pdfCell(r.shift === 'Day' ? 'เช้า' : 'ดึก', 'center'),
+                    pdfCell(reportLang === 'en' ? r.shift : (r.shift === 'Day' ? 'เช้า' : 'ดึก'), 'center'),
                     pdfCell(r.line, 'center'),
                     pdfCell(cellText(r.assembler, r.otAssembler), 'right'),
                     pdfCell(cellText(r.feeder, r.otFeeder), 'right'),
@@ -10290,8 +10317,28 @@ function doPost(e) {
                 ]);
             });
 
+            const en = reportLang === 'en';
+            const summary = [[
+                pdfHeaderCell(en ? 'Line' : 'ไลน์'),
+                pdfHeaderCell(en ? 'Average people' : 'คนเฉลี่ย', 'right'),
+                pdfHeaderCell(en ? 'PCS/hour' : 'ชิ้น/ชม.', 'right'),
+                pdfHeaderCell(en ? 'Staffed hours / production hours' : 'ชม.มีข้อมูลคน / ชม.ผลิต', 'right')
+            ]];
+            summarizeManpowerByLine(rows).forEach(s => summary.push([
+                pdfCell(s.line),
+                pdfCell(s.staffedHours > 0 ? (s.personHours / s.staffedHours).toFixed(1) : '-', 'right'),
+                pdfCell(s.hours > 0 ? (s.qty / s.hours).toFixed(1) : '-', 'right'),
+                pdfCell(`${s.staffedHours.toFixed(1)} / ${s.hours.toFixed(1)}`, 'right')
+            ]));
+
             return [
                 ...pdfHeading('กำลังคนรายไลน์ (Manpower)'),
+                { text: en ? 'Average manpower and output by line' : 'สรุปคนเฉลี่ยและยอดผลิตต่อชั่วโมงแยกตามไลน์', fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 0, 0, 4] },
+                { table: { headerRows: 1, keepWithHeaderRows: 1, widths: ['*', 105, 105, 165], body: summary }, layout: PDF_TABLE_LAYOUT },
+                pdfNote(en
+                    ? 'Average people includes assemblers, feeders and leaders, weighted by production hours with recorded staffing. PCS/hour = total output ÷ production hours. Staffed hours exclude periods without staffing data; if OT staffing is not recorded, normal staffing is assumed.'
+                    : 'คนเฉลี่ยรวมพนักงานประกอบ Feeder และ Leader ถ่วงน้ำหนักตามชั่วโมงผลิตที่มีข้อมูลกำลังคน · ชิ้น/ชม. = ยอดผลิตรวม ÷ ชั่วโมงผลิต · ชั่วโมงที่ไม่มีข้อมูลคนไม่นำมาคิดคนเฉลี่ย หากไม่ได้กรอกคน OT ให้ใช้จำนวนช่วงปกติ'),
+                { text: en ? 'Manpower by date and shift' : 'กำลังคนรายวันและกะ', fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] },
                 {
                     table: { headerRows: 1, dontBreakRows: true, widths: [48, 27, 32, 37, 37, 37, 37, 50, 45, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
