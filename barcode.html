@@ -9639,8 +9639,29 @@ function doPost(e) {
             ];
         }
 
+        // ชั่วโมงรวมเป็นผลรวมรายไลน์/วันผลิต/กะ จึงนับไลน์ที่ผลิตพร้อมกันแยกกัน
+        function summarizeReportProductionHours(scans) {
+            const groups = new Map();
+            scans.forEach(s => {
+                if (String(s.status || '').toUpperCase() !== 'OK' || !s.prodDate ||
+                    !['Day', 'Night'].includes(s.shift) || !Number.isInteger(s.hour) || s.hour < 0 || s.hour > 23) return;
+                const key = JSON.stringify([s.prodDate, s.shift, String(s.line || '-')]);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(s.hour);
+            });
+            let normal = 0, ot = 0;
+            groups.forEach(hours => {
+                const total = countNetWorkHours(hours);
+                normal += Math.min(total, OT_THRESHOLD_NET_HOURS);
+                ot += Math.max(0, total - OT_THRESHOLD_NET_HOURS);
+            });
+            return { total: normal + ot, normal, ot };
+        }
+
         function buildReportKpiContent() {
             const eff = lastHourlySummary ? lastHourlySummary.effPercent : null;
+            const hours = summarizeReportProductionHours(filteredScans);
+            const en = reportLang === 'en';
 
             const card = (label, value, valueColor, sublabel) => ({
                 stack: [
@@ -9671,7 +9692,19 @@ function doPost(e) {
                         paddingTop: () => 6,
                         paddingBottom: () => 6
                     }
-                }
+                },
+                {
+                    table: { widths: ['*', '*', '*'], body: [[
+                        card(en ? 'Total production hours' : 'ชั่วโมงผลิตรวม', hours.total.toFixed(1), '#4338ca', en ? 'line-hours' : 'ชั่วโมงไลน์'),
+                        card(en ? 'Regular hours' : 'ชั่วโมงปกติ', hours.normal.toFixed(1), PDF_COLOR.good, en ? 'hours' : 'ชั่วโมง'),
+                        card(en ? 'OT hours' : 'ชั่วโมง OT', hours.ot.toFixed(1), PDF_COLOR.warn, en ? 'hours' : 'ชั่วโมง')
+                    ]] },
+                    layout: PDF_TABLE_LAYOUT,
+                    margin: [0, 6, 0, 0]
+                },
+                pdfNote(en
+                    ? 'Production hours sum each line, production date and shift separately. Only hours with OK scans are counted, less breaks; net hours over 8 per line and shift count as OT.'
+                    : 'ชั่วโมงผลิตรวมเป็นผลรวมรายไลน์ วันผลิต และกะ นับเฉพาะชั่วโมงที่มีสแกน OK หลังหักพัก โดยชั่วโมงสุทธิเกิน 8 ชั่วโมงต่อไลน์และกะนับเป็น OT')
             ];
         }
 
@@ -10360,16 +10393,18 @@ function doPost(e) {
         function buildReportIncidentsContent(scope) {
             const incidents = getIncidentsInRange(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
             const heading = pdfHeading('บันทึกเหตุการณ์และปัญหาผลิต (Incident Log)');
+            const downtime = computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
 
             if (incidents.length === 0) {
-                return [...heading, pdfNote('ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่ ไลน์ และกะที่เลือก')];
+                return [...heading, ...buildReportIncidentDowntimeSummary(scope, downtime),
+                    pdfNote(reportLang === 'en' ? 'No incidents were reported for the selected dates, line and shift.' : 'ไม่มีการรายงานปัญหาขัดข้องในช่วงวันที่ ไลน์ และกะที่เลือก')];
             }
 
             // Downtime ของแต่ละเหตุการณ์ ตัวเลขชุดเดียวกับตารางสรุปด้านบน (เหตุการณ์ "ทุกไลน์" รวมทุกไลน์)
             const incidentKey = inc => inc.id || `${inc.date}_${inc.hour}_${inc.line}_${inc.model}`;
             const downtimeById = new Map();
             const downtimeLinesById = new Map(); // เหตุการณ์ "ทุกไลน์" แจกแจงว่าแต่ละไลน์เสียเท่าไหร่
-            computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue).records.forEach(r => {
+            downtime.records.forEach(r => {
                 if (r.fromChangeover) return; // เวลาเปลี่ยนรุ่นคิดจากสแกน ไม่ได้ผูกกับบันทึกปัญหารายการใด
                 const key = incidentKey(r.incident);
                 downtimeById.set(key, (downtimeById.get(key) || 0) + r.lostMin);
@@ -10412,7 +10447,7 @@ function doPost(e) {
 
             return [
                 ...heading,
-                ...buildReportIncidentDowntimeSummary(scope),
+                ...buildReportIncidentDowntimeSummary(scope, downtime),
                 {
                     table: { headerRows: 1, widths: [43, 36, 30, 48, 60, 56, 35, 40, '*'], body: body },
                     layout: PDF_TABLE_LAYOUT
@@ -10421,10 +10456,63 @@ function doPost(e) {
             ];
         }
 
+        // สรุปตามไลน์และสาเหตุจาก records ชุดเดียวกับยอดรวม รวมการเปลี่ยนรุ่นที่วัดจากสแกน
+        function buildReportLineDowntimeContent(data) {
+            const en = reportLang === 'en';
+            const groups = [...data.byLineCategory].sort((a, b) =>
+                String(a.line).localeCompare(String(b.line), undefined, { numeric: true }) || b.lostMin - a.lostMin);
+            const lineSet = new Set(groups.map(g => String(g.line)));
+            filteredScans.forEach(s => {
+                if (String(s.status || '').toUpperCase() === 'OK' && s.line && s.line !== '-') lineSet.add(String(s.line));
+            });
+            const lines = [...lineSet].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+            const blocks = [];
+            if (groups.length) {
+                const body = [[pdfHeaderCell(en ? 'Line' : 'ไลน์'), pdfHeaderCell(en ? 'Cause' : 'สาเหตุ'),
+                    pdfHeaderCell(en ? 'Count' : 'จำนวนครั้ง', 'right'), pdfHeaderCell(en ? 'Downtime (min)' : 'Downtime (นาที)', 'right'),
+                    pdfHeaderCell(en ? 'Hours' : 'ชั่วโมง', 'right')]];
+                lines.forEach(line => {
+                    const entries = groups.filter(g => String(g.line) === line);
+                    entries.forEach(g => body.push([
+                        pdfCell(line), pdfCell(g.categoryText), pdfCell(g.count.toLocaleString(), 'right'),
+                        pdfCell(Math.round(g.lostMin).toLocaleString(), 'right'), pdfCell((g.lostMin / 60).toFixed(1), 'right')
+                    ]));
+                    if (entries.length) {
+                        const minutes = entries.reduce((sum, g) => sum + g.lostMin, 0);
+                        body.push([pdfTotalCell(en ? `Line ${line} total` : `รวมไลน์ ${line}`), pdfTotalCell(''),
+                            pdfTotalCell(entries.reduce((sum, g) => sum + g.count, 0).toLocaleString(), 'right'),
+                            pdfTotalCell(Math.round(minutes).toLocaleString(), 'right'), pdfTotalCell((minutes / 60).toFixed(1), 'right')]);
+                    }
+                });
+                blocks.push(
+                    { text: en ? 'Downtime by line and cause' : 'Downtime แยกตามไลน์และสาเหตุ', fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] },
+                    { table: { headerRows: 1, keepWithHeaderRows: 1, widths: [70, '*', 65, 105, 70], body }, layout: PDF_TABLE_LAYOUT }
+                );
+            }
+            if (lines.length) {
+                const body = [[pdfHeaderCell(en ? 'Line' : 'ไลน์'), pdfHeaderCell(en ? 'Timed changes' : 'จำนวนครั้งที่วัดได้', 'right'),
+                    pdfHeaderCell(en ? 'Total (min)' : 'เวลารวม (นาที)', 'right'), pdfHeaderCell(en ? 'Average (min/change)' : 'เฉลี่ย (นาที/ครั้ง)', 'right')]];
+                lines.forEach(line => {
+                    const events = data.records.filter(r => r.fromChangeover && String(r.line) === line);
+                    const minutes = events.reduce((sum, r) => sum + r.lostMin, 0);
+                    body.push([pdfCell(line), pdfCell(events.length.toLocaleString(), 'right'),
+                        pdfCell(Math.round(minutes).toLocaleString(), 'right'), pdfCell(events.length ? (minutes / events.length).toFixed(1) : '-', 'right')]);
+                });
+                blocks.push(
+                    { text: en ? 'Average changeover time by line' : 'เวลาเปลี่ยนรุ่นเฉลี่ยแยกตามไลน์', fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] },
+                    { table: { headerRows: 1, keepWithHeaderRows: 1, widths: ['*', 100, 110, 140], body }, layout: PDF_TABLE_LAYOUT },
+                    pdfNote(en
+                        ? 'Uses measurable changes detected from scans in the selected period. Time is the gap between models minus breaks and one normal cycle; changes across shifts or with gaps over 180 minutes are excluded. A dash means no measurable changes.'
+                        : 'ใช้เฉพาะการเปลี่ยนรุ่นที่วัดเวลาได้จากสแกนในช่วงที่เลือก คิดช่วงห่างระหว่างรุ่นหักเวลาพักและ Cycle Time ปกติ 1 รอบ ไม่รวมการเปลี่ยนข้ามกะหรือช่วงห่างเกิน 180 นาที เครื่องหมาย - หมายถึงไม่มีครั้งที่วัดเวลาได้')
+                );
+            }
+            return blocks;
+        }
+
         // ตารางสรุป Downtime รายสาเหตุ วางไว้หัวหัวข้อบันทึกเหตุการณ์ ใช้ตัวเลขชุดเดียวกับการ์ดบนหน้าจอ
-        function buildReportIncidentDowntimeSummary(scope) {
-            const data = computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
-            if (data.byCategory.length === 0) return [];
+        function buildReportIncidentDowntimeSummary(scope, suppliedData) {
+            const data = suppliedData || computeIncidentDowntime(scope.startDate, scope.endDate, scope.lineValue, scope.shiftValue);
+            if (data.byCategory.length === 0) return buildReportLineDowntimeContent(data);
 
             const body = [[
                 pdfHeaderCell('สาเหตุ'),
@@ -10466,6 +10554,7 @@ function doPost(e) {
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
                     'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
+                ...buildReportLineDowntimeContent(data),
                 { text: '', margin: [0, 0, 0, 8] }
             ];
         }
