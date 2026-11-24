@@ -5756,6 +5756,11 @@ function doPost(e) {
             // Actual นับทุก Job ที่สแกน OK ในไลน์และช่วงกะนี้ รวมทั้ง Job นอกแผน
             const shiftScans = lineScans.filter(s => s.ts >= win.startMs && s.ts < win.endMs && s.ts <= nowMs);
             const shiftActual = shiftScans.reduce((sum, s) => sum + (s.qty || 1), 0);
+            const producedByJob = Object.create(null);
+            shiftScans.forEach(s => {
+                const job = String(s.jobOrder || '').trim();
+                producedByJob[job] = (producedByJob[job] || 0) + (s.qty || 1);
+            });
             const lastScanBefore = ts => {
                 let found = null;
                 for (let i = lineScans.length - 1; i >= 0; i--) {
@@ -5777,14 +5782,11 @@ function doPost(e) {
 
             let rolling = null;
             if (nowMs > win.startMs && nowMs < win.endMs) {
-                const producedByJob = {};
                 const actualByHour = {};
                 const actualByHourModel = {};
                 let actualTotal = 0;
                 shiftScans.forEach(s => {
                     const q = s.qty || 1;
-                    const job = String(s.jobOrder || '').trim();
-                    producedByJob[job] = (producedByJob[job] || 0) + q;
                     const h = new Date(s.ts);
                     h.setMinutes(0, 0, 0);
                     actualByHour[h.getTime()] = (actualByHour[h.getTime()] || 0) + q;
@@ -5856,6 +5858,7 @@ function doPost(e) {
                 return {
                     ...j,
                     done,
+                    actual: producedByJob[j.key] || 0,
                     forecastQty,
                     finishMs: done >= j.qty ? -1 : (s ? s.finishMs : null),
                     short: Math.max(0, Math.round(j.qty - forecastQty)),
@@ -6044,7 +6047,7 @@ function doPost(e) {
                         <span class="w-4 text-right font-bold text-indigo-600">${i + 1}.</span>
                         <span class="text-slate-700">${escapeHtml(j.key)}</span>
                         <span class="text-slate-400">(${escapeHtml(j.model)})</span>
-                        <span class="whitespace-nowrap text-slate-500">แผน <b class="font-mono text-slate-700">${j.qty.toLocaleString()}</b> ชิ้น</span>
+                        <span class="whitespace-nowrap text-slate-500">Actual / Plan <b class="font-mono text-slate-700">${j.actual.toLocaleString()} / ${j.qty.toLocaleString()}</b> ชิ้น</span>
                         <span class="ml-auto whitespace-nowrap">${forecastJobStatusText(j)}</span>
                     </div>`);
             });
