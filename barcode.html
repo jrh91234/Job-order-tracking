@@ -9787,7 +9787,7 @@ function doPost(e) {
                 }
                 // ชั่วโมงที่เป้าเป็น 0 คือช่วงพัก (เช่น 12:00-13:00) ตัดสินผ่าน/ไม่ผ่านไม่ได้
                 const statusText = !s.completed[idx]
-                    ? 'กำลังผลิต'
+                    ? (reportLang === 'en' ? 'Ongoing' : 'กำลังผลิต')
                     : eff === null
                         ? 'นอกเวลาผลิต'
                         : (eff >= REPORT_EFF_TARGET ? 'ถึงเป้า' : 'ต่ำกว่าเป้า');
@@ -10139,7 +10139,7 @@ function doPost(e) {
 
                 let statusText, statusColor;
                 if (inPeriod > 0) {
-                    statusText = 'กำลังผลิต';
+                    statusText = reportLang === 'en' ? 'Ongoing' : 'กำลังผลิต';
                     statusColor = PDF_COLOR.good;
                 } else if (j.actual === 0) {
                     statusText = 'ยังไม่เริ่ม';
@@ -10190,7 +10190,9 @@ function doPost(e) {
                     table: { headerRows: 1, widths: [78, 65, 35, 35, 35, 34, '*', 42], body: body },
                     layout: PDF_TABLE_LAYOUT
                 },
-                pdfNote('หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน · ' +
+                pdfNote(reportLang === 'en'
+                    ? 'Plan and cumulative actual figures come from the Plan sheet and cover all dates since each job was opened, not just the report period. Ongoing = scans during the report period · Stalled = previously produced but no scans in the period · Not started = no production yet.'
+                    : 'หมายเหตุ: ข้อมูลแผนและยอดสะสมมาจากชีต Plan ซึ่งนับรวมทุกวันตั้งแต่เปิดใบสั่งผลิต ไม่ได้จำกัดตามช่วงวันที่ของรายงาน · ' +
                     'กำลังผลิต = มีการสแกนในช่วงรายงานนี้ · หยุดค้าง = เคยผลิตแล้วแต่ช่วงนี้ไม่มีการสแกน · ยังไม่เริ่ม = ยังไม่มียอดผลิตเลย'),
                 allModelNote,
                 pdfNote('คอลัมน์หมายเหตุ: รวมข้อความจากช่อง Remark ในชีต Plan เข้ากับเหตุการณ์ที่บันทึกไว้ในช่วงของรายงานนี้ · ' +
