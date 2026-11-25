@@ -29,7 +29,7 @@ vm.runInContext(`
   var els = { kpiTotalScans: { textContent: '100' }, kpiAvgSpeed: { textContent: '10' }, kpiActiveModels: { textContent: '2' } };
   var lastHourlySummary = null, kpiLastScanOverallText = '-', kpiLastScanOverallElapsed = '-', REPORT_EFF_TARGET = 85;
   function rptEffColor() { return '#000'; }
-  ${['countNetWorkHours', 'summarizeReportProductionHours', 'buildReportKpiContent', 'reportDowntimeComparisonAllowed', 'reportDowntimePercent', 'reportDowntimePercentText', 'buildReportDowntimeComparison', 'buildReportLineDowntimeContent', 'buildReportIncidentDowntimeSummary', 'buildReportIncidentsContent'].map(extract).join('\n')}
+  ${['toLocalDateKey', 'eachDateInRange', 'countNetWorkHours', 'summarizeReportProductionHours', 'buildReportKpiContent', 'reportDowntimeComparisonAllowed', 'reportDowntimePercent', 'reportDowntimePercentText', 'reportDailyDowntime', 'buildReportDowntimeTrend', 'buildReportDowntimeComparison', 'buildReportLineDowntimeContent', 'buildReportIncidentDowntimeSummary', 'buildReportIncidentsContent'].map(extract).join('\n')}
 `, ctx);
 const scan = (line, shift, hour, date = '2026-11-20') => ({ status: 'OK', line, shift, hour, prodDate: date });
 const scans = [
@@ -97,6 +97,28 @@ const data = {
     { categoryText: 'Other', count: 1, lostMin: 30 }
   ], totalLostMin: 100
 };
+const trendScope = { startDate: '2026-11-01', endDate: '2026-11-23' };
+const trendData = { records: [
+  { prodDate: '2026-11-01', line: '4', lostMin: 20 },
+  { prodDate: '2026-11-01', line: '5', lostMin: 10.5 },
+  { incident: { date: '2026-11-15' }, lostMin: 60 },
+  { prodDate: '2026-11-24', lostMin: 999 }
+] };
+const daily = ctx.reportDailyDowntime(trendScope, trendData.records);
+assert.equal(daily.length, 23);
+assert.equal(daily[0].minutes, 30.5);
+assert.equal(daily[1].minutes, 0);
+assert.equal(daily[14].minutes, 60);
+assert.equal(daily.reduce((sum, day) => sum + day.minutes, 0), 90.5);
+const trend = ctx.buildReportDowntimeTrend(trendScope, trendData);
+assert.equal(trend[0].stack[0].text, 'Daily downtime trend (minutes)');
+assert.equal(trend.filter(block => block.unbreakable).length, 2, '23 days span two readable charts');
+assert.equal(trend[0].stack[2].columns[0].stack[0].text, '60');
+assert.equal(trend[1].stack[1].columns[0].stack[0].text, '60', 'charts use a common scale');
+assert.equal(trend[0].stack[3].table.body[0][1].stack[1].text, '31');
+assert.equal(trend[1].stack[2].table.body[0][1].stack[1].text, '60');
+assert.equal(ctx.reportDailyDowntime({ startDate: '2024-02-28', endDate: '2024-03-01' }, []).length, 3);
+assert.equal(ctx.buildReportDowntimeTrend({}, trendData).length, 0);
 let blocks = ctx.buildReportLineDowntimeContent(data);
 assert.equal(blocks[1].table.body[1][1].text, 'Changeover');
 assert.equal(blocks[1].table.body[3][3].text, '70', 'line total includes both causes');
@@ -124,6 +146,8 @@ assert.ok(filtered.some(b => b.text && b.text.includes('Percentages are unavaila
 assert.ok(!filtered.some(b => b.table && b.table.body[0][0].text === 'Downtime as % of production hours'));
 assert.equal(ctx.reportDowntimePercent(10, 0, true), null);
 assert.equal(ctx.reportDowntimeComparisonAllowed({ modelValue: 'M1' }), false);
+const summaryWithTrend = ctx.buildReportIncidentDowntimeSummary(trendScope, { ...data, records: trendData.records });
+assert.ok(summaryWithTrend.some(b => b.unbreakable && b.stack[0].text === 'Daily downtime trend (minutes)'));
 const empty = { records: [], byLineCategory: [], byCategory: [], totalLostMin: 0 };
 blocks = ctx.buildReportIncidentDowntimeSummary({}, empty);
 const emptyChangeoverIndex = blocks.findIndex(b => b.text === 'Average changeover time by line');

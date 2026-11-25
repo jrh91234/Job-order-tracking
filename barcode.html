@@ -10510,6 +10510,65 @@ function doPost(e) {
             return value === null ? '-' : `${value.toFixed(1)}%`;
         }
 
+        // รวมเวลาตามวันผลิตเดียวกับรายการ Downtime รวมวันไม่มีรายการเพื่อให้แนวโน้มต่อเนื่อง
+        function reportDailyDowntime(scope, records) {
+            const dates = eachDateInRange(scope.startDate, scope.endDate || scope.startDate);
+            const totals = new Map(dates.map(date => [date, 0]));
+            records.forEach(r => {
+                const date = r.prodDate || (r.incident && r.incident.date);
+                const minutes = Number(r.lostMin);
+                if (totals.has(date) && Number.isFinite(minutes) && minutes >= 0) totals.set(date, totals.get(date) + minutes);
+            });
+            return dates.map(date => ({ date, minutes: totals.get(date) }));
+        }
+
+        // แบ่งกราฟ 14 วันต่อช่วง เพื่อให้ป้ายวันที่อ่านได้เมื่อรายงานยาวหลายเดือน
+        function buildReportDowntimeTrend(scope, data) {
+            const daily = reportDailyDowntime(scope, data.records);
+            if (!daily.length) return [];
+            const en = reportLang === 'en';
+            const max = Math.max(1, Math.ceil(Math.max(...daily.map(day => day.minutes))));
+            const width = 480, top = 4, bottom = 100;
+            const blocks = [];
+            for (let start = 0; start < daily.length; start += 14) {
+                const slice = daily.slice(start, start + 14);
+                const x = i => (i + 0.5) * width / slice.length;
+                const y = value => bottom - (value / max) * (bottom - top);
+                const canvas = [
+                    { type: 'line', x1: 0, y1: top, x2: width, y2: top, lineWidth: 0.5, lineColor: '#e2e8f0' },
+                    { type: 'line', x1: 0, y1: (top + bottom) / 2, x2: width, y2: (top + bottom) / 2, lineWidth: 0.5, lineColor: '#e2e8f0' },
+                    { type: 'line', x1: 0, y1: bottom, x2: width, y2: bottom, lineWidth: 0.7, lineColor: '#94a3b8' }
+                ];
+                slice.forEach((day, i) => {
+                    if (i > 0) canvas.push({ type: 'line', x1: x(i - 1), y1: y(slice[i - 1].minutes), x2: x(i), y2: y(day.minutes), lineWidth: 1.5, lineColor: '#4f46e5' });
+                    canvas.push({ type: 'ellipse', x: x(i), y: y(day.minutes), r1: 2.5, r2: 2.5, color: '#4f46e5' });
+                });
+                const labels = [{ text: '' }, ...slice.map(day => ({ stack: [
+                    { text: `${day.date.slice(8, 10)}/${day.date.slice(5, 7)}`, fontSize: 6, color: PDF_COLOR.sub, alignment: 'center' },
+                    { text: Math.round(day.minutes).toLocaleString(), fontSize: 6, bold: true, color: PDF_COLOR.text, alignment: 'center' }
+                ] }))];
+                blocks.push({ unbreakable: true, stack: [
+                    ...(start === 0 ? [{ text: en ? 'Daily downtime trend (minutes)' : 'แนวโน้ม Downtime รายวัน (นาที)',
+                        fontSize: 9, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] }] : []),
+                    { text: `${formatThaiDate(slice[0].date)} – ${formatThaiDate(slice[slice.length - 1].date)}`, fontSize: 7, color: PDF_COLOR.sub, margin: [0, 3, 0, 2] },
+                    { columns: [
+                        { width: 44, stack: [
+                            { text: max.toLocaleString(), fontSize: 6, alignment: 'right', margin: [0, 0, 4, 36] },
+                            { text: (max / 2).toLocaleString(), fontSize: 6, alignment: 'right', margin: [0, 0, 4, 36] },
+                            { text: '0', fontSize: 6, alignment: 'right', margin: [0, 0, 4, 0] }
+                        ] },
+                        { width, canvas }
+                    ] },
+                    { table: { widths: [44, ...slice.map(() => width / slice.length)], body: [labels] },
+                        layout: { hLineWidth: () => 0, vLineWidth: () => 0, paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0 } }
+                ], margin: [0, 0, 0, 4] });
+            }
+            blocks.push(pdfNote(en
+                ? 'Uses the same downtime records and date, line and shift filters as the summary; Job and model filters do not apply. Totals are assigned to the production day, including night shifts. Zero means no calculated downtime records, not confirmation that no stop occurred. All chart segments use the same scale.'
+                : 'ใช้รายการ Downtime และตัวกรองวัน ไลน์ และกะเดียวกับตาราง โดยไม่กรอง Job หรือรุ่น รวมตามวันผลิตรวมกะดึก ค่า 0 หมายถึงไม่มีรายการ Downtime ที่คำนวณได้ ไม่ได้ยืนยันว่าไม่มีการหยุด และทุกช่วงกราฟใช้สเกลเดียวกัน'));
+            return blocks;
+        }
+
         // กราฟแท่งใช้สเกลเดียวกันทั้งยอดรวมและแต่ละสาเหตุ โดยไม่จำกัดค่าที่ 100%
         function buildReportDowntimeComparison(scope, data, production) {
             const en = reportLang === 'en';
@@ -10617,6 +10676,7 @@ function doPost(e) {
             const production = summarizeReportProductionHours(filteredScans);
             const allowed = reportDowntimeComparisonAllowed(scope);
             if (data.byCategory.length === 0) return [
+                ...buildReportDowntimeTrend(scope, data),
                 ...buildReportDowntimeComparison(scope, data, production),
                 ...buildReportLineDowntimeContent(data, scope, production)
             ];
@@ -10664,6 +10724,7 @@ function doPost(e) {
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
                     'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
                     'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
+                ...buildReportDowntimeTrend(scope, data),
                 ...buildReportDowntimeComparison(scope, data, production),
                 ...buildReportLineDowntimeContent(data, scope, production),
                 { text: '', margin: [0, 0, 0, 8] }
