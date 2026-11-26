@@ -24,7 +24,7 @@ vm.runInContext(
   html.match(/const INCIDENT_NEARBY_MIN_LOST = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_NEARBY_WINDOW_MIN = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
   html.match(/const INCIDENT_FROM_REPORT_CATEGORIES = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
-  ['breakOverlapMs', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime'].map(extract).join('\n'),
+  ['breakOverlapMs', 'countsFromReport', 'computeIncidentDowntimeCore', 'summarizeIncidentDowntime', 'deduplicateIncidentDowntime', 'incidentDowntimeAdjustmentText'].map(extract).join('\n'),
   ctx
 );
 
@@ -223,13 +223,134 @@ assert.equal(aiRec.startTs, at('2026-10-12', '20:13'));
 assert.equal(aiRec.aiReason, 'Box มาตอน 21:03');
 // อีกเหตุการณ์ไม่มีผล AI ใช้กติกาเดิม (สแกนก่อน 20:05 → 21:03 เต็มช่วง เพราะ ai1 ไม่ได้แบ่ง)
 assert.equal(Math.round(r.find(x => x.incident.id === 'rule').lostMin), 57);
-// 13b) AI ให้แค่นาที (ไม่มีเวลาเริ่ม/จบ) → เริ่มที่เวลาที่แจ้ง
+// 13b) AI ให้แค่นาที (ไม่มีเวลาเริ่ม/จบ) → ใช้ช่วงสแกนและจำกัดนาทีไม่เกิน AI
 r = run([{ id: 'ai2', date: '2026-10-12', time: '22:00', line: '5', category: 'Material' }], aiGap,
   { aiSummaries: { 'ai2|5': { minutes: 13, start: '', end: '', confidence: 'medium', reason: 'รอเบิก 13 นาที' } } });
 assert.equal(r[0].lostMin, 13);
-assert.equal(r[0].endTs - r[0].startTs, 13 * 60000);
+assert.equal(r[0].matchedBy, 'report');
+assert.equal(r[0].aiFallback.minutes, 13);
 // 13c) ผล AI ของไลน์อื่น ไม่ถูกใช้กับไลน์นี้
 r = run([{ id: 'ai3', date: '2026-10-12', time: '20:13', line: '5', category: 'Other' }], aiGap,
   { aiSummaries: { 'ai3|4': { minutes: 99 } } });
 assert.notEqual(r[0].matchedBy, 'ai');
 console.log('Incident downtime: AI summaries take precedence passed');
+
+// 14) ข้อมูลจริงที่เคยบวกซ้ำ: 88 + 33 + 57 นาที คร่อมพักเที่ยงคืน
+//     หลังหักช่วงซ้ำในไลน์ 4 คง 88 + 0 + 5 = 93 นาที โดยเก็บทั้ง 3 บันทึก
+const overlapIncidents = [
+  { id: 'maintenance', date: '2026-11-25', time: '23:24', line: '4', category: 'Breakdown' },
+  { id: 'manual1', date: '2026-11-25', time: '23:30', line: '4', category: 'Breakdown' },
+  { id: 'manual2', date: '2026-11-25', time: '01:00', line: '4', category: 'Breakdown' }
+];
+const overlapAI = {
+  'maintenance|4': { start: '23:24', end: '01:52', minutes: 88 },
+  'manual1|4': { start: '23:27', end: '00:27', minutes: 33 },
+  'manual2|4': { start: '01:00', end: '01:57', minutes: 57 }
+};
+const rawOverlap = run(overlapIncidents, [], { aiSummaries: overlapAI });
+assert.equal(rawOverlap.reduce((sum, x) => sum + x.lostMin, 0), 178);
+const fixedOverlap = ctx.deduplicateIncidentDowntime(rawOverlap, ctx.breakOverlapMs);
+const overlapById = Object.fromEntries(fixedOverlap.map(x => [x.incident.id, x]));
+assert.equal(fixedOverlap.length, 3);
+assert.equal(overlapById.maintenance.lostMin, 88);
+assert.equal(overlapById.manual1.lostMin, 0);
+assert.equal(overlapById.manual1.overlapDeductionMin, 33);
+assert.equal(overlapById.manual2.lostMin, 5);
+assert.equal(overlapById.manual2.overlapDeductionMin, 52);
+assert.equal(fixedOverlap.reduce((sum, x) => sum + x.lostMin, 0), 93);
+assert.match(ctx.incidentDowntimeAdjustmentText(overlapById.manual1), /หักเวลาซ้ำ 33 นาที/);
+
+// 15) เปลี่ยนรุ่นได้สิทธิ์นับช่วงก่อน และคนละไลน์ไม่นับเป็นช่วงซ้ำ
+const sameSpan = (id, line, from, to, lostMin, fromChangeover = false) => ({
+  incident: { id, category: fromChangeover ? 'Changeover' : 'Breakdown' }, line,
+  startTs: at('2026-10-28', from), endTs: at('2026-10-28', to), lostMin, fromChangeover
+});
+const mixed = [sameSpan('repair', '4', '08:00', '09:00', 60),
+  sameSpan('change', '4', '08:30', '08:45', 15, true),
+  sameSpan('otherline', '5', '08:00', '09:00', 60)];
+const dedupMixed = ctx.deduplicateIncidentDowntime(mixed, ctx.breakOverlapMs);
+assert.equal(dedupMixed[0].lostMin, 45);
+assert.equal(dedupMixed[0].overlapDeductionMin, 15);
+assert.equal(dedupMixed[1].lostMin, 15);
+assert.equal(dedupMixed[2].lostMin, 60);
+assert.equal(mixed[0].lostMin, 60, 'deduplication does not mutate source records');
+
+// 16) AI และผลสแกนที่ทับกันต้องนับได้ไม่เกินเวลาจริง รวมทั้งหักพักเพียงครั้งเดียว
+const partial = [sameSpan('rule', '4', '11:30', '13:30', 59), sameSpan('ai', '4', '11:45', '13:45', 60)];
+const dedupPartial = ctx.deduplicateIncidentDowntime(partial, ctx.breakOverlapMs);
+assert.ok(Math.abs(dedupPartial.reduce((sum, x) => sum + x.lostMin, 0) - 75) < 0.001);
+assert.ok(Math.abs(dedupPartial[1].overlapDeductionMin - 44) < 0.001);
+const invalid = ctx.deduplicateIncidentDowntime([{ ...mixed[0], startTs: NaN }], ctx.breakOverlapMs)[0];
+assert.equal(invalid.lostMin, 0);
+assert.equal(invalid.unresolvedInterval, true);
+
+// 17) นาที AI ที่ไม่มีช่วงเวลาใช้สแกนแทน มีขอบเขตทำงานจริงและจำกัดไม่เกินจำนวนนาที AI
+const durationOnly = run([{ id: 'duration', date: '2026-10-28', time: '11:40', line: '4', category: 'Breakdown' }],
+  [scan('4', '2026-10-28', '11:30'), scan('4', '2026-10-28', '13:30')],
+  { aiSummaries: { 'duration|4': { minutes: 13, start: '', end: '' } } });
+assert.equal(durationOnly[0].startTs, at('2026-10-28', '11:40'));
+assert.equal(durationOnly[0].aiFallback.minutes, 13);
+assert.equal(durationOnly[0].lostMin, 13);
+assert.match(ctx.incidentDowntimeAdjustmentText(durationOnly[0]), /AI ไม่ระบุช่วงเวลา/);
+const crossBreak = ctx.deduplicateIncidentDowntime([
+  durationOnly[0], sameSpan('inside', '4', '11:45', '11:50', 5)
+], ctx.breakOverlapMs);
+assert.equal(crossBreak[0].lostMin, 13);
+assert.equal(crossBreak[1].lostMin, 0);
+const inconsistent = ctx.deduplicateIncidentDowntime([sameSpan('bad-ai', '4', '11:30', '13:30', 120)], ctx.breakOverlapMs)[0];
+assert.equal(inconsistent.lostMin, 60);
+assert.equal(inconsistent.intervalAdjustmentMin, 60, 'cannot include break even if a saved AI duration did');
+
+// 18) เส้นทางหน้าจอและ PDF เรียก dedup ก่อนสรุปยอด ไม่ใช่เพียงแก้ผลทดสอบระดับ helper
+ctx.testIncidents = overlapIncidents;
+ctx.incidentDowntimeAI = overlapAI;
+vm.runInContext(`
+  var processedScans = [], modelCycleSecondsCache = {}, manpowerLogs = {};
+  var CHANGEOVER_INCIDENT_CATEGORY = 'Changeover', CHANGEOVER_DOWNTIME_TEXT = 'เปลี่ยนรุ่น';
+  function getIncidentsInRange() { return testIncidents; }
+  function normalizeIncidentTime(time) { return time; }
+  function manpowerKey(date, shift, line) { return date + '_' + shift + '_' + line; }
+  function computeChangeoverEvents() { return []; }
+  ${extract('computeIncidentDowntime')}
+`, ctx);
+const overall = ctx.computeIncidentDowntime('2026-11-25', '2026-11-25', '4', 'All');
+assert.equal(overall.totalLostMin, 93);
+assert.equal(overall.byCategory.length, 1);
+assert.equal(overall.byCategory[0].count, 3);
+assert.equal(overall.byCategory[0].lostMin, 93);
+assert.equal(overall.byLineCategory[0].lostMin, 93);
+ctx.scopeChanges = [{ line: '4', prodDate: '2026-11-25', shift: 'Night', fromModel: 'A', toModel: 'B',
+  fromTs: at('2026-11-25', '23:40'), toTs: at('2026-11-25', '23:50'), gapMin: 10, breakMin: 0, cycleMin: 0, lostMin: 10 }];
+vm.runInContext('computeChangeoverEvents = () => scopeChanges;', ctx);
+const withChange = ctx.computeIncidentDowntime('2026-11-25', '2026-11-25', '4', 'All');
+assert.equal(withChange.totalLostMin, 93);
+assert.equal(withChange.byCategory.find(g => g.category === 'Changeover').lostMin, 10);
+assert.equal(withChange.byCategory.find(g => g.category === 'Breakdown').lostMin, 83);
+
+// 19) หลายช่วงซ้อนแบบสุ่ม: ยอดแต่ละไลน์ไม่เกินเวลาทำงานที่เป็นผลรวมช่วงแบบไม่ซ้ำ
+let seed = 98765;
+const rand = n => { seed = (seed * 48271) % 2147483647; return seed % n; };
+for (let trial = 0; trial < 80; trial++) {
+  const dayStart = at('2026-10-28', '08:00');
+  const generated = Array.from({ length: 18 }, (_, i) => {
+    const startTs = dayStart + rand(600) * 60000;
+    const endTs = startTs + (1 + rand(120)) * 60000;
+    const work = (endTs - startTs - ctx.breakOverlapMs(startTs, endTs)) / 60000;
+    return { incident: { id: `g${i}` }, line: String(4 + rand(2)), startTs, endTs,
+      lostMin: Math.min(work, rand(121)), fromChangeover: rand(5) === 0 };
+  });
+  const allocated = ctx.deduplicateIncidentDowntime(generated, ctx.breakOverlapMs);
+  for (const line of ['4', '5']) {
+    const ranges = generated.filter(x => x.line === line).map(x => [x.startTs, x.endTs]).sort((a, b) => a[0] - b[0]);
+    const union = [];
+    for (const [start, end] of ranges) {
+      const prev = union[union.length - 1];
+      if (prev && start <= prev[1]) prev[1] = Math.max(prev[1], end); else union.push([start, end]);
+    }
+    const unionWork = union.reduce((sum, [start, end]) => sum + (end - start - ctx.breakOverlapMs(start, end)) / 60000, 0);
+    const accounted = allocated.filter(x => x.line === line).reduce((sum, x) => sum + x.lostMin, 0);
+    assert.ok(accounted <= unionWork + 1e-6, `trial ${trial}, line ${line}: ${accounted} > ${unionWork}`);
+  }
+  allocated.forEach((row, i) => assert.ok(row.lostMin >= 0 && row.lostMin <= generated[i].lostMin + 1e-6));
+}
+console.log('Incident downtime: overlapping AI, scan, changeover and breaks are counted once per line');
