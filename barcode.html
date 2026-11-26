@@ -490,7 +490,7 @@
                         <i data-lucide="timer-off" class="w-5 h-5 text-rose-500"></i>
                         เวลาที่หายไปตามสาเหตุที่แจ้ง (Downtime)
                     </h3>
-                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · มีหลายเหตุการณ์ในช่วงหยุดเดียวกัน แบ่งเวลาตามลำดับที่แจ้ง · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <b>🔄 เปลี่ยนรุ่น</b> ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน แทนเวลาจากบันทึก "เปลี่ยนรุ่นล่าช้า" · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
+                    <p class="text-xs text-slate-400">คิดจากบันทึกปัญหาผลิต + สแกน: เริ่มนับจากสแกนสุดท้ายก่อนเวลาที่แจ้ง (ถ้าในกะนั้นยังไม่มีสแกนเลย เริ่มนับจากเวลาที่แจ้ง) จนถึงสแกนแรกที่ไลน์กลับมาเดิน หักเวลาพักและ Cycle Time 1 รอบ · ถ้าตอนแจ้งไลน์ยังสแกนอยู่ (หยุดไม่ถึง 5 นาที) ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้งแทน · <b>เครื่องจักรขัดข้อง/แจ้งซ่อม</b> นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · <b>🤖 รายการที่ AI สรุปแล้ว</b> (อ่านข้อความที่แจ้งประกอบกับช่วงหยุดสแกน ประมาณ 1 ชม. หลังแจ้ง) ใช้ค่าจาก AI แทนกติกาข้างต้น · ถ้าไม่กลับมาสแกน นับถึงเลิกงาน 17:00 / 05:00 หรือถึงสิ้น OT 20:00 / 08:00 ถ้าไลน์นั้นทำ OT (กรอกคนช่วง OT หรือมีสแกนหลังเลิกงาน) · แจ้งหลังเลิกงานโดยไม่มี OT ไม่นับ · เวลาซ้อนในไลน์เดียวกันนับครั้งเดียว โดยจัดสรรเวลาเปลี่ยนรุ่นก่อนแล้วเรียงตามเวลาเริ่ม · AI ที่ไม่ระบุช่วงเวลาใช้ช่วงสแกนโดยจำกัดไม่เกินนาทีที่ AI ให้ · เหตุการณ์ "ทุกไลน์" คิดแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาทีรอบเวลาที่แจ้ง) · <b>🔄 เปลี่ยนรุ่น</b> ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน แทนเวลาจากบันทึก "เปลี่ยนรุ่นล่าช้า" · <span id="incident-downtime-range-label" class="font-semibold text-slate-500"></span></p>
                 </div>
                 <div class="flex items-start gap-3 flex-wrap">
                     <div id="incident-downtime-summary" class="text-right text-xs text-slate-500 font-semibold"></div>
@@ -4839,23 +4839,29 @@ function doPost(e) {
                 if (opts.onlyLine && opts.onlyLine !== 'All') lines = lines.filter(l => l === String(opts.onlyLine));
 
                 lines.forEach(line => {
-                    // AI สรุปไว้แล้ว (แท็บ IncidentDowntime) ใช้ค่านั้นเลย ไม่ต้องหาจากช่วงหยุดสแกน
+                    // ใช้ผล AI เมื่อมีช่วงเวลาแน่นอน จึงตรวจเวลาซ้อนกับเหตุการณ์อื่นได้
                     const ai = opts.aiSummaries && opts.aiSummaries[`${inc.id}|${line}`];
+                    let aiFallback = null;
                     if (ai) {
                         const at = hm => {
                             const mm = /^(\d{1,2}):(\d{2})/.exec(String(hm || ''));
-                            return mm ? toTs(inc.date, parseInt(mm[1], 10), parseInt(mm[2], 10)) : NaN;
+                            return mm && Number(mm[1]) < 24 && Number(mm[2]) < 60 ? toTs(inc.date, Number(mm[1]), Number(mm[2])) : NaN;
                         };
                         const minutes = Math.max(0, Number(ai.minutes) || 0);
-                        const startTs = Number.isFinite(at(ai.start)) ? at(ai.start) : reportTs;
-                        const endTs = Number.isFinite(at(ai.end)) ? at(ai.end) : startTs + minutes * 60000;
-                        aiRecords.push({
-                            incident: inc, line, prodDate: inc.date, reportTs, startTs, endTs,
-                            startFrom: 'ai', endBy: 'ai', hasOT: false, matchedBy: 'ai', soleInGap: false,
-                            gapMin: minutes, breakMin: 0, cycleMin: 0, lostMin: minutes,
-                            aiReason: ai.reason || '', aiConfidence: ai.confidence || '', aiBy: ai.by || 'AI'
-                        });
-                        return;
+                        const startTs = at(ai.start), endTs = at(ai.end);
+                        if ((Number.isFinite(startTs) && Number.isFinite(endTs) && endTs > startTs && startTs >= shiftStart && endTs <= shiftEnd) || minutes === 0) {
+                            aiRecords.push({
+                                incident: inc, line, prodDate: inc.date, reportTs,
+                                startTs: Number.isFinite(startTs) ? startTs : reportTs,
+                                endTs: Number.isFinite(endTs) && endTs > startTs ? endTs : reportTs,
+                                startFrom: 'ai', endBy: 'ai', hasOT: false, matchedBy: 'ai', soleInGap: false,
+                                gapMin: minutes, breakMin: 0, cycleMin: 0, lostMin: minutes,
+                                aiReason: ai.reason || '', aiConfidence: ai.confidence || '', aiBy: ai.by || 'AI'
+                            });
+                            return;
+                        }
+                        // นาทีที่ไม่มีเวลาเริ่ม/จบเชื่อถือไม่ได้ว่าอยู่ตรงไหน ใช้ช่วงจากสแกนและจำกัดไม่เกินนาทีที่ AI ให้
+                        aiFallback = { minutes, reason: ai.reason || '' };
                     }
                     const list = scansByLine[line] || [];
                     // หลังเลิกงานไม่นับ ยกเว้นไลน์นั้นทำ OT (กรอกคนช่วง OT ไว้ หรือมีสแกนหลังเวลาเลิกงาน)
@@ -4876,7 +4882,7 @@ function doPost(e) {
                     // เหตุการณ์ในช่วงหยุดเดียวกันมีสแกนก่อน/หลังตัวเดียวกัน ใช้เป็นคีย์รวมกลุ่ม
                     const key = `${line}|${prev ? prev.ts : 'S' + shiftStart}|${next ? next.ts : 'E' + workEnd}`;
                     if (!gaps.has(key)) gaps.set(key, { line, prev, next, shiftStart, workEnd, hasOT, items: [] });
-                    gaps.get(key).items.push({ inc, reportTs });
+                    gaps.get(key).items.push({ inc, reportTs, aiFallback });
                 });
             });
 
@@ -4916,6 +4922,7 @@ function doPost(e) {
                         gapMin,
                         breakMin,
                         cycleMin,
+                        aiFallback: item.aiFallback,
                         lostMin: Math.max(0, gapMin - breakMin - cycleMin)
                     });
                 });
@@ -4971,6 +4978,9 @@ function doPost(e) {
                     });
                 });
 
+            records.forEach(r => {
+                if (r.aiFallback) r.lostMin = Math.min(r.lostMin, r.aiFallback.minutes);
+            });
             records.push(...aiRecords);
             records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
             return records;
@@ -4995,6 +5005,75 @@ function doPost(e) {
                 if (r.endBy === 'open') g.openCount++;
             });
             return Object.values(groups).sort((a, b) => b.lostMin - a.lostMin);
+        }
+
+        // จัดสรรนาทีทำงานให้ถูกนับได้ครั้งเดียวต่อไลน์: เปลี่ยนรุ่นก่อน แล้วช่วงที่เริ่มก่อน
+        // ช่วงที่ AI ไม่บอกเวลาใช้ผลจากสแกนใน core แทน ไม่สร้างช่วงเวลาเดาขึ้นมา
+        function deduplicateIncidentDowntime(records, breakOverlap) {
+            const result = records.map(r => ({ ...r }));
+            const byPriority = [...result].sort((a, b) =>
+                Number(!!b.fromChangeover) - Number(!!a.fromChangeover) ||
+                a.startTs - b.startTs || a.endTs - b.endTs ||
+                String(a.incident.id || '').localeCompare(String(b.incident.id || '')));
+            const claimedByLine = new Map();
+            const netMs = (start, end) => Math.max(0, end - start - breakOverlap(start, end));
+            byPriority.forEach(r => {
+                const original = Math.max(0, Number(r.lostMin) || 0);
+                r.originalLostMin = original;
+                r.overlapDeductionMin = 0;
+                if (!original) return;
+                if (!Number.isFinite(r.startTs) || !Number.isFinite(r.endTs) || r.endTs <= r.startTs) {
+                    r.lostMin = 0;
+                    r.unresolvedInterval = true;
+                    return;
+                }
+                const line = String(r.line);
+                const claimed = claimedByLine.get(line) || [];
+                let available = [[r.startTs, r.endTs]];
+                claimed.forEach(([from, to]) => {
+                    available = available.flatMap(([start, end]) => {
+                        if (to <= start || from >= end) return [[start, end]];
+                        const pieces = [];
+                        if (from > start) pieces.push([start, from]);
+                        if (to < end) pieces.push([to, end]);
+                        return pieces;
+                    });
+                });
+                let remainingMs = original * 60000;
+                let allocatedMs = 0;
+                available.forEach(([start, end]) => {
+                    if (remainingMs <= 0.001) return;
+                    const capacity = netMs(start, end);
+                    const take = Math.min(remainingMs, capacity);
+                    if (take <= 0) return;
+                    let cutoff = end;
+                    if (take < capacity - 0.001) {
+                        let low = start, high = end;
+                        while (high - low > 0.01) {
+                            const mid = (low + high) / 2;
+                            if (netMs(start, mid) >= take) high = mid; else low = mid;
+                        }
+                        cutoff = high;
+                    }
+                    claimed.push([start, cutoff]);
+                    allocatedMs += take;
+                    remainingMs -= take;
+                });
+                claimed.sort((a, b) => a[0] - b[0]);
+                const merged = [];
+                claimed.forEach(([start, end]) => {
+                    const prev = merged[merged.length - 1];
+                    if (prev && start <= prev[1]) prev[1] = Math.max(prev[1], end);
+                    else merged.push([start, end]);
+                });
+                claimedByLine.set(line, merged);
+                r.lostMin = allocatedMs / 60000;
+                // ส่วนที่เกินเวลาทำงานในช่วงเดิมไม่ใช่เวลาซ้ำ แต่เป็นค่าที่ไม่สอดคล้องกับช่วง
+                const intervalMin = netMs(r.startTs, r.endTs) / 60000;
+                r.intervalAdjustmentMin = Math.max(0, original - intervalMin);
+                r.overlapDeductionMin = Math.max(0, original - r.lostMin - r.intervalAdjustmentMin);
+            });
+            return result;
         }
 
         /**
@@ -5028,7 +5107,7 @@ function doPost(e) {
             // หมวดเปลี่ยนรุ่น: ไม่ใช้เวลาจากบันทึก "เปลี่ยนรุ่นล่าช้า" แต่ใช้เวลาเปลี่ยนรุ่นทั้งหมดที่คิดจากสแกน
             // (ชุดเดียวกับการ์ด Changeover Lost) เพื่อไม่ให้ช่วงเดียวกันถูกนับซ้ำ และนับครบแม้ไม่มีใครแจ้ง
             // บันทึก "เปลี่ยนรุ่นล่าช้า" ยังคำนวณร่วมในตัวหลักอยู่ เพื่อให้ใช้เป็นจุดตัดของเหตุการณ์ก่อนหน้าได้เหมือนเดิม
-            const records = coreRecords.filter(r => r.incident.category !== CHANGEOVER_INCIDENT_CATEGORY);
+            let records = coreRecords.filter(r => r.incident.category !== CHANGEOVER_INCIDENT_CATEGORY);
             computeChangeoverEvents({ startDate, endDate, shift: activeShift, line: activeLine, model: 'All' }).forEach(e => {
                 records.push({
                     fromChangeover: true,
@@ -5055,6 +5134,7 @@ function doPost(e) {
                     endBy: 'changeover'
                 });
             });
+            records = deduplicateIncidentDowntime(records, breakOverlapMs);
             records.sort((a, b) => a.startTs - b.startTs || String(a.line).localeCompare(String(b.line)));
             return {
                 records,
@@ -5062,6 +5142,16 @@ function doPost(e) {
                 byLineCategory: summarizeIncidentDowntime(records, true),
                 totalLostMin: records.reduce((sum, r) => sum + r.lostMin, 0)
             };
+        }
+
+        function incidentDowntimeAdjustmentText(r) {
+            const fmt = n => Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
+            const parts = [];
+            if (r.aiFallback) parts.push(`AI ไม่ระบุช่วงเวลา ใช้สแกนและจำกัดไม่เกิน ${fmt(r.aiFallback.minutes)} นาที`);
+            if (r.unresolvedInterval) parts.push('ไม่พบช่วงเวลาที่ใช้คำนวณ จึงไม่นับ');
+            if (r.intervalAdjustmentMin > 0.001) parts.push(`ปรับให้ไม่เกินช่วงทำงาน ${fmt(r.intervalAdjustmentMin)} นาที`);
+            if (r.overlapDeductionMin > 0.001) parts.push(`หักเวลาซ้ำ ${fmt(r.overlapDeductionMin)} นาที`);
+            return parts.join(' · ');
         }
 
         // ===== กดหมวดสาเหตุเพื่อดูรายละเอียด (เช่น "อื่นๆ" ว่าจริง ๆ คืออะไร) =====
@@ -5099,7 +5189,7 @@ function doPost(e) {
                     <td class="p-1 whitespace-nowrap">L${escapeHtml(r.line)}</td>
                     <td class="p-1 whitespace-nowrap font-mono">${hm(r.startTs)}–${hm(r.endTs)}</td>
                     <td class="p-1 text-left">${escapeHtml(r.incident.notes || '-')}</td>
-                    <td class="p-1 text-right font-mono font-bold">${Math.round(r.lostMin)}</td>
+                    <td class="p-1 text-right font-mono font-bold">${Math.round(r.lostMin)}${incidentDowntimeAdjustmentText(r) ? `<div class="text-[10px] font-normal text-amber-700 font-sans">${escapeHtml(incidentDowntimeAdjustmentText(r))}</div>` : ''}</td>
                 </tr>`).join('');
             Swal.fire({
                 title: escapeHtml(title),
@@ -5344,7 +5434,7 @@ function doPost(e) {
                             <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">${Math.round(r.gapMin)} นาที</td>
                             <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${fmtMin(r.breakMin)}</td>
                             <td class="p-3 text-right font-mono text-slate-500 whitespace-nowrap">${r.cycleMin > 0 ? r.cycleMin.toFixed(1) + ' นาที' : '<span class="text-slate-300">-</span>'}</td>
-                            <td class="p-3 text-right font-mono font-bold whitespace-nowrap ${lostCls(r.lostMin)}">${Math.round(r.lostMin)} นาที</td>
+                            <td class="p-3 text-right font-mono font-bold ${lostCls(r.lostMin)}">${Math.round(r.lostMin)} นาที${incidentDowntimeAdjustmentText(r) ? `<div class="text-[10px] font-normal text-amber-700 font-sans">${escapeHtml(incidentDowntimeAdjustmentText(r))}</div>` : ''}</td>
                         </tr>`;
                 }).join('');
                 return;
@@ -10726,7 +10816,8 @@ function doPost(e) {
                     '(ถ้าไม่กลับมา นับถึงเลิกงาน 17:00/05:00 หรือสิ้น OT ถ้าไลน์ทำ OT) หักเวลาพักและ Cycle Time 1 รอบ · ' +
                     'ถ้าตอนแจ้งไลน์ยังสแกนอยู่ ใช้ช่วงหยุดที่ยาวสุดในระยะ ±60 นาทีรอบเวลาที่แจ้ง · ' +
                     'เครื่องจักรขัดข้อง/แจ้งซ่อม นับตั้งแต่เวลาที่แจ้งเท่านั้น (ไม่รวมช่วงก่อนแจ้ง เช่น morning talk) · หลายเหตุการณ์ในช่วงหยุดเดียวกันแบ่งเวลาตามลำดับที่แจ้ง · ' +
-                    'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก'),
+                    'เหตุการณ์ "ทุกไลน์" นับแยกเฉพาะไลน์ที่เดินอยู่ช่วงนั้น (มีสแกนในระยะ ±60 นาที) จำนวนครั้งจึงอาจมากกว่าจำนวนบันทึก · ' +
+                    'เวลาซ้อนในไลน์เดียวกันนับครั้งเดียว โดยจัดสรรเวลาเปลี่ยนรุ่นก่อนแล้วจึงเรียงตามเวลาเริ่ม ถ้า AI ไม่ระบุช่วงเวลา ใช้ช่วงจากสแกนโดยจำกัดไม่เกินนาทีที่ AI ให้'),
                 ...buildReportDowntimeTrend(scope, data),
                 ...buildReportDowntimeComparison(scope, data, production),
                 ...buildReportLineDowntimeContent(data, scope, production),
