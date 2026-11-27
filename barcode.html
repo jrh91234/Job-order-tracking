@@ -10667,6 +10667,56 @@ function doPost(e) {
             return [graph, pdfNote(note + labelNote)];
         }
 
+        // ใช้บันทึกที่หักเวลาซ้อนแล้วชุดเดียวกับกราฟรวม แยกหมวดและข้อความอาการตามที่บันทึกจริง
+        function reportDowntimeSymptomGroups(scope, records) {
+            const dates = new Set(eachDateInRange(scope.startDate, scope.endDate || scope.startDate));
+            const groups = new Map();
+            (records || []).forEach(record => {
+                const date = record.prodDate || (record.incident && record.incident.date);
+                const minutes = Number(record.lostMin);
+                if (!dates.has(date) || !Number.isFinite(minutes) || minutes <= 0) return;
+                const incident = record.incident || {};
+                const category = String(incident.category || 'Other');
+                const symptom = String(incident.notes || '').trim().replace(/\s+/g, ' ');
+                const key = JSON.stringify([category, symptom]);
+                if (!groups.has(key)) groups.set(key, {
+                    category: incident.categoryText || category, symptom, records: [], minutes: 0
+                });
+                const group = groups.get(key);
+                group.records.push(record);
+                group.minutes += minutes;
+            });
+            return Array.from(groups.values()).sort((a, b) => b.minutes - a.minutes ||
+                String(a.category).localeCompare(String(b.category)) || a.symptom.localeCompare(b.symptom));
+        }
+
+        function buildReportDowntimeSymptomTrends(scope, data) {
+            const groups = reportDowntimeSymptomGroups(scope, data.records);
+            if (!groups.length) return [];
+            const en = reportLang === 'en';
+            const blocks = [
+                { text: en ? 'Downtime trends by symptom / cause' : 'แนวโน้ม Downtime แยกตามอาการ / สาเหตุ',
+                    fontSize: 10, bold: true, color: PDF_COLOR.heading, margin: [0, 10, 0, 4] },
+                pdfNote(en
+                    ? 'Each chart groups matching recorded details within the same cause. Blank details are shown as unspecified; changeover details identify model pairs. Values use the same deduplicated downtime and production-day, line and shift filters as the overall trend.'
+                    : 'แต่ละกราฟรวมรายละเอียดที่บันทึกเหมือนกันภายในสาเหตุเดียวกัน รายการที่ไม่ระบุแสดงแยกไว้ และการเปลี่ยนรุ่นแสดงคู่รุ่น ใช้ Downtime ที่หักเวลาซ้ำแล้วและตัวกรองวันผลิต ไลน์ และกะเดียวกับกราฟรวม')
+            ];
+            groups.forEach(group => {
+                const symptom = group.symptom || (en ? 'Unspecified details' : 'ไม่ระบุรายละเอียด');
+                const chart = buildReportDowntimeTrend(scope, { records: group.records })[0];
+                const title = pdfText(`${group.category} · ${symptom}`);
+                // รายละเอียดที่ยาวมากแสดงเต็มก่อนกราฟเพื่อให้ตัดหน้าได้ ส่วนกราฟมีชื่อย่อกำกับเสมอ
+                if (title.length > 240) blocks.push({ text: title, fontSize: 8, color: PDF_COLOR.text, margin: [0, 9, 0, 2] });
+                chart.stack.unshift({ text: title.length > 240 ? title.slice(0, 240) + '…' : title,
+                    fontSize: 8, bold: true, color: PDF_COLOR.heading, margin: [0, 9, 0, 2] });
+                chart.stack[1].text = en
+                    ? `Daily downtime (minutes) · total ${Math.round(group.minutes).toLocaleString()} min`
+                    : `Downtime รายวัน (นาที) · รวม ${Math.round(group.minutes).toLocaleString()} นาที`;
+                blocks.push(chart);
+            });
+            return blocks;
+        }
+
         // กราฟแท่งใช้สเกลเดียวกันทั้งยอดรวมและแต่ละสาเหตุ โดยไม่จำกัดค่าที่ 100%
         function buildReportDowntimeComparison(scope, data, production) {
             const en = reportLang === 'en';
@@ -10825,6 +10875,7 @@ function doPost(e) {
                     'เวลาซ้อนในไลน์เดียวกันนับครั้งเดียว โดยจัดสรรเวลาเปลี่ยนรุ่นก่อนแล้วจึงเรียงตามเวลาเริ่ม ถ้า AI ไม่ระบุช่วงเวลา ใช้ช่วงจากสแกนโดยจำกัดไม่เกินนาทีที่ AI ให้'),
                 ...buildReportDowntimeTrend(scope, data),
                 ...buildReportDowntimeComparison(scope, data, production),
+                ...buildReportDowntimeSymptomTrends(scope, data),
                 ...buildReportLineDowntimeContent(data, scope, production),
                 { text: '', margin: [0, 0, 0, 8] }
             ];

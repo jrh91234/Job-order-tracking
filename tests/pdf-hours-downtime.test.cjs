@@ -29,7 +29,7 @@ vm.runInContext(`
   var els = { kpiTotalScans: { textContent: '100' }, kpiAvgSpeed: { textContent: '10' }, kpiActiveModels: { textContent: '2' } };
   var lastHourlySummary = null, kpiLastScanOverallText = '-', kpiLastScanOverallElapsed = '-', REPORT_EFF_TARGET = 85;
   function rptEffColor() { return '#000'; }
-  ${['toLocalDateKey', 'eachDateInRange', 'countNetWorkHours', 'summarizeReportProductionHours', 'buildReportKpiContent', 'reportDowntimeComparisonAllowed', 'reportDowntimePercent', 'reportDowntimePercentText', 'reportDailyDowntime', 'buildReportDowntimeTrend', 'buildReportDowntimeComparison', 'buildReportLineDowntimeContent', 'buildReportIncidentDowntimeSummary', 'buildReportIncidentsContent'].map(extract).join('\n')}
+  ${['toLocalDateKey', 'eachDateInRange', 'countNetWorkHours', 'summarizeReportProductionHours', 'buildReportKpiContent', 'reportDowntimeComparisonAllowed', 'reportDowntimePercent', 'reportDowntimePercentText', 'reportDailyDowntime', 'buildReportDowntimeTrend', 'reportDowntimeSymptomGroups', 'buildReportDowntimeSymptomTrends', 'buildReportDowntimeComparison', 'buildReportLineDowntimeContent', 'buildReportIncidentDowntimeSummary', 'buildReportIncidentsContent'].map(extract).join('\n')}
 `, ctx);
 const scan = (line, shift, hour, date = '2026-11-20') => ({ status: 'OK', line, shift, hour, prodDate: date });
 const scans = [
@@ -128,6 +128,37 @@ assert.equal(veryLong[0].stack[2].columns[1].canvas.filter(s => s.type === 'elli
 assert.equal(veryLong[0].stack[2].columns[1].canvas.filter(s => s.type === 'line' && s.lineColor === '#4f46e5').length, 60);
 assert.equal(ctx.reportDailyDowntime({ startDate: '2024-02-28', endDate: '2024-03-01' }, []).length, 3);
 assert.equal(ctx.buildReportDowntimeTrend({}, trendData).length, 0);
+const symptomScope = { startDate: '2026-11-01', endDate: '2026-11-03' };
+const symptomRecords = [
+  { prodDate: '2026-11-01', line: '4', incident: { category: 'Breakdown', categoryText: 'Machine', notes: ' Motor   stopped ' }, lostMin: 10.5 },
+  { prodDate: '2026-11-02', line: '5', incident: { category: 'Breakdown', categoryText: 'Machine', notes: 'Motor stopped' }, lostMin: 4 },
+  { incident: { date: '2026-11-02', category: 'Material', categoryText: 'Material', notes: 'Motor stopped' }, lostMin: 3 },
+  { prodDate: '2026-11-03', incident: { category: 'Other', categoryText: 'Other', notes: '' }, lostMin: 5 },
+  { prodDate: '2026-11-01', fromChangeover: true, incident: { category: 'Changeover', categoryText: 'Changeover', notes: 'A → B' }, lostMin: 7 },
+  { prodDate: '2026-11-04', incident: { category: 'Other', notes: 'outside range' }, lostMin: 100 },
+  { prodDate: '2026-11-01', incident: { category: 'Other', notes: 'no time' }, lostMin: 0 }
+];
+const symptoms = ctx.reportDowntimeSymptomGroups(symptomScope, symptomRecords);
+assert.equal(symptoms.length, 4, 'same detail in different causes stays separate; zero and out-of-range records are excluded');
+assert.equal(symptoms[0].symptom, 'Motor stopped');
+assert.equal(symptoms[0].minutes, 14.5);
+assert.equal(symptoms[0].records.length, 2, 'matching notes across lines and days are grouped');
+for (let day = 0; day < 3; day++) {
+  const overall = ctx.reportDailyDowntime(symptomScope, symptomRecords)[day].minutes;
+  const bySymptom = symptoms.reduce((sum, group) => sum + ctx.reportDailyDowntime(symptomScope, group.records)[day].minutes, 0);
+  assert.equal(bySymptom, overall, 'symptom graphs reconcile with the overall graph for every production day');
+}
+const symptomTrends = ctx.buildReportDowntimeSymptomTrends(symptomScope, { records: symptomRecords });
+assert.equal(symptomTrends.filter(block => block.unbreakable).length, 4, 'each symptom gets a continuous trend chart');
+assert.ok(symptomTrends.some(block => block.unbreakable && block.stack[0].text === 'Other · Unspecified details'));
+assert.ok(symptomTrends.some(block => block.unbreakable && block.stack[0].text === 'Changeover · A → B'));
+assert.equal(symptomTrends[2].stack[4].table.body[0][1].stack[1].text, '11');
+assert.equal(symptomTrends[2].stack[4].table.body[0][2].stack[1].text, '4');
+const longSymptom = 'x'.repeat(500);
+const longBlocks = ctx.buildReportDowntimeSymptomTrends(symptomScope, { records: [{ prodDate: '2026-11-01', incident: { notes: longSymptom }, lostMin: 1 }] });
+assert.ok(longBlocks.some(block => block.text && block.text.includes(longSymptom)), 'full long details remain available');
+assert.ok(longBlocks.some(block => block.unbreakable && block.stack[0].text.endsWith('…')), 'long chart headings are bounded');
+assert.equal(ctx.buildReportDowntimeSymptomTrends(symptomScope, { records: [] }).length, 0);
 let blocks = ctx.buildReportLineDowntimeContent(data);
 assert.equal(blocks[1].table.body[1][1].text, 'Changeover');
 assert.equal(blocks[1].table.body[3][3].text, '70', 'line total includes both causes');
