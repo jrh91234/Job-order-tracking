@@ -197,9 +197,9 @@
                         <span class="ml-2 text-xs font-semibold text-slate-600">Auto Refresh</span>
                     </label>
                     
-                    <button onclick="openExportModal()" class="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-md active:scale-95 flex items-center gap-1.5 text-xs font-bold" title="ส่งออกรายงานเป็นไฟล์ PDF">
+                    <button onclick="openExportModal()" class="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-md active:scale-95 flex items-center gap-1.5 text-xs font-bold" title="ส่งออกรายงานเป็น PDF, Excel หรือ PowerPoint">
                         <i data-lucide="file-down" class="w-4 h-4"></i>
-                        <span>Export PDF</span>
+                        <span>Export</span>
                     </button>
                     <button type="button" onclick="downloadDashboardSnapshot()" class="py-2 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl border border-indigo-100 transition-colors flex items-center gap-1.5 text-xs font-bold" title="ดาวน์โหลดสรุปและกราฟเป็นไฟล์ HTML ที่เปิดออฟไลน์ได้">
                         <i data-lucide="camera" class="w-4 h-4"></i>
@@ -806,7 +806,7 @@
             <div class="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
                     <i data-lucide="file-down" class="text-emerald-600 w-5 h-5"></i>
-                    ส่งออกรายงานการผลิต (PDF / Excel)
+                    ส่งออกรายงานการผลิต (PDF / Excel / PPT)
                 </h3>
                 <button onclick="closeExportModal()" class="text-slate-400 hover:text-slate-600 p-1">
                     <i data-lucide="x" class="w-5 h-5"></i>
@@ -827,11 +827,11 @@
                         <input type="radio" name="export-lang" value="en" class="w-4 h-4 accent-emerald-600"> English
                     </label>
                 </div>
-                <p class="text-[10px] text-slate-400 leading-relaxed">เลือก English แล้วระบบจะแปลหัวข้อ ป้ายกำกับ และบันทึกเหตุการณ์ที่พิมพ์เป็นภาษาไทยให้เป็นอังกฤษอัตโนมัติ (ต้องต่ออินเทอร์เน็ต) · กราฟที่แนบเป็นภาพจากหน้าจอจึงยังเป็นภาษาเดิม</p>
+                <p class="text-[10px] text-slate-400 leading-relaxed">PDF / Excel ภาษาอังกฤษจะแปลหัวข้อ ป้ายกำกับ และบันทึกเหตุการณ์อัตโนมัติ (ต้องต่ออินเทอร์เน็ต) · PPT ใช้หัวข้อภาษาอังกฤษ แต่ชื่อตัวกรองและป้ายช่วงเวลาบนกราฟใช้ตามหน้าจอ</p>
             </div>
 
             <div class="space-y-2">
-                <p class="text-xs font-bold text-slate-600">เลือกหัวข้อที่ต้องการใส่ในรายงาน</p>
+                <p class="text-xs font-bold text-slate-600">เลือกหัวข้อสำหรับรายงาน PDF / Excel</p>
 
                 <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
                     <input type="checkbox" id="export-opt-kpi" checked class="mt-0.5 w-4 h-4 accent-emerald-600">
@@ -918,17 +918,22 @@
                 <b class="text-amber-700">หมายเหตุ:</b>
                 กดปุ่มด้านล่างแล้วไฟล์จะถูกดาวน์โหลดลงเครื่องให้อัตโนมัติ
                 ครั้งแรกอาจใช้เวลาสักครู่เพราะระบบต้องโหลดตัวสร้างเอกสารก่อน ครั้งถัดไปจะเร็วขึ้น ·
-                ไฟล์ Excel ใช้หัวข้อชุดเดียวกับ PDF แยกหัวข้อละ 1 ชีต (กราฟจะส่งออกเป็นตัวเลขแทนรูป)
+                ไฟล์ Excel ใช้หัวข้อชุดเดียวกับ PDF แยกหัวข้อละ 1 ชีต (กราฟจะส่งออกเป็นตัวเลขแทนรูป) ·
+                PowerPoint เป็นสไลด์สรุป KPI และแนวโน้มรายชั่วโมง/ตามช่วงเวลาที่เลือกบนกราฟ โดยไม่ใช้รายการหัวข้อด้านบน
             </div>
             </div>
 
-            <div class="modal-actions flex gap-3 border-t border-slate-100 text-xs">
+            <div class="modal-actions flex flex-wrap gap-2 border-t border-slate-100 text-xs">
                 <button onclick="closeExportModal()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors">
                     ยกเลิก
                 </button>
                 <button onclick="generateExcelReport()" class="flex-1 py-2.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5">
                     <i data-lucide="file-spreadsheet" class="w-4 h-4 shrink-0"></i>
                     <span class="whitespace-nowrap">ดาวน์โหลด Excel</span>
+                </button>
+                <button onclick="generatePowerPointReport()" class="flex-1 py-2.5 px-2 bg-white hover:bg-orange-50 text-orange-700 border border-orange-300 rounded-xl font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5">
+                    <i data-lucide="presentation" class="w-4 h-4 shrink-0"></i>
+                    <span class="whitespace-nowrap">ดาวน์โหลด PPT</span>
                 </button>
                 <button onclick="generatePdfReport()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md transition-colors flex items-center justify-center gap-1.5">
                     <i data-lucide="download" class="w-4 h-4 shrink-0"></i>
@@ -11015,6 +11020,163 @@ function doPost(e) {
             } catch (err) {
                 console.error(err);
                 Swal.fire({ icon: 'error', title: 'สร้าง Snapshot ไม่สำเร็จ', text: err.message || String(err) });
+            }
+        }
+
+        // PowerPoint uses a frozen copy of the visible chart data so auto-refresh cannot mix periods.
+        function snapshotPowerPointTrends(hourly, daily) {
+            const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+            const hour = hourly ? {
+                labels: hourly.hourLabels.map(label => Array.isArray(label) ? label.join(' ') : String(label)),
+                actual: hourly.actuals.map(number),
+                target: hourly.targets.map(number)
+            } : null;
+            let period = null;
+            if (daily && daily.data && daily.data.labels && daily.data.datasets) {
+                const datasets = daily.data.datasets;
+                const target = datasets.find(d => d.label === DAILY_TARGET_LABEL);
+                const eef = datasets.find(d => d.label === DAILY_EEF_LABEL);
+                const bars = datasets.filter(d => d.type === 'bar');
+                period = {
+                    labels: daily.data.labels.map(label => Array.isArray(label) ? label.join(' ') : String(label)),
+                    actual: daily.data.labels.map((_, i) => bars.reduce((sum, d) => sum + number(d.data[i]), 0)),
+                    target: daily.data.labels.map((_, i) => target ? number(target.data[i]) : 0),
+                    eef: daily.data.labels.map((_, i) => {
+                        const value = eef && eef.data[i];
+                        return value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value);
+                    })
+                };
+            }
+            return { hour, period };
+        }
+
+        function splitPowerPointTrend(trend, size = 12) {
+            if (!trend || !trend.labels.length) return [];
+            const chunks = [];
+            for (let i = 0; i < trend.labels.length; i += size) {
+                const chunk = {};
+                Object.keys(trend).forEach(key => { chunk[key] = trend[key].slice(i, i + size); });
+                chunks.push(chunk);
+            }
+            return chunks;
+        }
+
+        function powerPointChartImage(trend, kind, english) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1600;
+            canvas.height = 610;
+            const isEef = kind === 'eef';
+            const datasets = isEef ? [{
+                type: 'line', label: '%EEF', data: trend.eef, borderColor: '#7c3aed',
+                backgroundColor: '#7c3aed', borderWidth: 4, pointRadius: 5, spanGaps: true
+            }] : [{
+                type: 'bar', label: english ? 'Actual (PCS)' : 'ยอดจริง (PCS)', data: trend.actual,
+                backgroundColor: '#4f46e5', borderRadius: 4, order: 2
+            }, {
+                type: 'line', label: english ? 'Target (PCS)' : 'เป้าหมาย (PCS)', data: trend.target,
+                borderColor: '#ef4444', backgroundColor: '#ef4444', borderWidth: 4,
+                borderDash: [8, 6], pointRadius: 4, order: 1
+            }];
+            const chart = new Chart(canvas.getContext('2d'), {
+                type: 'bar', data: { labels: trend.labels, datasets },
+                options: {
+                    responsive: false, animation: false, devicePixelRatio: 1,
+                    plugins: { legend: { labels: { font: { family: 'Prompt', size: 22 }, boxWidth: 32 } }, tooltip: { enabled: false } },
+                    layout: { padding: { top: 10, right: 20, bottom: 5, left: 10 } },
+                    scales: {
+                        x: { ticks: { autoSkip: false, maxRotation: 0, font: { family: 'Prompt', size: 18 } }, grid: { display: false } },
+                        y: { beginAtZero: true, suggestedMax: isEef ? 120 : undefined,
+                            ticks: { font: { family: 'Prompt', size: 18 }, callback: value => isEef ? `${value}%` : Number(value).toLocaleString() },
+                            grid: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+            const image = canvas.toDataURL('image/png');
+            chart.destroy();
+            return image;
+        }
+
+        async function generatePowerPointReport() {
+            if (!filteredScans.length) {
+                return Swal.fire({ icon: 'warning', title: 'ยังไม่มีข้อมูลให้ออกรายงาน', text: 'กรุณาเลือกช่วงวันที่ที่มีข้อมูลการสแกนก่อนสร้างรายงานครับ' });
+            }
+            const langEl = document.querySelector('input[name="export-lang"]:checked');
+            const english = !!(langEl && langEl.value === 'en');
+            const scope = getReportScope();
+            const trends = snapshotPowerPointTrends(lastHourlySummary, dailyModelChartObj);
+            const period = dailyChartPeriod;
+            const demo = isDemoMode;
+            const metrics = [els.kpiTotalScans.textContent, els.kpiAvgSpeed.textContent,
+                els.kpiActiveModels.textContent, lastHourlySummary && lastHourlySummary.effPercent !== null
+                    ? `${lastHourlySummary.effPercent}%` : '-'];
+            if (!trends.period || !trends.period.labels.length) {
+                return Swal.fire({ icon: 'warning', title: 'ไม่มีข้อมูลแนวโน้มให้ส่งออก', text: 'กรุณาเลือกช่วงวันที่ที่มียอดสแกน OK ก่อนสร้าง PowerPoint' });
+            }
+            closeExportModal();
+            Swal.fire({ title: 'กำลังสร้าง PowerPoint', text: 'กำลังจัดเตรียมกราฟและสไลด์', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            try {
+                if (!window.PptxGenJS) {
+                    // Remove a failed tag so a later attempt can retry the download.
+                    const src = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+                    try { await loadScriptOnce(src); } catch (err) {
+                        const failed = document.querySelector(`script[data-report-src="${src}"]`);
+                        if (failed) failed.remove();
+                        throw err;
+                    }
+                }
+                if (!window.PptxGenJS || !window.Chart) throw new Error('ไม่พบไลบรารีสร้าง PowerPoint หรือกราฟ');
+                if (document.fonts && document.fonts.ready) await document.fonts.ready;
+                const ppt = new window.PptxGenJS();
+                ppt.layout = 'LAYOUT_WIDE';
+                ppt.author = 'H9 Production';
+                ppt.subject = 'Production trends';
+                ppt.title = english ? 'Production report' : 'รายงานการผลิต';
+                ppt.lang = english ? 'en-US' : 'th-TH';
+                ppt.theme = { headFontFace: 'Sarabun', bodyFontFace: 'Sarabun', lang: ppt.lang };
+                const text = (th, en) => english ? en : th;
+                const addTitle = (slide, title, subtitle) => {
+                    slide.background = { color: 'FFFFFF' };
+                    slide.addText(title, { x: 0.55, y: 0.3, w: 12.2, h: 0.45, fontFace: 'Sarabun', fontSize: 24, bold: true, color: '1E293B', margin: 0, breakLine: false });
+                    slide.addText(subtitle, { x: 0.55, y: 0.82, w: 12.2, h: 0.3, fontFace: 'Sarabun', fontSize: 11, color: '64748B', margin: 0 });
+                    if (demo) slide.addText(text('ข้อมูลตัวอย่าง', 'DEMO DATA'), { x: 10.5, y: 0.32, w: 2.25, h: 0.3, fontSize: 13, color: 'C2410C', align: 'right', margin: 0 });
+                };
+                const range = scope.startDate === scope.endDate ? scope.startDate : `${scope.startDate} – ${scope.endDate}`;
+                const slide = ppt.addSlide();
+                addTitle(slide, text('สรุปผลการผลิต', 'Production overview'), `${text('วันผลิต', 'Production dates')}: ${range}`);
+                slide.addText(`${text('กะ', 'Shift')}: ${scope.shift}    |    ${text('ไลน์', 'Line')}: ${scope.line}\nJob: ${scope.job}    |    ${text('รุ่น', 'Model')}: ${scope.model}`, {
+                    x: 0.65, y: 1.35, w: 12.0, h: 0.9, fontSize: 15, color: '475569', breakLine: false, margin: 0.05, fit: 'shrink'
+                });
+                const metricLabels = [text('ยอดสแกน OK (PCS)', 'OK output (PCS)'), text('ความเร็วเฉลี่ย (PCS/ชม.)', 'Average speed (PCS/hr)'), text('จำนวนรุ่น', 'Models'), text('ประสิทธิภาพ Eff%', 'Efficiency Eff%')];
+                metrics.forEach((value, i) => {
+                    const x = 0.65 + i * 3.1;
+                    slide.addShape(ppt.ShapeType.roundRect, { x, y: 2.7, w: 2.9, h: 1.35, rectRadius: 0.1, fill: { color: 'F1F5F9' }, line: { color: 'E2E8F0' } });
+                    slide.addText(metricLabels[i], { x: x + 0.15, y: 2.9, w: 2.6, h: 0.28, fontSize: 13, color: '64748B', margin: 0, fit: 'shrink' });
+                    slide.addText(String(value), { x: x + 0.15, y: 3.3, w: 2.6, h: 0.45, fontSize: 23, bold: true, color: '4338CA', margin: 0, fit: 'shrink' });
+                });
+                slide.addText(text('สไลด์ถัดไปแสดงยอดจริงเทียบเป้าและแนวโน้มตามเวลา', 'The following slides show actual output, targets and trends over time.'), { x: 0.65, y: 4.55, w: 12, h: 0.5, fontSize: 15, color: '475569', margin: 0 });
+                const periodNames = { day: text('รายวัน', 'Daily'), month: text('รายเดือน', 'Monthly'), quarter: text('รายไตรมาส', 'Quarterly'), year: text('รายปี', 'Yearly') };
+                const addTrendSlides = (data, kind, title, footnote) => {
+                    const chunks = splitPowerPointTrend(data);
+                    chunks.forEach((chunk, index) => {
+                        const page = ppt.addSlide();
+                        addTitle(page, `${title}${chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : ''}`, `${text('วันผลิต', 'Production dates')}: ${range}`);
+                        page.addImage({ data: powerPointChartImage(chunk, kind, english), x: 0.55, y: 1.2, w: 12.2, h: 4.65 });
+                        page.addText(footnote, { x: 0.65, y: 6.15, w: 12, h: 0.8, fontSize: 11, color: '64748B', margin: 0, fit: 'shrink' });
+                    });
+                };
+                addTrendSlides(trends.period, 'output', `${text('แนวโน้มยอดผลิต', 'Output trend')} ${periodNames[period]}`, text('ยอดจริงรวมทุกรุ่น/กรุ๊ป · เป้าหมายตามกราฟบนหน้าจอ · มุมมองรายวันช่วงเกิน 31 วันแสดงเฉพาะวันที่มีสแกน', 'Actual output combines all models/groups. Targets follow the dashboard. Daily views over 31 days show only dates with scans.'));
+                if (trends.period.eef.some(value => value !== null)) {
+                    addTrendSlides(trends.period, 'eef', `${text('แนวโน้มประสิทธิภาพ', 'Efficiency trend')} ${periodNames[period]}`, text('%EEF = ยอดจริง ÷ เป้าหมาย เฉพาะชั่วโมงที่จบแล้วตามกราฟบนหน้าจอ · ช่วงที่ไม่มีค่าไม่แสดงจุด', '%EEF = actual / target for completed hours, as on the dashboard. Periods without a value have no point.'));
+                }
+                if (trends.hour && trends.hour.labels.length) {
+                    addTrendSlides(trends.hour, 'output', text('แนวโน้มผลผลิตตามชั่วโมง', 'Output by hour'), text('ยอดรวมตามชั่วโมงของทุกวันผลิตที่เลือก ไม่ใช่ลำดับเวลาต่อเนื่องข้ามวัน · ชั่วโมงปัจจุบันอาจยังไม่จบ', 'Totals by hour across selected production dates; not a continuous timeline across days. The current hour may be incomplete.'));
+                }
+                const fileName = `H9-Production-Trends${english ? '-EN' : ''}_${scope.startDate}${scope.endDate !== scope.startDate ? '_to_' + scope.endDate : ''}.pptx`;
+                await ppt.writeFile({ fileName });
+                Swal.fire({ icon: 'success', title: 'ดาวน์โหลด PowerPoint แล้ว', text: fileName, timer: 3000, showConfirmButton: false });
+            } catch (err) {
+                console.error('สร้าง PowerPoint ไม่สำเร็จ:', err);
+                Swal.fire({ icon: 'error', title: 'สร้าง PowerPoint ไม่สำเร็จ', text: `${err.message || err} — กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่` });
             }
         }
 
