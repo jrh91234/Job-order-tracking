@@ -19,7 +19,7 @@ const ctx = {};
 vm.createContext(ctx);
 vm.runInContext(
   html.match(/const DATE_CODE_SHIFTS = [^;]+;/)[0].replace('const ', 'var ') + '\n' +
-  ['dateCodeToIsoDate', 'looksLikeDateCode', 'parseDateCode', 'normalizeLineNo', 'toDateCodeScan', 'findJobsByDateCode'].map(extract).join('\n'),
+  ['dateCodeToIsoDate', 'looksLikeDateCode', 'parseDateCode', 'normalizeLineNo', 'parseBarcodeRecordRows', 'findJobsByDateCode'].map(extract).join('\n'),
   ctx
 );
 
@@ -50,24 +50,33 @@ assert.equal(ctx.looksLikeDateCode('TH 26 41'), true);
 assert.equal(ctx.looksLikeDateCode('JO-2641'), false);
 assert.equal(ctx.looksLikeDateCode('QWKDE3100'), false);
 
-// วันผลิตและกะจากเวลาสแกน: หลังเที่ยงคืนนับเป็นกะดึกของวันก่อนหน้า
-const ts = (d, h, m) => new Date(2026, 9, d, h, m).getTime();
-const raw = [
-  { jobNo: 'J100', qty: 1, ts: ts(9, 21, 0), hour: 21, time24: '21:00', line: 'Line 4' },
-  { jobNo: 'J100', qty: 2, ts: ts(9, 20, 30), hour: 20, time24: '20:30', line: 'Line 4' },
-  { jobNo: 'J101', qty: 1, ts: ts(10, 2, 10), hour: 2, time24: '02:10', line: '4' },
-  { jobNo: 'J200', qty: 1, ts: ts(9, 9, 0), hour: 9, time24: '09:00', line: '4' },
-  { jobNo: 'J300', qty: 1, ts: ts(9, 22, 0), hour: 22, time24: '22:00', line: 'Line 5' },
-  { jobNo: 'J400', qty: 1, ts: ts(10, 21, 0), hour: 21, time24: '21:00', line: '4' },
+// อ่านแถวจากแท็บ Log ของ Barcode Record: หลังเที่ยงคืนนับเป็นกะดึกของวันก่อนหน้า
+const row = (dt, job, model, line, extra = {}) => ({ 'Date/Time': dt, Barcode: 'B-' + model, Model: model, Status: 'OK', Line: line, 'Job Order': job, ...extra });
+const rows = [
+  row('9/10/2569 21:00:00', 'J100', 'QWKDE3100LU24', '4'),
+  row('9/10/2569 20:30:00', 'J100', 'QWKDE3100LU24', '4', { ScanGroupID: 'g1' }),
+  row('9/10/2569 20:30:00', 'J100', 'QWKDE3100LU24', '4', { ScanGroupID: 'g1' }), // กลุ่มเดียวกัน = 2 ชิ้น
+  row('10/10/2569 02:10:00', 'J101', 'QWKDE3100LU18', 'Line 4'),
+  row('10/10/2569 02:10:00', 'J101', 'QWKDE3100LU18', 'Line 4'), // ไม่มี ScanGroupID และเวลาซ้ำ = ซ้ำ
+  row('9/10/2569 23:00:00', 'J102', 'X', '4', { Status: 'NG' }),
+  row('9/10/2569 23:30:00', 'J100', 'X', '4', { Status: 'CHANGEOVER', Barcode: 'FROM Y' }),
+  row('9/10/2569 09:00:00', 'J200', 'X', '4'),
+  row('9/10/2569 22:00:00', 'J300', 'X', '5'),
+  row('10/10/2569 21:00:00', 'J400', 'X', '4'),
+  { 'Date/Time': 'Date/Time' },
 ];
-const scans = raw.map(ctx.toDateCodeScan);
-assert.equal(scans[2].prodDate, '2026-10-09');
-assert.equal(scans[2].shift, 'Night');
-assert.equal(scans[3].shift, 'Day');
+const scans = ctx.parseBarcodeRecordRows(rows);
+const j101 = scans.find(s => s.jobNo === 'J101');
+assert.equal(j101.prodDate, '2026-10-09');
+assert.equal(j101.shift, 'Night');
+assert.equal(scans.filter(s => s.jobNo === 'J101').length, 1);
+assert.equal(scans.find(s => s.jobNo === 'J200').shift, 'Day');
+assert.ok(!scans.some(s => s.status === 'CHANGEOVER'));
 const jobs = ctx.findJobsByDateCode(scans, code);
 assert.equal(jobs.map(j => j.jobNo).join(','), 'J100,J101');
 assert.equal(jobs[0].qty, 3);
 assert.equal(jobs[0].firstTime, '20:30');
 assert.equal(jobs[0].lastTime, '21:00');
+assert.equal(Object.keys(jobs[1].models).join(','), 'QWKDE3100LU18');
 
 console.log('date-code tests passed');

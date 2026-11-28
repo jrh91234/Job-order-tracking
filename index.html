@@ -377,7 +377,12 @@
         let isDemoMode = false;
         let currentEditingJob = null;
         let hourlyBreakdownByJob = {};
-        let dateCodeScans = []; // สแกนจากชีตยอดผลิต พร้อมวันผลิต / กะ / ไลน์ ใช้ค้น Job จาก Date code
+        // ค้น Job จาก Date code เทียบกับแท็บ Log ในไฟล์ Barcode Record (ชุดเดียวกับหน้า Barcode Real-time)
+        // ใช้ลิงก์เดียวกับที่ตั้งไว้ในหน้า Barcode ถ้าไม่ได้ตั้งใช้ไฟล์หลัก โหลดเมื่อค้นด้วย Date code ครั้งแรกเท่านั้น
+        const FIXED_BARCODE_RECORD_URL = 'https://docs.google.com/spreadsheets/d/1OX5aKM-TuJPJIT_7v3Lq5WcvixxUo3ppt0c17Wqz8iE/edit?gid=0#gid=0';
+        let barcodeRecordScans = null;   // null = ยังไม่โหลด
+        let barcodeRecordLoading = false;
+        let barcodeRecordError = '';
         let pendingScrollY = null;
         let pendingSubmissions = JSON.parse(localStorage.getItem('job_tracker_pending_submissions') || '[]');
 
@@ -582,25 +587,102 @@
             return m ? String(Number(m[0])) : String(line || '').trim().toUpperCase();
         }
 
-        // แปลงสแกนหนึ่งรายการเป็นวันผลิต + กะ ตามเวลาทำงานจริง (Day 08:00-20:00, Night 20:00-08:00)
-        function toDateCodeScan(s) {
-            const d = new Date(s.ts);
-            let shift = 'Day';
-            if (s.hour < 8) { d.setDate(d.getDate() - 1); shift = 'Night'; }
-            else if (s.hour >= 20) shift = 'Night';
-            const prodDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            return { jobNo: s.jobNo, qty: s.qty, ts: s.ts, time: s.time24, line: s.line, prodDate, shift };
+        // อ่านแถวจากแท็บ Log ของ Barcode Record ด้วยกติกาเดียวกับหน้า Barcode Real-time (parseRawLogs)
+        //  - Date/Time เป็น "D/M/พ.ศ. HH:MM:SS" วันผลิต/กะตามเวลาทำงาน (Day 08:00-20:00, Night 20:00-08:00 นับเป็นวันที่เริ่มกะ)
+        //  - ข้ามแถว CHANGEOVER, ScanGroupID เดียวกัน = สแกนครั้งเดียว จำนวนแถวคือจำนวนชิ้น
+        //  - แถวเก่าที่ไม่มี ScanGroupID: barcode + เวลาตรงกันเป๊ะถือว่าซ้ำ
+        function parseBarcodeRecordRows(rows) {
+            const scans = [];
+            const byGroupId = new Map();
+            const legacySeen = new Set();
+            rows.forEach(row => {
+                const dateTimeRaw = String(row['Date/Time'] || '').trim();
+                if (!dateTimeRaw || dateTimeRaw.toLowerCase() === 'date/time') return;
+                const parts = dateTimeRaw.split(' ');
+                if (parts.length < 2) return;
+                const [cDay, cMonth, cYearBE] = parts[0].split('/').map(Number);
+                const [hour, min, sec] = parts[1].split(':').map(Number);
+                if (!cDay || !cMonth || !cYearBE || isNaN(hour)) return;
+                const status = String(row['Status'] || 'OK').trim().toUpperCase();
+                if (status === 'CHANGEOVER') return;
+
+                const ts = new Date(cYearBE - 543, cMonth - 1, cDay, hour, min || 0, sec || 0).getTime();
+                const prod = new Date(cYearBE - 543, cMonth - 1, cDay);
+                let shift = 'Day';
+                if (hour < 8) { prod.setDate(prod.getDate() - 1); shift = 'Night'; }
+                else if (hour >= 20) shift = 'Night';
+                const prodDate = `${prod.getFullYear()}-${String(prod.getMonth() + 1).padStart(2, '0')}-${String(prod.getDate()).padStart(2, '0')}`;
+
+                const barcode = String(row['Barcode'] || '-').trim();
+                const model = String(row['Model'] || '-').trim();
+                const scan = {
+                    jobNo: String(row['Job Order'] || 'MANUAL_MODE').trim(),
+                    model, status, prodDate, shift, ts,
+                    time: parts[1].slice(0, 5),
+                    line: String(row['Line'] || '-').trim(),
+                    qty: 1
+                };
+                const groupId = String(row['ScanGroupID'] || '').trim();
+                if (groupId) {
+                    if (!byGroupId.has(groupId)) byGroupId.set(groupId, []);
+                    byGroupId.get(groupId).push(scan);
+                } else {
+                    const legacyKey = `${barcode}_${dateTimeRaw}`;
+                    if (legacySeen.has(legacyKey)) return;
+                    legacySeen.add(legacyKey);
+                    if (model.toUpperCase() === 'R9HME106') scan.qty = 5; // กติกาเดิมของหน้า Barcode สำหรับแถวเก่า
+                    scans.push(scan);
+                }
+            });
+            byGroupId.forEach(group => { group[0].qty = group.length; scans.push(group[0]); });
+            return scans;
+        }
+
+        function barcodeRecordCsvUrl() {
+            let url = FIXED_BARCODE_RECORD_URL;
+            try { url = localStorage.getItem('job_tracker_barcode_sheet_url') || FIXED_BARCODE_RECORD_URL; } catch (e) {}
+            const gidMatch = String(url).match(/[#&?]gid=(\d+)/);
+            const csvUrl = buildGoogleSheetCsvUrl(url, gidMatch ? gidMatch[1] : '0');
+            return csvUrl + (csvUrl.includes('?') ? '&' : '?') + '_t=' + Date.now();
+        }
+
+        function loadBarcodeRecord() {
+            if (barcodeRecordLoading) return;
+            barcodeRecordLoading = true;
+            barcodeRecordError = '';
+            Papa.parse(barcodeRecordCsvUrl(), {
+                download: true, header: true, skipEmptyLines: true,
+                complete: results => {
+                    barcodeRecordLoading = false;
+                    const rows = results.data || [];
+                    if (rows.length && !('Date/Time' in rows[0])) {
+                        barcodeRecordError = 'ไฟล์ Barcode Record ที่อ่านได้ไม่มีคอลัมน์ Date/Time (อาจไม่ใช่แท็บ Log หรือยังไม่ได้แชร์ให้ดูได้)';
+                        barcodeRecordScans = null;
+                    } else {
+                        barcodeRecordScans = parseBarcodeRecordRows(rows);
+                    }
+                    renderList();
+                },
+                error: err => {
+                    barcodeRecordLoading = false;
+                    barcodeRecordError = 'โหลด Barcode Record ไม่สำเร็จ ตรวจว่าแชร์ไฟล์ให้ทุกคนที่มีลิงก์ดูได้';
+                    console.warn('Cannot load Barcode Record', err);
+                    renderList();
+                }
+            });
         }
 
         // หา Job ที่มีสแกนในวันผลิต + กะ + ไลน์ตาม Date code รวมยอดและช่วงเวลาต่อ Job
         function findJobsByDateCode(scans, code) {
             const byJob = {};
             scans.forEach(s => {
+                if (s.status && s.status !== 'OK') return;
                 if (s.prodDate !== code.date || s.shift !== code.shift) return;
                 if (normalizeLineNo(s.line) !== code.line) return;
-                if (!byJob[s.jobNo]) byJob[s.jobNo] = { jobNo: s.jobNo, qty: 0, firstTs: s.ts, lastTs: s.ts, firstTime: s.time, lastTime: s.time };
+                if (!byJob[s.jobNo]) byJob[s.jobNo] = { jobNo: s.jobNo, qty: 0, models: {}, firstTs: s.ts, lastTs: s.ts, firstTime: s.time, lastTime: s.time };
                 const job = byJob[s.jobNo];
                 job.qty += s.qty || 0;
+                if (s.model) job.models[s.model] = (job.models[s.model] || 0) + (s.qty || 0);
                 if (s.ts < job.firstTs) { job.firstTs = s.ts; job.firstTime = s.time; }
                 if (s.ts > job.lastTs) { job.lastTs = s.ts; job.lastTime = s.time; }
             });
@@ -626,18 +708,31 @@
                 }
                 return [];
             }
-            const jobs = findJobsByDateCode(dateCodeScans, code);
+            if (barcodeRecordScans === null) {
+                if (banner) {
+                    banner.className = 'mb-3 p-3 rounded-xl border text-xs ' + (barcodeRecordError ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-50 border-slate-200 text-slate-500');
+                    banner.innerHTML = barcodeRecordError
+                        ? `${escapeDateCodeHtml(barcodeRecordError)} <button type="button" onclick="loadBarcodeRecord()" class="ml-1 font-bold underline">ลองใหม่</button>`
+                        : 'กำลังโหลดข้อมูลสแกนจาก Barcode Record...';
+                }
+                if (!barcodeRecordError) loadBarcodeRecord();
+                return [];
+            }
+            const jobs = findJobsByDateCode(barcodeRecordScans, code);
+            const listedJobs = new Set(rawData.map(item => item.jobNo));
             const [y, mo, d] = code.date.split('-').map(Number);
             const dateText = new Date(y, mo - 1, d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
             const shiftText = code.shift === 'Day' ? 'กะเช้า (08:00-20:00)' : 'กะดึก (20:00-08:00)';
             const detail = jobs.length === 0
-                ? '<div class="mt-1 text-slate-500">ไม่พบการลงยอดของไลน์และกะนี้ในวันดังกล่าว</div>'
-                : '<div class="mt-1.5 space-y-0.5">' + jobs.map(j =>
-                    `<div><span class="font-mono font-bold text-indigo-700">${escapeDateCodeHtml(j.jobNo)}</span> · ${j.qty.toLocaleString()} ชิ้น · ${escapeDateCodeHtml(j.firstTime)}-${escapeDateCodeHtml(j.lastTime)} น.</div>`
-                ).join('') + '</div>';
+                ? '<div class="mt-1 text-slate-500">ไม่พบการสแกนใน Barcode Record ของไลน์และกะนี้ในวันดังกล่าว</div>'
+                : '<div class="mt-1.5 space-y-1">' + jobs.map(j => {
+                    const models = Object.entries(j.models).sort((a, b) => b[1] - a[1]).map(([m]) => escapeDateCodeHtml(m)).join(', ');
+                    const notListed = listedJobs.has(j.jobNo) ? '' : ' <span class="text-amber-600">(ไม่มีในรายการ Job Monitor)</span>';
+                    return `<div><span class="font-mono font-bold text-indigo-700">${escapeDateCodeHtml(j.jobNo)}</span>${notListed} · ${models} · ${j.qty.toLocaleString()} ชิ้น · ${escapeDateCodeHtml(j.firstTime)}-${escapeDateCodeHtml(j.lastTime)} น.</div>`;
+                }).join('') + '</div>';
             if (banner) {
                 banner.className = 'mb-3 p-3 rounded-xl border text-xs bg-indigo-50 border-indigo-100 text-slate-700';
-                banner.innerHTML = `<div><span class="font-bold text-slate-800">Date code:</span> ${escapeDateCodeHtml(dateText)} · สัปดาห์ที่ ${code.week} · ${shiftText} · Line ${escapeDateCodeHtml(code.line)}</div>${detail}`;
+                banner.innerHTML = `<div><span class="font-bold text-slate-800">Date code (เทียบ Barcode Record):</span> ${escapeDateCodeHtml(dateText)} · สัปดาห์ที่ ${code.week} · ${shiftText} · Line ${escapeDateCodeHtml(code.line)}</div>${detail}`;
             }
             return jobs.map(j => j.jobNo);
         }
@@ -1083,8 +1178,6 @@
                 filteredTempScans.push(s);
             });
 
-            dateCodeScans = filteredTempScans.map(toDateCodeScan);
-
             filteredTempScans.forEach(s => {
                 if (!logsByJob[s.jobNo]) logsByJob[s.jobNo] = [];
                 logsByJob[s.jobNo].push({
@@ -1515,6 +1608,8 @@
 
         function reloadData() {
             pendingScrollY = window.scrollY || window.pageYOffset || 0;
+            barcodeRecordScans = null; // ค้น Date code ครั้งถัดไปให้โหลด Barcode Record ใหม่
+            barcodeRecordError = '';
             if(isDemoMode && !sheetUrl) toggleSettings();
             else fetchData();
         }
