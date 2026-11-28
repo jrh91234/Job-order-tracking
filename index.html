@@ -549,10 +549,9 @@
         // ---- ค้นหา Job order จาก Date code บนฉลาก ----
         // รูปแบบ: TH YY WW D S L เช่น "TH 26 41 6 B 4"
         //   YY = ปี ค.ศ. 2 หลัก, WW = สัปดาห์ของปี, D = วันในสัปดาห์ (1 = อาทิตย์ ... 7 = เสาร์),
-        //   S = กะ (A = Day, B = Night), L = ไลน์ผลิต
+        //   S = ชื่อกะตามคอลัมน์กะ (Shift) ในแท็บ Log ของ Barcode Record เช่น A, B, L = ไลน์ผลิต
         // สัปดาห์ที่ 1 = สัปดาห์ (อาทิตย์-เสาร์) ที่มีวันที่ 1 มกราคม
-        // กะดึก 20:00-07:59 นับเป็นวันผลิตของวันที่เริ่มกะ (สแกนหลังเที่ยงคืนนับเป็นวันก่อนหน้า)
-        const DATE_CODE_SHIFTS = { A: 'Day', B: 'Night' };
+        // วันผลิตนับตามเวลาทำงาน: สแกน 00:00-07:59 นับเป็นวันก่อนหน้า (กะที่ทำงานข้ามเที่ยงคืน)
 
         function dateCodeToIsoDate(year, week, weekday) {
             const jan1 = new Date(Date.UTC(year, 0, 1));
@@ -576,9 +575,7 @@
             const shiftCode = m[4];
             const line = String(Number(m[5]));
             if (week < 1 || week > 53) return { error: `สัปดาห์ ${m[2]} ไม่ถูกต้อง (ต้องอยู่ระหว่าง 01-53)` };
-            const shift = DATE_CODE_SHIFTS[shiftCode];
-            if (!shift) return { error: `ไม่รู้จักรหัสกะ "${shiftCode}" (ใช้ A = กะเช้า, B = กะดึก)` };
-            return { year, week, weekday, shiftCode, shift, line, date: dateCodeToIsoDate(year, week, weekday) };
+            return { year, week, weekday, shiftCode, line, date: dateCodeToIsoDate(year, week, weekday) };
         }
 
         // ไลน์อาจเป็น "4", "L4" หรือ "Line 4" เทียบเฉพาะตัวเลข
@@ -591,8 +588,21 @@
         //  - Date/Time เป็น "D/M/พ.ศ. HH:MM:SS" วันผลิต/กะตามเวลาทำงาน (Day 08:00-20:00, Night 20:00-08:00 นับเป็นวันที่เริ่มกะ)
         //  - ข้ามแถว CHANGEOVER, ScanGroupID เดียวกัน = สแกนครั้งเดียว จำนวนแถวคือจำนวนชิ้น
         //  - แถวเก่าที่ไม่มี ScanGroupID: barcode + เวลาตรงกันเป๊ะถือว่าซ้ำ
+        // หาคอลัมน์ชื่อกะในแท็บ Log (หัวตาราง "Shift" หรือ "กะ")
+        function findShiftColumn(keys) {
+            const norm = k => String(k || '').trim().toLowerCase();
+            return keys.find(k => norm(k) === 'shift' || norm(k) === 'กะ')
+                || keys.find(k => norm(k).includes('shift') || norm(k).includes('กะ')) || null;
+        }
+
+        // ชื่อกะในชีตอาจเขียนเป็น "A", "Shift A" หรือ "กะ A" เทียบเฉพาะชื่อกะ
+        function normalizeShiftName(value) {
+            return String(value || '').toUpperCase().replace(/SHIFT|กะ/g, '').replace(/[^0-9A-Zก-๙]/g, '');
+        }
+
         function parseBarcodeRecordRows(rows) {
             const scans = [];
+            const shiftKey = rows.length ? findShiftColumn(Object.keys(rows[0])) : null;
             const byGroupId = new Map();
             const legacySeen = new Set();
             rows.forEach(row => {
@@ -608,9 +618,8 @@
 
                 const ts = new Date(cYearBE - 543, cMonth - 1, cDay, hour, min || 0, sec || 0).getTime();
                 const prod = new Date(cYearBE - 543, cMonth - 1, cDay);
-                let shift = 'Day';
-                if (hour < 8) { prod.setDate(prod.getDate() - 1); shift = 'Night'; }
-                else if (hour >= 20) shift = 'Night';
+                if (hour < 8) prod.setDate(prod.getDate() - 1);
+                const shift = shiftKey ? normalizeShiftName(row[shiftKey]) : '';
                 const prodDate = `${prod.getFullYear()}-${String(prod.getMonth() + 1).padStart(2, '0')}-${String(prod.getDate()).padStart(2, '0')}`;
 
                 const barcode = String(row['Barcode'] || '-').trim();
@@ -658,6 +667,9 @@
                     if (rows.length && !('Date/Time' in rows[0])) {
                         barcodeRecordError = 'ไฟล์ Barcode Record ที่อ่านได้ไม่มีคอลัมน์ Date/Time (อาจไม่ใช่แท็บ Log หรือยังไม่ได้แชร์ให้ดูได้)';
                         barcodeRecordScans = null;
+                    } else if (rows.length && !findShiftColumn(Object.keys(rows[0]))) {
+                        barcodeRecordError = 'แท็บ Log ของ Barcode Record ไม่มีคอลัมน์กะ (Shift / กะ) จึงเทียบกะใน Date code ไม่ได้ หัวตารางที่อ่านได้: ' + Object.keys(rows[0]).join(' | ');
+                        barcodeRecordScans = null;
                     } else {
                         barcodeRecordScans = parseBarcodeRecordRows(rows);
                     }
@@ -677,7 +689,7 @@
             const byJob = {};
             scans.forEach(s => {
                 if (s.status && s.status !== 'OK') return;
-                if (s.prodDate !== code.date || s.shift !== code.shift) return;
+                if (s.prodDate !== code.date || s.shift !== normalizeShiftName(code.shiftCode)) return;
                 if (normalizeLineNo(s.line) !== code.line) return;
                 if (!byJob[s.jobNo]) byJob[s.jobNo] = { jobNo: s.jobNo, qty: 0, models: {}, firstTs: s.ts, lastTs: s.ts, firstTime: s.time, lastTime: s.time };
                 const job = byJob[s.jobNo];
@@ -722,7 +734,7 @@
             const listedJobs = new Set(rawData.map(item => item.jobNo));
             const [y, mo, d] = code.date.split('-').map(Number);
             const dateText = new Date(y, mo - 1, d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-            const shiftText = code.shift === 'Day' ? 'กะเช้า (08:00-20:00)' : 'กะดึก (20:00-08:00)';
+            const shiftText = `กะ ${escapeDateCodeHtml(code.shiftCode)}`;
             const detail = jobs.length === 0
                 ? '<div class="mt-1 text-slate-500">ไม่พบการสแกนใน Barcode Record ของไลน์และกะนี้ในวันดังกล่าว</div>'
                 : '<div class="mt-1.5 space-y-1">' + jobs.map(j => {
