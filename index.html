@@ -627,7 +627,7 @@
                 const scan = {
                     jobNo: String(row['Job Order'] || 'MANUAL_MODE').trim(),
                     model, status, prodDate, shift, ts,
-                    time: parts[1].slice(0, 5),
+                    time: `${String(hour).padStart(2, '0')}:${String(min || 0).padStart(2, '0')}`, // ชีตเขียนชั่วโมงหลักเดียว เช่น 8:19:39
                     line: String(row['Line'] || '-').trim(),
                     qty: 1
                 };

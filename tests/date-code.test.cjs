@@ -86,4 +86,18 @@ assert.equal(ctx.findShiftColumn(['Date/Time', 'กะ']), 'กะ');
 assert.equal(ctx.findShiftColumn(['Date/Time', 'Line']), null);
 assert.equal(ctx.normalizeShiftName(' กะ b '), 'B');
 
+// รูปแบบจริงจากแท็บ Log: ชั่วโมงหลักเดียว, Shift เป็น "Shift B", ScanGroupID ไม่ซ้ำกันทุกแถว, มีแถว VOID
+const real = ctx.parseBarcodeRecordRows([
+  { 'Date/Time': '9/10/2569 15:36:35', 'Job Order': 'M0-20260915-000784', Model: 'QWKDE3100LU24', Barcode: '3606487608738', Status: 'VOID', Line: '4', Shift: 'Shift A', ScanGroupID: 'v1' },
+  { 'Date/Time': '9/10/2569 20:44:56', 'Job Order': 'M0-20260915-000784', Model: 'QWKDE3100LU24', Barcode: '3606487608738', Status: 'OK', Line: '4', Shift: 'Shift B', ScanGroupID: 'u1' },
+  { 'Date/Time': '9/10/2569 20:46:05', 'Job Order': 'M0-20260915-000784', Model: 'QWKDE3100LU24', Barcode: '3606487608738', Status: 'OK', Line: '4', Shift: 'Shift B', ScanGroupID: 'u2' },
+  { 'Date/Time': '9/10/2569 20:48:45', 'Job Order': 'M0-20261008-001923', Model: 'EZ9EPL114', Barcode: '3606487370550', Status: 'OK', Line: '5', Shift: 'Shift A', ScanGroupID: 'u3' },
+  { 'Date/Time': '10/10/2569 8:05:00', 'Job Order': 'M0-X', Model: 'X', Barcode: '1', Status: 'OK', Line: '4', Shift: 'Shift A', ScanGroupID: 'u4' },
+]);
+assert.equal(real.find(s => s.jobNo === 'M0-X').time, '08:05');
+const realJobs = ctx.findJobsByDateCode(real, code);
+assert.equal(realJobs.map(j => j.jobNo).join(','), 'M0-20260915-000784');
+assert.equal(realJobs[0].qty, 2);
+assert.equal(realJobs[0].firstTime, '20:44');
+
 console.log('date-code tests passed');
