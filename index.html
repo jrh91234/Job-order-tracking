@@ -225,7 +225,7 @@
             <input
                 type="text"
                 id="searchInput"
-                placeholder="ค้นหา Job, Model หรือ วันที่..."
+                placeholder="ค้นหา Job, Model, วันที่ หรือ Date code (TH 26 41 6 B 4)..."
                 class="w-full pl-10 pr-4 py-3 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-300 shadow-sm placeholder-slate-400"
             />
             <i data-lucide="search" class="absolute left-3 top-3.5 text-slate-400 w-5 h-5"></i>
@@ -293,6 +293,8 @@
                 <button onclick="reloadData()" class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
             </div>
         </div>
+        <!-- ผลถอด Date code เมื่อพิมพ์รหัสจากฉลากในช่องค้นหา -->
+        <div id="datecode-banner" class="hidden mb-3 p-3 rounded-xl border text-xs"></div>
         <div id="job-list" class="space-y-3 pb-6"></div>
         <div id="empty-state" class="hidden text-center py-12 text-slate-400">
             <i data-lucide="search" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
@@ -375,6 +377,7 @@
         let isDemoMode = false;
         let currentEditingJob = null;
         let hourlyBreakdownByJob = {};
+        let dateCodeScans = []; // สแกนจากชีตยอดผลิต พร้อมวันผลิต / กะ / ไลน์ ใช้ค้น Job จาก Date code
         let pendingScrollY = null;
         let pendingSubmissions = JSON.parse(localStorage.getItem('job_tracker_pending_submissions') || '[]');
 
@@ -538,10 +541,116 @@
             `;
         }
 
+        // ---- ค้นหา Job order จาก Date code บนฉลาก ----
+        // รูปแบบ: TH YY WW D S L เช่น "TH 26 41 6 B 4"
+        //   YY = ปี ค.ศ. 2 หลัก, WW = สัปดาห์ของปี, D = วันในสัปดาห์ (1 = อาทิตย์ ... 7 = เสาร์),
+        //   S = กะ (A = Day, B = Night), L = ไลน์ผลิต
+        // สัปดาห์ที่ 1 = สัปดาห์ (อาทิตย์-เสาร์) ที่มีวันที่ 1 มกราคม
+        // กะดึก 20:00-07:59 นับเป็นวันผลิตของวันที่เริ่มกะ (สแกนหลังเที่ยงคืนนับเป็นวันก่อนหน้า)
+        const DATE_CODE_SHIFTS = { A: 'Day', B: 'Night' };
+
+        function dateCodeToIsoDate(year, week, weekday) {
+            const jan1 = new Date(Date.UTC(year, 0, 1));
+            const week1Sunday = Date.UTC(year, 0, 1) - jan1.getUTCDay() * 86400000;
+            const d = new Date(week1Sunday + ((week - 1) * 7 + (weekday - 1)) * 86400000);
+            return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        }
+
+        // ข้อความดูเหมือน Date code ไหม (ใช้ตัดสินว่าจะถอดรหัสหรือค้นแบบปกติ)
+        function looksLikeDateCode(text) {
+            return /^\s*TH\s*\d/i.test(String(text || ''));
+        }
+
+        function parseDateCode(text) {
+            const compact = String(text || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/^TH/, '');
+            const m = compact.match(/^(\d{2})(\d{2})([1-7])([A-Z])(\d{1,2})$/);
+            if (!m) return { error: 'รูปแบบ Date code ไม่ครบหรือไม่ถูกต้อง ตัวอย่าง: TH 26 41 6 B 4' };
+            const year = 2000 + Number(m[1]);
+            const week = Number(m[2]);
+            const weekday = Number(m[3]);
+            const shiftCode = m[4];
+            const line = String(Number(m[5]));
+            if (week < 1 || week > 53) return { error: `สัปดาห์ ${m[2]} ไม่ถูกต้อง (ต้องอยู่ระหว่าง 01-53)` };
+            const shift = DATE_CODE_SHIFTS[shiftCode];
+            if (!shift) return { error: `ไม่รู้จักรหัสกะ "${shiftCode}" (ใช้ A = กะเช้า, B = กะดึก)` };
+            return { year, week, weekday, shiftCode, shift, line, date: dateCodeToIsoDate(year, week, weekday) };
+        }
+
+        // ไลน์อาจเป็น "4", "L4" หรือ "Line 4" เทียบเฉพาะตัวเลข
+        function normalizeLineNo(line) {
+            const m = String(line || '').match(/\d+/);
+            return m ? String(Number(m[0])) : String(line || '').trim().toUpperCase();
+        }
+
+        // แปลงสแกนหนึ่งรายการเป็นวันผลิต + กะ ตามเวลาทำงานจริง (Day 08:00-20:00, Night 20:00-08:00)
+        function toDateCodeScan(s) {
+            const d = new Date(s.ts);
+            let shift = 'Day';
+            if (s.hour < 8) { d.setDate(d.getDate() - 1); shift = 'Night'; }
+            else if (s.hour >= 20) shift = 'Night';
+            const prodDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            return { jobNo: s.jobNo, qty: s.qty, ts: s.ts, time: s.time24, line: s.line, prodDate, shift };
+        }
+
+        // หา Job ที่มีสแกนในวันผลิต + กะ + ไลน์ตาม Date code รวมยอดและช่วงเวลาต่อ Job
+        function findJobsByDateCode(scans, code) {
+            const byJob = {};
+            scans.forEach(s => {
+                if (s.prodDate !== code.date || s.shift !== code.shift) return;
+                if (normalizeLineNo(s.line) !== code.line) return;
+                if (!byJob[s.jobNo]) byJob[s.jobNo] = { jobNo: s.jobNo, qty: 0, firstTs: s.ts, lastTs: s.ts, firstTime: s.time, lastTime: s.time };
+                const job = byJob[s.jobNo];
+                job.qty += s.qty || 0;
+                if (s.ts < job.firstTs) { job.firstTs = s.ts; job.firstTime = s.time; }
+                if (s.ts > job.lastTs) { job.lastTs = s.ts; job.lastTime = s.time; }
+            });
+            return Object.values(byJob).sort((a, b) => a.firstTs - b.firstTs);
+        }
+
+        function escapeDateCodeHtml(str) {
+            return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // วาดแถบผลถอดรหัสเหนือรายการ คืนค่ารายชื่อ Job ที่ตรง (หรือ null ถ้าไม่ใช่การค้นด้วย Date code)
+        function renderDateCodeBanner(term) {
+            const banner = document.getElementById('datecode-banner');
+            if (!looksLikeDateCode(term)) {
+                if (banner) { banner.classList.add('hidden'); banner.innerHTML = ''; }
+                return null;
+            }
+            const code = parseDateCode(term);
+            if (code.error) {
+                if (banner) {
+                    banner.className = 'mb-3 p-3 rounded-xl border text-xs bg-amber-50 border-amber-200 text-amber-800';
+                    banner.innerHTML = escapeDateCodeHtml(code.error);
+                }
+                return [];
+            }
+            const jobs = findJobsByDateCode(dateCodeScans, code);
+            const [y, mo, d] = code.date.split('-').map(Number);
+            const dateText = new Date(y, mo - 1, d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            const shiftText = code.shift === 'Day' ? 'กะเช้า (08:00-20:00)' : 'กะดึก (20:00-08:00)';
+            const detail = jobs.length === 0
+                ? '<div class="mt-1 text-slate-500">ไม่พบการลงยอดของไลน์และกะนี้ในวันดังกล่าว</div>'
+                : '<div class="mt-1.5 space-y-0.5">' + jobs.map(j =>
+                    `<div><span class="font-mono font-bold text-indigo-700">${escapeDateCodeHtml(j.jobNo)}</span> · ${j.qty.toLocaleString()} ชิ้น · ${escapeDateCodeHtml(j.firstTime)}-${escapeDateCodeHtml(j.lastTime)} น.</div>`
+                ).join('') + '</div>';
+            if (banner) {
+                banner.className = 'mb-3 p-3 rounded-xl border text-xs bg-indigo-50 border-indigo-100 text-slate-700';
+                banner.innerHTML = `<div><span class="font-bold text-slate-800">Date code:</span> ${escapeDateCodeHtml(dateText)} · สัปดาห์ที่ ${code.week} · ${shiftText} · Line ${escapeDateCodeHtml(code.line)}</div>${detail}`;
+            }
+            return jobs.map(j => j.jobNo);
+        }
+
         function renderList() {
             let searchResults = rawData;
-            
-            if (searchTerm.trim() !== '') {
+            const dateCodeJobs = renderDateCodeBanner(searchTerm);
+
+            if (dateCodeJobs) {
+                // ค้นด้วย Date code: แสดงเฉพาะ Job ที่มีสแกนในวัน/กะ/ไลน์นั้น
+                const jobSet = new Set(dateCodeJobs);
+                searchResults = rawData.filter(item => jobSet.has(item.jobNo));
+            } else if (searchTerm.trim() !== '') {
                 const results = fuse.search(searchTerm);
                 searchResults = results.map(result => result.item);
             }
@@ -569,7 +678,8 @@
             const startDateVal = els.startDate.value;
             const endDateVal = els.endDate.value;
             
-            if (startDateVal || endDateVal) {
+            // ค้นด้วย Date code ระบุวันอยู่แล้ว ไม่ต้องกรองช่วงวันที่ซ้ำ (กันจ๊อบที่เปิดก่อนช่วงนั้นหายไป)
+            if (!dateCodeJobs && (startDateVal || endDateVal)) {
                 const start = startDateVal ? new Date(startDateVal) : new Date('1900-01-01');
                 const end = endDateVal ? new Date(endDateVal) : new Date('2100-01-01');
                 start.setHours(0,0,0,0);
@@ -972,6 +1082,8 @@
                 }
                 filteredTempScans.push(s);
             });
+
+            dateCodeScans = filteredTempScans.map(toDateCodeScan);
 
             filteredTempScans.forEach(s => {
                 if (!logsByJob[s.jobNo]) logsByJob[s.jobNo] = [];
